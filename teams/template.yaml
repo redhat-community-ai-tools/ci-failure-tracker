@@ -1,0 +1,142 @@
+# Team Configuration Template
+# Copy this file to teams/YOUR_TEAM_ID.yaml and fill in your details
+
+team:
+  # Team display name
+  name: "YOUR_TEAM_NAME"
+
+  # Short team identifier (used in filenames, logs)
+  id: "YOUR_TEAM_ID"
+
+  # Brief description of what your team tests
+  description: "What does your team test?"
+
+  # Primary contact email
+  contact: "your-team@redhat.com"
+
+  # Slack channel for notifications (optional)
+  slack_channel: "#your-channel"
+
+# ReportPortal configuration
+reportportal:
+  # ReportPortal project name (usually "prow" for OpenShift CI)
+  project: "prow"
+
+  # Job name patterns to monitor
+  # {version} will be replaced with each version from tracking.versions
+  # Examples:
+  #   - "periodic-ci-openshift-YOUR_COMPONENT-release-{version}-*"
+  #   - "periodic-ci-openshift-openshift-tests-private-release-{version}-*-YOUR_TESTS-*"
+  job_patterns:
+    - "periodic-ci-YOUR-JOB-PATTERN-{version}-*"
+
+  # Additional filters (optional)
+  filters:
+    statuses:
+      - "FAILED"
+    test_statuses:
+      - "FAILED"
+
+# Jira configuration
+jira:
+  # Your Jira project key (e.g., "STOR", "SDN", "SEC")
+  project: "YOUR_JIRA_PROJECT"
+
+  # Parent epic for auto-created tickets (optional)
+  # If you want all tickets under a specific epic, provide its key
+  # Otherwise leave empty: parent_epic: ""
+  parent_epic: "YOUR_PROJECT-XXXX"
+
+  # Issue type for created tickets
+  # Common options: "Sub-task", "Bug", "Task", "Story"
+  issue_type: "Sub-task"
+
+  # Component (optional - must exist in your Jira project)
+  component: "Test Infrastructure"
+
+  # Labels to add to tickets
+  labels:
+    - "ci-failure"
+    - "automated"
+    # Add your team-specific labels
+
+  # Default priority
+  priority: "Normal"
+
+# Tracking configuration
+tracking:
+  # OpenShift versions to monitor
+  # Add/remove versions as needed
+  versions:
+    - "4.21"
+    - "4.22"
+    # - "4.23"  # Add new versions here
+
+  # Cloud platforms to track
+  # Only include platforms your tests run on
+  platforms:
+    - "aws"
+    - "gcp"
+    # - "azure"
+    # - "vsphere"
+    # - "nutanix"
+
+  # Minimum number of failures before creating a ticket
+  # Higher = fewer tickets, but might miss real issues
+  # Lower = more tickets, but catches issues earlier
+  failure_threshold: 3
+
+  # Minimum failure rate % to create ticket (0 = disabled)
+  # Example: 20 means test must fail in 20% of runs
+  failure_rate_threshold: 20
+
+  # How many days to look back for failures
+  lookback_days: 7
+
+  # Tests to skip (optional)
+  # Add test IDs that should not create tickets
+  skip_tests: []
+    # - "OCP-12345"  # Example
+
+  # Error patterns to ignore (optional)
+  skip_error_patterns: []
+    # - "context deadline exceeded"
+
+# Notification settings (optional, future feature)
+notification:
+  enabled: false
+  slack:
+    enabled: false
+    webhook_url: ""
+    channel: ""
+  email:
+    enabled: false
+    recipients: []
+
+# Template configuration (optional)
+template:
+  # Use default template or specify custom one
+  # Default: uses templates/default.jinja2
+  # Custom: create templates/YOUR_TEAM_ID.jinja2
+  name: "default"
+
+  # Variables available in your template
+  variables:
+    team_name: "YOUR_TEAM_NAME"
+    # Add any team-specific variables you need
+
+# Execution settings (optional)
+execution:
+  parallel: true
+  max_workers: 5
+  retry_attempts: 3
+  retry_delay: 2
+  verbose: true
+  json_output: true
+  json_output_path: "./reports/{team_id}-failures-{date}.json"
+
+# Advanced settings (optional)
+advanced:
+  cache_ttl: 900
+  max_tickets_per_run: 50
+  dry_run: false

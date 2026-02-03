@@ -1,0 +1,58 @@
+# Storage QE Team Configuration Example
+# This is an example - rename to storage.yaml to activate
+
+team:
+  name: "Storage QE"
+  id: "storage"
+  description: "Storage, CSI, OCS, and LSO testing"
+  contact: "storage-qe@redhat.com"
+  slack_channel: "#storage-qe"
+
+reportportal:
+  project: "prow"
+  job_patterns:
+    - "periodic-ci-openshift-openshift-tests-private-release-{version}-*-storage-*"
+    - "periodic-ci-openshift-cluster-storage-operator-release-{version}-*"
+    - "periodic-ci-openshift-csi-*-release-{version}-*"
+
+jira:
+  project: "STOR"
+  parent_epic: ""  # Storage team decides their parent
+  issue_type: "Bug"
+  component: "CSI Drivers"
+  labels:
+    - "ci-failure"
+    - "automated"
+    - "storage-qe"
+  priority: "Normal"
+
+tracking:
+  versions:
+    - "4.21"
+    - "4.22"
+  platforms:
+    - "aws"
+    - "gcp"
+  failure_threshold: 5  # Storage tests may be less flaky
+  failure_rate_threshold: 25
+  lookback_days: 14  # Longer lookback for storage
+
+notification:
+  enabled: true
+  slack:
+    enabled: true
+    channel: "#storage-qe"
+  email:
+    enabled: true
+    recipients:
+      - "storage-qe@redhat.com"
+
+template:
+  name: "storage"
+  variables:
+    team_name: "Storage QE"
+    docs_link: "https://github.com/openshift/csi-operator/blob/master/README.md"
+
+execution:
+  verbose: true
+  json_output: true

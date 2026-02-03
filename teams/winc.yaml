@@ -1,0 +1,163 @@
+# Windows Containers QE Team Configuration
+# Pilot implementation for ReportPortal-Jira Bridge
+
+team:
+  name: "Windows Containers QE"
+  id: "winc"
+  description: "Windows Containers testing for OpenShift"
+  contact: "winc-qe@redhat.com"
+  slack_channel: "#windows-containers"
+
+# ReportPortal configuration
+reportportal:
+  # ReportPortal server URL
+  url: "https://reportportal-openshift.apps.dno.ocp-hub.prod.psi.redhat.com"
+
+  # ReportPortal project name
+  project: "prow"
+
+  # Optional: Use a saved ReportPortal filter for better performance
+  # This pre-filters launches on the server side
+  filter_id: 1076  # WINC-related launches filter
+
+  # Job name patterns to monitor
+  # {version} will be replaced with each version from tracking.versions
+  job_patterns:
+    - "periodic-ci-openshift-openshift-tests-private-release-{version}-*-winc-*"
+    - "periodic-ci-openshift-windows-machine-config-operator-release-{version}-*"
+
+  # Additional filters (optional)
+  filters:
+    # Only process launches with these statuses
+    statuses:
+      - "FAILED"
+
+    # Only process test items with these statuses
+    test_statuses:
+      - "FAILED"
+
+# Jira configuration
+jira:
+  # Jira server URL
+  url: "https://issues.redhat.com"
+
+  # Jira project key
+  project: "WINC"
+
+  # Parent epic for all auto-created tickets
+  # If not specified, tickets won't be linked to parent
+  parent_epic: "WINC-1552"  # Fix flaky tests epic
+
+  # Issue type for created tickets
+  issue_type: "Sub-task"  # or "Bug", "Task", "Story"
+
+  # Component (optional)
+  component: "Test Infrastructure"
+
+  # Labels to add to all tickets
+  labels:
+    - "ci-failure"
+    - "automated"
+    - "phase-1-stabilization"
+    - "qe"
+
+  # Default priority
+  priority: "Normal"  # or "High", "Low", "Critical"
+
+  # Custom fields (optional)
+  # custom_fields:
+  #   customfield_12345: "value"
+
+# Tracking configuration
+tracking:
+  # OpenShift versions to monitor
+  versions:
+    - "4.19"
+    - "4.20"
+    - "4.21"
+    - "4.22"
+
+  # Cloud platforms to track
+  platforms:
+    - "aws"
+    - "azure"
+    - "gcp"
+    - "vsphere"
+    - "nutanix"
+
+  # Minimum number of failures before creating a ticket
+  failure_threshold: 1  # Lowered for testing (normally 3)
+
+  # Minimum failure rate % (failures/total runs) to create ticket
+  # Set to 0 to disable rate checking
+  failure_rate_threshold: 20
+
+  # How many days to look back for failures
+  lookback_days: 7
+
+  # Tests to skip (known flaky, intentional failures, etc.)
+  skip_tests:
+    # Add OCP-XXXXX test IDs to skip
+    # - "OCP-12345"  # Example: Known infrastructure flake
+
+  # Error patterns to ignore (regex)
+  skip_error_patterns:
+    - "context deadline exceeded"  # Generic timeout
+    - "connection refused"          # Infrastructure issues
+    - "EOF"                         # Connection drops
+
+# Notification settings (optional)
+notification:
+  enabled: false
+
+  # Slack webhook (future feature)
+  slack:
+    enabled: false
+    webhook_url: ""
+    channel: "#windows-containers"
+    mention_users: []
+
+  # Email notifications (future feature)
+  email:
+    enabled: false
+    recipients:
+      - "winc-team@redhat.com"
+    subject_prefix: "[WINC CI Failure]"
+
+# Template configuration (optional)
+template:
+  # Use custom template or default
+  # If not specified, uses templates/default.jinja2
+  name: "winc"  # Uses templates/winc.jinja2
+
+  # Template-specific variables
+  variables:
+    team_name: "Windows Containers"
+    docs_link: "https://docs.ci.openshift.org/"
+    runbook_link: "https://github.com/openshift/windows-machine-config-operator/blob/master/docs/TROUBLESHOOTING.md"
+
+# Execution settings
+execution:
+  # Parallel processing
+  parallel: true
+  max_workers: 5
+
+  # Retry settings for API calls
+  retry_attempts: 3
+  retry_delay: 2  # seconds
+
+  # Output settings
+  verbose: true
+  json_output: true
+  json_output_path: "./reports/winc-failures-{date}.json"
+
+# Advanced settings
+advanced:
+  # Cache ReportPortal queries for this long (seconds)
+  cache_ttl: 900  # 15 minutes
+
+  # Maximum tickets to create per run (safety limit)
+  max_tickets_per_run: 50
+
+  # Dry run mode (for testing)
+  dry_run: false

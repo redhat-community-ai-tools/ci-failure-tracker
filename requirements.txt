@@ -1,0 +1,28 @@
+# CI Failure Tracker Dependencies
+
+# HTTP client
+requests>=2.31.0
+
+# YAML configuration
+PyYAML>=6.0.1
+
+# Date/time handling
+python-dateutil>=2.8.2
+
+# CLI argument parsing
+click>=8.1.7
+
+# Rich terminal output
+rich>=13.7.0
+
+# Jira Python client (optional - can use jira CLI instead)
+jira>=3.6.0
+
+# Data analysis
+pandas>=2.1.4
+
+# Retry logic for API calls
+tenacity>=8.2.3
+
+# Environment variable management
+python-dotenv>=1.0.0
