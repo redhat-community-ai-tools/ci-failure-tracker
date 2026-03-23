@@ -1,0 +1,122 @@
+# CI Test Pass Rate Dashboard Configuration
+
+# Data collector configuration
+collector:
+  # Type of collector: "reportportal", "prow-gcs", "gcsweb", "sippy"
+  type: "reportportal"  # Using gcsweb - direct Prow artifacts access!
+
+  # ReportPortal configuration (alternative data source)
+  reportportal:
+    url: "https://reportportal-openshift.apps.dno.ocp-hub.prod.psi.redhat.com"
+    project: "prow"
+    # API token from environment variable: REPORTPORTAL_API_TOKEN
+
+    # Job name patterns to monitor
+    # {version} will be replaced with each version from tracking.versions
+    job_patterns:
+      - "periodic-ci-openshift-openshift-tests-private-release-{version}-*-winc-*"
+      - "periodic-ci-openshift-windows-machine-config-operator-release-{version}-*"
+
+    # API settings
+    page_size: 150
+    max_pages: 10
+    max_workers: 5
+
+  # Prow GCS configuration (queries gs://origin-ci-test/logs/ directly)
+  prow_gcs:
+    # GCS bucket (default: origin-ci-test, publicly accessible for OpenShift CI)
+    bucket: "origin-ci-test"
+
+    # Job name patterns to monitor (exact job names, no wildcards in GCS paths)
+    # Use the actual Prow job names from your periodic jobs
+    job_names:
+      # 4.21 jobs
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-aws-winc-e2e"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-gcp-winc-e2e"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-azure-winc-e2e"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nutanix-winc-e2e"
+      # 4.22 jobs
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-aws-winc-e2e"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-gcp-winc-e2e"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-azure-winc-e2e"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nutanix-winc-e2e"
+
+    # How many recent builds to fetch per job (default: 50)
+    max_builds_per_job: 50
+
+    # Parallel processing
+    max_workers: 5
+
+  # gcsweb configuration (OpenShift CI web interface - no auth needed!)
+  gcsweb:
+    # Base URL
+    url: "https://gcsweb-ci.apps.ci.l2s4.p1.openshiftapps.com"
+    bucket: "test-platform-results"
+
+    # WINC job names from ../release repo (exact names from Prow)
+    job_names:
+      # 4.21 WINC jobs
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-aws-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-azure-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-gcp-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-nutanix-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-vsphere-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-4.21-upgrade-from-stable-4.20-aws-ipi-ovn-winc-f7"
+
+      # 4.22 WINC jobs
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-aws-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-aws-upi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-azure-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-gcp-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-nutanix-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-vsphere-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-vsphere-ipi-proxy-ovn-winc-f28"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-4.22-upgrade-from-stable-4.21-aws-ipi-ovn-winc-f7"
+
+    # How many recent builds to fetch per job (reduced for initial testing)
+    max_builds_per_job: 20
+
+    # Parallel processing
+    max_workers: 3
+
+# Tracking configuration
+tracking:
+  # OpenShift versions to monitor
+  versions:
+    - "4.21"
+    - "4.22"
+
+  # Cloud platforms to track
+  platforms:
+    - "aws"
+    - "azure"
+    - "gcp"
+    - "nutanix"
+
+  # How many days to look back when collecting data
+  lookback_days: 30
+
+  # Blocklist - exclude specific test IDs from dashboard
+  # These tests might still exist in ReportPortal but should not be tracked
+  blocklist:
+    - "OCP-60944"  # Removed from test suite
+    - "OCP-66352"  # Not a WINC test case
+
+# Database configuration
+database:
+  # Path to SQLite database file
+  path: "./data/dashboard.db"
+
+# Web server configuration
+web:
+  host: "0.0.0.0"
+  port: 8080
+  debug: false
+
+# Collection schedule (for automated runs)
+schedule:
+  # Run data collection automatically
+  enabled: false
+
+  # Cron expression (e.g., "0 9 * * *" for daily at 9 AM)
+  cron: "0 9 * * *"

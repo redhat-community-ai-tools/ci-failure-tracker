@@ -72,8 +72,8 @@ jira:
 tracking:
   # OpenShift versions to monitor
   versions:
-    - "4.19"
-    - "4.20"
+#    - "4.19"
+#    - "4.20"
     - "4.21"
     - "4.22"
 
