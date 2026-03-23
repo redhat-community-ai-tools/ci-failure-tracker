@@ -339,6 +339,42 @@ See example in the ticket template above.
 - **Jira REST API**: https://developer.atlassian.com/cloud/jira/platform/rest/v3/
 - **How to get ReportPortal API token**: https://reportportal.io/docs/log-data-in-reportportal/HowToGetAnAccessTokenInReportPortal/
 
+## Related Tools
+
+### WINC Test Pass Rate Dashboard
+
+A companion tool for tracking test health over time. Located in `/dashboard`:
+
+**Features:**
+- Track test pass rates over 7/14/30/60/90 days
+- Compare performance across OpenShift versions (4.21 vs 4.22)
+- Identify worst-performing tests
+- Interactive web dashboard with charts and trends
+- Filter by version and time range
+
+**Quick Start:**
+```bash
+cd dashboard
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Collect data from ReportPortal
+./dashboard.py collect --days 30
+
+# Start web dashboard at http://localhost:8080
+./dashboard.py serve
+```
+
+**Documentation:**
+- [User Guide](dashboard/USER_GUIDE.md) - Complete walkthrough
+- [Quick Start](dashboard/QUICK_START.md) - One-page reference
+- [Technical README](dashboard/README.md) - Architecture and development
+
+**Use Case:** While this CI Failure Tracker creates Jira tickets for individual failures, the dashboard provides a high-level view of overall test health and trends.
+
+---
+
 ## Future Enhancements
 
 1. **Slack Notifications**: Send daily summary to #windows-containers channel
@@ -347,7 +383,6 @@ See example in the ticket template above.
 4. **Integration with TestGrid**: Cross-reference with OpenShift TestGrid data
 5. **ML-based Grouping**: Use machine learning to group similar failures
 6. **Auto-close**: Close tickets when test passes consistently for N days
-7. **Dashboard**: Web dashboard showing failure trends and ticket status
 
 ## Maintenance
 

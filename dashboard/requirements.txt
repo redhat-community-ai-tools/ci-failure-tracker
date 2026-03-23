@@ -1,0 +1,20 @@
+# CI Test Pass Rate Dashboard - Dependencies
+
+# Web framework
+Flask==3.0.0
+
+# CLI interface
+click==8.1.7
+
+# YAML configuration
+PyYAML==6.0.1
+
+# HTTP requests
+requests==2.31.0
+urllib3==2.1.0
+
+# Rich terminal output
+rich==13.7.0
+
+# Data handling
+python-dateutil==2.8.2
