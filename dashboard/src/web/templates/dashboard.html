@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CI Test Pass Rate Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23ee0000' d='M12 0L3 7v10l9 7 9-7V7L12 0zm0 2.5L18.5 8v8L12 21.5 5.5 16V8L12 2.5z'/%3E%3Cpath fill='%23ee0000' d='M12 6L8 9v6l4 3 4-3V9l-4-3z'/%3E%3C/svg%3E">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         * {
@@ -30,6 +31,17 @@
             border-radius: 8px;
             margin-bottom: 20px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .header-logo {
+            width: 40px;
+            height: 40px;
         }
 
         h1 {
@@ -479,7 +491,13 @@
 <body>
     <div class="container">
         <header>
-            <h1>CI Test Pass Rate Dashboard</h1>
+            <div class="header-title">
+                <svg class="header-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <path fill="#ee0000" d="M12 0L3 7v10l9 7 9-7V7L12 0zm0 2.5L18.5 8v8L12 21.5 5.5 16V8L12 2.5z"/>
+                    <path fill="#ee0000" d="M12 6L8 9v6l4 3 4-3V9l-4-3z"/>
+                </svg>
+                <h1>CI Test Pass Rate Dashboard</h1>
+            </div>
             <p class="subtitle">Windows Containers QE - OpenShift CI Test Results</p>
             <div style="margin-top: 15px;">
                 <button class="tab-button active" onclick="showTab('overview')">Overview</button>
