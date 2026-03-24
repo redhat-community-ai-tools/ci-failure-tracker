@@ -396,6 +396,64 @@
             margin-bottom: 25px;
         }
 
+        .collection-banner {
+            background: #3b82f6;
+            color: white;
+            padding: 15px 25px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+            align-items: center;
+            gap: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .collection-banner.show {
+            display: flex;
+        }
+
+        .collection-banner.error {
+            background: #dc2626;
+        }
+
+        .collection-banner.success {
+            background: #059669;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top: 3px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .collection-message {
+            flex: 1;
+            font-size: 14px;
+        }
+
+        .refresh-button {
+            background: white;
+            color: #3b82f6;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .refresh-button:hover {
+            opacity: 0.9;
+        }
+
         .platform-stat-card {
             background: #f9fafb;
             padding: 15px;
@@ -428,6 +486,13 @@
                 <button class="tab-button" onclick="showTab('weekly-report')">Weekly Report</button>
             </div>
         </header>
+
+        <!-- Collection Status Banner -->
+        <div id="collectionBanner" class="collection-banner">
+            <div class="spinner"></div>
+            <div class="collection-message" id="collectionMessage">Collecting data...</div>
+            <button class="refresh-button" onclick="location.reload()" style="display:none;" id="refreshButton">Refresh Page</button>
+        </div>
 
         <!-- Overview Tab -->
         <div id="overview-tab" class="tab-content active">
@@ -981,7 +1046,72 @@
             `).join('');
         }
 
+        // Collection status polling
+        let collectionPolling = null;
+
+        async function checkCollectionStatus() {
+            try {
+                const response = await fetch('/api/collection-status');
+                const status = await response.json();
+
+                const banner = document.getElementById('collectionBanner');
+                const message = document.getElementById('collectionMessage');
+                const refreshButton = document.getElementById('refreshButton');
+
+                if (status.running) {
+                    banner.classList.add('show');
+                    banner.classList.remove('error', 'success');
+                    message.textContent = status.progress || 'Collecting data...';
+                    refreshButton.style.display = 'none';
+
+                    // Start polling if not already
+                    if (!collectionPolling) {
+                        collectionPolling = setInterval(checkCollectionStatus, 2000);
+                    }
+                } else if (status.error) {
+                    banner.classList.add('show', 'error');
+                    banner.classList.remove('success');
+                    message.textContent = 'Collection failed: ' + status.error;
+                    refreshButton.style.display = 'block';
+
+                    // Stop polling
+                    if (collectionPolling) {
+                        clearInterval(collectionPolling);
+                        collectionPolling = null;
+                    }
+                } else if (status.last_run) {
+                    // Collection completed successfully
+                    banner.classList.add('show', 'success');
+                    banner.classList.remove('error');
+                    message.textContent = status.progress || 'Data collection completed!';
+                    refreshButton.style.display = 'block';
+                    refreshButton.textContent = 'Refresh to View Data';
+
+                    // Stop polling
+                    if (collectionPolling) {
+                        clearInterval(collectionPolling);
+                        collectionPolling = null;
+                    }
+
+                    // Auto refresh after 3 seconds
+                    setTimeout(() => location.reload(), 3000);
+                } else {
+                    // No collection running or completed
+                    banner.classList.remove('show');
+
+                    // Stop polling
+                    if (collectionPolling) {
+                        clearInterval(collectionPolling);
+                        collectionPolling = null;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to check collection status:', error);
+            }
+        }
+
         // Initial load
+        checkCollectionStatus();
         refreshDashboard();
     </script>
 </body>

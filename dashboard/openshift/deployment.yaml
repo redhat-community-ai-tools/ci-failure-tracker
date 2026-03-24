@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: winc-dashboard
+  labels:
+    app: winc-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: winc-dashboard
+  template:
+    metadata:
+      labels:
+        app: winc-dashboard
+    spec:
+      initContainers:
+      - name: setup
+        image: python:3.10-slim
+        command: ["python3"]
+        args:
+          - -c
+          - |
+            import urllib.request
+            import tarfile
+            import os
+
+            print("Downloading repository...")
+            url = "https://github.com/rrasouli/ci-failure-tracker/archive/refs/heads/ci-failure-tracker-tool.tar.gz"
+            tarball = "/tmp/repo.tar.gz"
+
+            urllib.request.urlretrieve(url, tarball)
+
+            print("Extracting...")
+            with tarfile.open(tarball, 'r:gz') as tar:
+                # Extract and strip first directory component
+                members = tar.getmembers()
+                for member in members:
+                    parts = member.name.split('/', 1)
+                    if len(parts) > 1:
+                        member.name = parts[1]
+                        tar.extract(member, '/workspace')
+
+            print("Setup complete!")
+        volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+      containers:
+      - name: dashboard
+        image: python:3.10-slim
+        workingDir: /workspace/dashboard
+        command: ["/bin/bash"]
+        args:
+          - -c
+          - |
+            set -e
+            echo "Installing Python packages to /workspace/python_modules..."
+            export PYTHONPATH=/workspace/python_modules
+            pip install --target=/workspace/python_modules flask pyyaml requests rich click gunicorn
+
+            # Create symlink for database
+            rm -rf ./data
+            ln -s /data ./data
+
+            echo "Starting web server..."
+            exec python3 -m gunicorn -w 4 -b 0.0.0.0:8080 --access-logfile - --error-logfile - 'wsgi:app'
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        env:
+        - name: REPORTPORTAL_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: reportportal-token
+              key: token
+              optional: true
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: workspace
+          mountPath: /workspace
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: dashboard-data
+      - name: workspace
+        emptyDir: {}

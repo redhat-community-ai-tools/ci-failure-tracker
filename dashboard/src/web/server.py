@@ -6,10 +6,109 @@ from flask import Flask, render_template, jsonify, request
 from datetime import datetime, timedelta
 from pathlib import Path
 import yaml
+import threading
+import sys
+import os
 
 from storage.database import DashboardDatabase
 from metrics.calculator import MetricsCalculator
 from reports.weekly_report import WeeklyReportGenerator
+
+# Global collection status
+collection_status = {
+    'running': False,
+    'progress': '',
+    'error': None,
+    'last_run': None,
+    'lock': threading.Lock()
+}
+
+
+def run_collection_background(db_path: str, config_file: str = 'config.yaml', days: int = 30):
+    """Run data collection in background thread"""
+    global collection_status
+
+    try:
+        collection_status['progress'] = 'Starting collection...'
+
+        # Load config
+        with open(config_file, 'r') as f:
+            config = yaml.safe_load(f)
+
+        # Import collector modules
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+        from collectors.reportportal import ReportPortalCollector
+
+        # Initialize collector
+        collector_type = config['collector']['type']
+        if collector_type == 'reportportal':
+            rp_config = config['collector']['reportportal']
+            collector = ReportPortalCollector(rp_config)
+        else:
+            collection_status['error'] = f'Unsupported collector type: {collector_type}'
+            collection_status['running'] = False
+            return
+
+        # Health check
+        collection_status['progress'] = 'Checking data source...'
+        if not collector.health_check():
+            collection_status['error'] = 'Failed to connect to data source'
+            collection_status['running'] = False
+            return
+
+        # Calculate date range
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+
+        # Get job patterns
+        versions = config['tracking']['versions']
+        platforms = config['tracking']['platforms']
+        job_patterns = config['collector']['reportportal']['job_patterns']
+
+        # Expand patterns
+        expanded_patterns = []
+        for pattern in job_patterns:
+            for version in versions:
+                expanded_patterns.append(pattern.replace('{version}', version))
+
+        # Collect job runs
+        collection_status['progress'] = 'Collecting job runs...'
+        job_runs = collector.collect_job_runs(
+            start_date=start_date,
+            end_date=end_date,
+            job_patterns=expanded_patterns,
+            versions=versions,
+            platforms=platforms
+        )
+
+        # Collect test results
+        collection_status['progress'] = f'Collected {len(job_runs)} job runs, collecting test results...'
+        test_results = collector.collect_test_results(
+            start_date=start_date,
+            end_date=end_date,
+            job_patterns=expanded_patterns,
+            versions=versions,
+            platforms=platforms
+        )
+
+        # Save to database
+        collection_status['progress'] = f'Collected {len(test_results)} test results, saving to database...'
+        db = DashboardDatabase(db_path)
+
+        inserted_jobs = db.insert_job_runs(job_runs)
+        inserted_tests = db.insert_test_results(test_results)
+
+        db.close()
+
+        collection_status['progress'] = f'Complete! Saved {inserted_jobs} job runs and {inserted_tests} test results'
+        collection_status['last_run'] = datetime.now().isoformat()
+        collection_status['error'] = None
+
+    except Exception as e:
+        collection_status['error'] = str(e)
+        collection_status['progress'] = 'Failed'
+    finally:
+        collection_status['running'] = False
 
 
 def create_app(db_path: str, config: dict = None, config_file: str = 'config.yaml'):
@@ -48,7 +147,73 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     @app.route('/')
     def index():
         """Render main dashboard page"""
+        # Check if database needs data collection
+        global collection_status
+
+        # Check if database is empty or has no recent data
+        try:
+            # Query for recent data (last 7 days)
+            recent_count = db.execute_query(
+                "SELECT COUNT(*) as cnt FROM job_runs WHERE timestamp >= datetime('now', '-7 days')"
+            )
+            needs_collection = recent_count[0]['cnt'] == 0 if recent_count else True
+
+            # Auto-trigger collection if needed and not already running
+            if needs_collection and not collection_status['running']:
+                with collection_status['lock']:
+                    if not collection_status['running']:
+                        collection_status['running'] = True
+                        collection_status['progress'] = 'Initializing...'
+                        collection_status['error'] = None
+
+                        # Start background thread
+                        thread = threading.Thread(
+                            target=run_collection_background,
+                            args=(db_path, config_file, 30),
+                            daemon=True
+                        )
+                        thread.start()
+
+        except Exception as e:
+            print(f"Error checking database status: {e}")
+
         return render_template('dashboard.html')
+
+    @app.route('/api/collection-status')
+    def api_collection_status():
+        """Get current collection status"""
+        global collection_status
+        return jsonify({
+            'running': collection_status['running'],
+            'progress': collection_status['progress'],
+            'error': collection_status['error'],
+            'last_run': collection_status['last_run']
+        })
+
+    @app.route('/api/trigger-collection', methods=['POST'])
+    def api_trigger_collection():
+        """Manually trigger data collection"""
+        global collection_status
+
+        days = request.json.get('days', 30) if request.json else 30
+
+        with collection_status['lock']:
+            if collection_status['running']:
+                return jsonify({'error': 'Collection already running'}), 409
+
+            collection_status['running'] = True
+            collection_status['progress'] = 'Initializing...'
+            collection_status['error'] = None
+
+            # Start background thread
+            thread = threading.Thread(
+                target=run_collection_background,
+                args=(db_path, config_file, days),
+                daemon=True
+            )
+            thread.start()
+
+        return jsonify({'status': 'started'})
 
     @app.route('/api/summary')
     def api_summary():
