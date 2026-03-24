@@ -6,9 +6,10 @@ Independent tool for tracking test pass rates over time from CI runs.
 Supports pluggable data sources (currently: ReportPortal).
 
 Usage:
-    ./dashboard.py collect [--days N]  # Collect test results from data source
-    ./dashboard.py serve                # Start web dashboard server
-    ./dashboard.py stats                # Show quick statistics
+    ./dashboard.py collect [--days N]      # Collect test results from data source
+    ./dashboard.py serve                   # Start web dashboard server
+    ./dashboard.py stats                   # Show quick statistics
+    ./dashboard.py report --weekly         # Generate weekly platform report
 
 Examples:
     # Collect last 30 days of test results
@@ -19,6 +20,15 @@ Examples:
 
     # Show summary statistics
     ./dashboard.py stats
+
+    # Generate weekly report (console format)
+    ./dashboard.py report --weekly
+
+    # Generate weekly report (Slack format)
+    ./dashboard.py report --weekly --slack
+
+    # Generate report with custom time ranges
+    ./dashboard.py report --weekly --current-days 7 --previous-days 7 --top 10
 """
 
 import os
@@ -41,6 +51,7 @@ from collectors.gcsweb import GCSWebCollector
 from storage.database import DashboardDatabase
 from metrics.calculator import MetricsCalculator
 from web.server import create_app
+from reports.weekly_report import WeeklyReportGenerator
 
 console = Console()
 
@@ -308,6 +319,59 @@ def stats(ctx, days):
             )
 
         console.print(table)
+
+    db.close()
+
+
+@cli.command()
+@click.option('--weekly', is_flag=True, help='Generate weekly report')
+@click.option('--current-days', default=7, type=int, help='Days in current period (default: 7)')
+@click.option('--previous-days', default=7, type=int, help='Days in previous period (default: 7)')
+@click.option('--top', default=5, type=int, help='Number of top failing tests to show (default: 5)')
+@click.option('--slack', is_flag=True, help='Output in Slack format')
+@click.option('--output', type=click.Path(), help='Save report to file')
+@click.pass_context
+def report(ctx, weekly, current_days, previous_days, top, slack, output):
+    """Generate platform breakdown report"""
+    config = ctx.obj['config']
+    db_path = config['database']['path']
+
+    if not Path(db_path).exists():
+        console.print(f"[red]Error: Database not found at {db_path}[/red]")
+        console.print("[yellow]Run 'dashboard.py collect' first[/yellow]")
+        sys.exit(1)
+
+    db = DashboardDatabase(db_path)
+
+    # Get blocklist from config
+    blocklist = config.get('tracking', {}).get('blocklist', [])
+    generator = WeeklyReportGenerator(db, blocklist=blocklist)
+
+    # Generate report
+    if weekly:
+        if slack:
+            report_text = generator.generate_slack_report(
+                current_week_days=current_days,
+                previous_week_days=previous_days,
+                top_failures=top
+            )
+        else:
+            report_text = generator.generate_console_report(
+                current_week_days=current_days,
+                previous_week_days=previous_days,
+                top_failures=top
+            )
+
+        # Output report
+        if output:
+            with open(output, 'w') as f:
+                f.write(report_text)
+            console.print(f"[green]Report saved to {output}[/green]")
+        else:
+            print(report_text)
+    else:
+        console.print("[yellow]Please specify report type: --weekly[/yellow]")
+        console.print("[yellow]Example: ./dashboard.py report --weekly --slack[/yellow]")
 
     db.close()
 

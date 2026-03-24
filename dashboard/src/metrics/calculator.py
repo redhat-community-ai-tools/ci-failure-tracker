@@ -82,6 +82,7 @@ class MetricsCalculator:
         self,
         days: int = 30,
         version: Optional[str] = None,
+        platform: Optional[str] = None,
         limit: int = 20
     ) -> List[Dict[str, Any]]:
         """
@@ -90,6 +91,7 @@ class MetricsCalculator:
         Args:
             days: Number of days to look back
             version: Optional version filter
+            platform: Optional platform filter
             limit: Maximum number of tests to return
 
         Returns:
@@ -99,13 +101,15 @@ class MetricsCalculator:
         start_date = end_date - timedelta(days=days)
 
         test_data = self.db.get_test_pass_rates(
-            start_date, end_date, version=version, blocklist=self.blocklist
+            start_date, end_date, version=version, platform=platform, blocklist=self.blocklist
         )
 
-        # Filter tests with meaningful sample size (at least 1 run)
+        # Filter tests with meaningful sample size
+        # Use lower threshold (1 run) when filtering by platform, higher (3 runs) for all platforms
+        min_runs = 1 if platform else 3
         meaningful_tests = [
             test for test in test_data
-            if test['total_runs'] >= 1
+            if test['total_runs'] >= min_runs
         ]
 
         # Sort by pass rate (ascending - worst first)

@@ -1,0 +1,98 @@
+================================================================================
+EXAMPLE WEEKLY REPORTS - Different Output Formats
+================================================================================
+
+# CONSOLE FORMAT (--weekly)
+# Usage: ./dashboard.py report --weekly
+
+======================================================================
+WINC PROW CI Health Report — Week Mar 17–24
+======================================================================
+
+PLATFORM PASS RATES (Week-over-Week)
+----------------------------------------------------------------------
+Platform     Previous  Current     Change      Trend
+----------------------------------------------------------------------
+aws            85.0%    98.0%      +13.0%         UP
+azure          82.0%    88.0%       +6.0%         UP
+gcp            88.0%    90.0%       +2.0%         UP
+nutanix        85.0%    86.0%       +1.0%         UP
+vsphere        86.0%    85.0%       -1.0%       DOWN
+
+TOP 5 FAILING TESTS
+----------------------------------------------------------------------
+Rank   Test Name            Version  Pass Rate   Runs
+----------------------------------------------------------------------
+1      OCP-38186            4.22        45.0%     12
+2      OCP-84267            4.21        52.0%      8
+3      OCP-12345            4.22        68.0%     15
+4      OCP-67890            4.21        72.0%     10
+5      OCP-32273            4.22        75.0%      9
+
+SUMMARY
+----------------------------------------------------------------------
+Overall Pass Rate: 89.4%
+Total Test Runs:   245
+Trend:             IMPROVING
+Period:            2024-03-17 to 2024-03-24
+======================================================================
+
+
+# SLACK FORMAT (--weekly --slack)
+# Usage: ./dashboard.py report --weekly --slack
+# Copy/paste into Slack channel
+
+WINC PROW CI Health — Week Mar 17–24
+
+Pass Rate:
+[OK] AWS       85% → 98%   ↑+13%
+[OK] Azure     82% → 88%   ↑+6%
+[OK] GCP       88% → 90%   ↑+2%
+[OK] Nutanix   85% → 86%   ↑+1%
+[WARN] vSphere   86% → 85%   ↓-1%
+
+Top 5 Failing Tests:
+1. OCP-38186 (45% pass rate, 12 runs)
+2. OCP-84267 (52% pass rate, 8 runs)
+3. OCP-12345 (68% pass rate, 15 runs)
+4. OCP-67890 (72% pass rate, 10 runs)
+5. OCP-32273 (75% pass rate, 9 runs)
+
+Overall: 89.4% pass rate, 245 total runs
+Period: 2024-03-17 to 2024-03-24
+
+
+# CUSTOM TIME RANGES
+# Usage: ./dashboard.py report --weekly --current-days 7 --previous-days 7 --top 10
+
+You can customize:
+  --current-days N     : Days in current period (default: 7)
+  --previous-days N    : Days in previous period (default: 7)
+  --top N              : Number of top failing tests (default: 5)
+  --output FILE        : Save to file instead of console
+
+
+# AUTOMATION EXAMPLES
+
+# Daily collection (run via cron)
+0 9 * * * cd /path/to/dashboard && python3 dashboard.py collect --days 30
+
+# Weekly report on Monday morning
+0 10 * * 1 cd /path/to/dashboard && python3 dashboard.py report --weekly --slack --output /tmp/weekly-report.txt
+
+# Biweekly comparison
+./dashboard.py report --weekly --current-days 14 --previous-days 14 --top 10
+
+
+# SLACK INTEGRATION (Future)
+
+To auto-post to Slack, add to config.yaml:
+
+notification:
+  slack:
+    enabled: true
+    webhook_url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+    channel: "#windows-containers"
+
+Then run:
+./dashboard.py report --weekly --slack --post

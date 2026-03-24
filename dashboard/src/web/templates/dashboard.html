@@ -191,6 +191,231 @@
             padding: 40px;
             color: #666;
         }
+
+        .tab-button {
+            background: white;
+            border: 2px solid #e5e7eb;
+            padding: 10px 20px;
+            margin-right: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .tab-button:hover {
+            background: #f9fafb;
+        }
+
+        .tab-button.active {
+            background: #2563eb;
+            color: white;
+            border-color: #2563eb;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .platform-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .platform-name {
+            font-size: 18px;
+            font-weight: 600;
+            text-transform: capitalize;
+        }
+
+        .platform-stats {
+            display: flex;
+            gap: 30px;
+            align-items: center;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+
+        .delta {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .delta.positive {
+            color: #059669;
+        }
+
+        .delta.negative {
+            color: #dc2626;
+        }
+
+        .delta.neutral {
+            color: #666;
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-ok {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-warn {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-fail {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .report-header {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .report-title {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .report-subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .platform-card {
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .platform-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 0;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 1200px;
+            max-height: 85vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-header {
+            padding: 20px 25px;
+            background: #2563eb;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 8px 8px 0 0;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 20px;
+        }
+
+        .close {
+            color: white;
+            font-size: 32px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 20px;
+        }
+
+        .close:hover {
+            opacity: 0.8;
+        }
+
+        .modal-body {
+            padding: 25px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .platform-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .platform-stat-card {
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .platform-stat-label {
+            font-size: 11px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .platform-stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2563eb;
+        }
     </style>
 </head>
 <body>
@@ -198,25 +423,31 @@
         <header>
             <h1>CI Test Pass Rate Dashboard</h1>
             <p class="subtitle">Windows Containers QE - OpenShift CI Test Results</p>
+            <div style="margin-top: 15px;">
+                <button class="tab-button active" onclick="showTab('overview')">Overview</button>
+                <button class="tab-button" onclick="showTab('weekly-report')">Weekly Report</button>
+            </div>
         </header>
 
-        <div class="controls">
-            <label for="timeRange">Time Range:</label>
-            <select id="timeRange" onchange="refreshDashboard()">
-                <option value="7">Last 7 days</option>
-                <option value="14">Last 14 days</option>
-                <option value="30" selected>Last 30 days</option>
-                <option value="60">Last 60 days</option>
-                <option value="90">Last 90 days</option>
-            </select>
+        <!-- Overview Tab -->
+        <div id="overview-tab" class="tab-content active">
+            <div class="controls">
+                <label for="timeRange">Time Range:</label>
+                <select id="timeRange" onchange="refreshDashboard()">
+                    <option value="7">Last 7 days</option>
+                    <option value="14">Last 14 days</option>
+                    <option value="30" selected>Last 30 days</option>
+                    <option value="60">Last 60 days</option>
+                    <option value="90">Last 90 days</option>
+                </select>
 
-            <label for="versionFilter">Version:</label>
-            <select id="versionFilter" onchange="refreshDashboard()">
-                <option value="">All Versions</option>
-                <option value="4.21">4.21</option>
-                <option value="4.22">4.22</option>
-            </select>
-        </div>
+                <label for="versionFilter">Version:</label>
+                <select id="versionFilter" onchange="refreshDashboard()">
+                    <option value="">All Versions</option>
+                    <option value="4.21">4.21</option>
+                    <option value="4.22">4.22</option>
+                </select>
+            </div>
 
         <div class="summary-cards">
             <div class="card">
@@ -264,10 +495,132 @@
                 </tbody>
             </table>
         </div>
+        </div>
+
+        <!-- Weekly Report Tab -->
+        <div id="weekly-report-tab" class="tab-content">
+            <div class="controls">
+                <label for="reportCurrentDays">Current Period:</label>
+                <select id="reportCurrentDays" onchange="refreshWeeklyReport()">
+                    <option value="7" selected>Last 7 days</option>
+                    <option value="14">Last 14 days</option>
+                    <option value="30">Last 30 days</option>
+                </select>
+
+                <label for="reportPreviousDays">Compare To:</label>
+                <select id="reportPreviousDays" onchange="refreshWeeklyReport()">
+                    <option value="7" selected>Previous 7 days</option>
+                    <option value="14">Previous 14 days</option>
+                    <option value="30">Previous 30 days</option>
+                </select>
+
+                <label for="reportVersion">Version:</label>
+                <select id="reportVersion" onchange="refreshWeeklyReport()">
+                    <option value="">All Versions</option>
+                    <option value="4.21">4.21</option>
+                    <option value="4.22">4.22</option>
+                </select>
+
+                <label for="reportTopTests">Top Tests:</label>
+                <select id="reportTopTests" onchange="refreshWeeklyReport()">
+                    <option value="5">Top 5</option>
+                    <option value="10" selected>Top 10</option>
+                    <option value="20">Top 20</option>
+                    <option value="50">Top 50</option>
+                    <option value="1000">All Tests</option>
+                </select>
+            </div>
+
+            <div class="report-header">
+                <div class="report-title" id="reportTitle">Weekly Platform Report</div>
+                <div class="report-subtitle" id="reportSubtitle">Loading...</div>
+            </div>
+
+            <div style="background: white; padding: 25px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <h2 style="font-size: 18px; margin-bottom: 20px;">Platform Pass Rates (Week-over-Week)</h2>
+                <div id="platformComparison">
+                    <div style="text-align: center; padding: 40px; color: #666;">Loading...</div>
+                </div>
+            </div>
+
+            <div style="background: white; padding: 25px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <h2 style="font-size: 18px; margin-bottom: 20px;" id="topTestsHeader">Top 10 Failing Tests</h2>
+                <div style="max-height: 600px; overflow-y: auto;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                            <tr>
+                                <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Rank</th>
+                                <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Test Name</th>
+                                <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Version</th>
+                                <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Pass Rate</th>
+                                <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Runs</th>
+                                <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Performance</th>
+                            </tr>
+                        </thead>
+                        <tbody id="topFailingTests">
+                            <tr><td colspan="6" style="text-align: center; padding: 20px; color: #666;">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Platform Details Modal -->
+    <div id="platformModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="platformModalTitle">Platform Details</h2>
+                <span class="close" onclick="closePlatformModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="platform-stats-grid" id="platformModalStats"></div>
+                <h3 style="margin-bottom: 15px;">Test Results</h3>
+                <div style="max-height: 400px; overflow-y: auto;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                            <tr>
+                                <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Rank</th>
+                                <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Test Name</th>
+                                <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Version</th>
+                                <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Pass Rate</th>
+                                <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Runs</th>
+                                <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Performance</th>
+                            </tr>
+                        </thead>
+                        <tbody id="platformModalTests">
+                            <tr><td colspan="6" style="text-align: center; padding: 20px; color: #666;">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
         let trendChart, versionChart;
+
+        function showTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // Remove active from all buttons
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            // Show selected tab
+            if (tabName === 'overview') {
+                document.getElementById('overview-tab').classList.add('active');
+                document.querySelectorAll('.tab-button')[0].classList.add('active');
+            } else if (tabName === 'weekly-report') {
+                document.getElementById('weekly-report-tab').classList.add('active');
+                document.querySelectorAll('.tab-button')[1].classList.add('active');
+                refreshWeeklyReport();
+            }
+        }
 
         async function fetchData(endpoint, params = {}) {
             const queryString = new URLSearchParams(params).toString();
@@ -410,6 +763,215 @@
                     <td>${test.total_runs}</td>
                     <td><strong>${test.pass_rate.toFixed(1)}%</strong></td>
                     <td>
+                        <div class="pass-rate-bar">
+                            <div class="fill" style="width: ${test.pass_rate}%"></div>
+                            <div class="label">${test.pass_rate.toFixed(1)}%</div>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function refreshWeeklyReport() {
+            const currentDays = parseInt(document.getElementById('reportCurrentDays').value);
+            const previousDays = parseInt(document.getElementById('reportPreviousDays').value);
+            const version = document.getElementById('reportVersion').value;
+            const top = parseInt(document.getElementById('reportTopTests').value);
+
+            // Update header
+            const versionText = version ? ` (${version})` : '';
+            const topText = top >= 1000 ? 'All Tests' : `Top ${top} Failing Tests`;
+            document.getElementById('topTestsHeader').textContent = `${topText}${versionText}`;
+
+            // Fetch weekly report data
+            const data = await fetchData('weekly-report', {
+                current_days: currentDays,
+                previous_days: previousDays,
+                version: version,
+                top: top
+            });
+
+            // Update report title
+            document.getElementById('reportTitle').textContent =
+                `WINC PROW CI Health — Week ${data.comparison.current_period}`;
+            document.getElementById('reportSubtitle').textContent =
+                `Overall: ${data.summary.avg_pass_rate}% pass rate, ${data.summary.total_runs} total runs | Trend: ${data.summary.trend}`;
+
+            // Render platform comparison
+            renderPlatformComparison(data.comparison.platforms);
+
+            // Render top failing tests
+            renderTopFailingTests(data.top_tests);
+        }
+
+        function renderPlatformComparison(platforms) {
+            const container = document.getElementById('platformComparison');
+
+            if (!platforms || Object.keys(platforms).length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding:20px; color:#666;">No data available</div>';
+                return;
+            }
+
+            const html = Object.entries(platforms).sort().map(([platform, data]) => {
+                const delta = data.delta;
+                let statusClass = 'status-ok';
+                let deltaClass = 'neutral';
+                let arrow = '→';
+
+                if (delta >= 5) {
+                    statusClass = 'status-ok';
+                    deltaClass = 'positive';
+                    arrow = '↑';
+                } else if (delta >= 0) {
+                    statusClass = 'status-ok';
+                    deltaClass = 'positive';
+                    arrow = '↑';
+                } else if (delta >= -5) {
+                    statusClass = 'status-warn';
+                    deltaClass = 'negative';
+                    arrow = '↓';
+                } else {
+                    statusClass = 'status-fail';
+                    deltaClass = 'negative';
+                    arrow = '↓';
+                }
+
+                const statusText = statusClass === 'status-ok' ? 'OK' :
+                                   statusClass === 'status-warn' ? 'WARN' : 'FAIL';
+
+                return `
+                    <div class="platform-card" onclick="showPlatformDetails('${platform}', ${data.current_runs}, ${data.current_pass_rate}, ${data.previous_pass_rate}, ${delta})">
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            <span class="status-badge ${statusClass}">${statusText}</span>
+                            <span class="platform-name">${platform.charAt(0).toUpperCase() + platform.slice(1)}</span>
+                        </div>
+                        <div class="platform-stats">
+                            <div class="stat-item">
+                                <div class="stat-label">Previous</div>
+                                <div class="stat-value">${data.previous_pass_rate}%</div>
+                            </div>
+                            <div style="font-size: 24px; color: #666;">→</div>
+                            <div class="stat-item">
+                                <div class="stat-label">Current</div>
+                                <div class="stat-value">${data.current_pass_rate}%</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">Change</div>
+                                <div class="delta ${deltaClass}">${arrow}${Math.abs(delta)}%</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-label">Runs</div>
+                                <div style="font-size: 16px; font-weight: 600; margin-top: 5px;">${data.current_runs}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = html;
+        }
+
+        async function showPlatformDetails(platform, runs, currentRate, previousRate, delta) {
+            const currentDays = parseInt(document.getElementById('reportCurrentDays').value);
+            const version = document.getElementById('reportVersion').value;
+
+            // Update modal title
+            const versionText = version ? ` (${version})` : '';
+            document.getElementById('platformModalTitle').textContent =
+                `${platform.charAt(0).toUpperCase() + platform.slice(1)} Platform Details${versionText}`;
+
+            // Show modal
+            document.getElementById('platformModal').style.display = 'block';
+
+            // Render stats summary
+            const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
+            const deltaColor = delta > 0 ? '#059669' : delta < 0 ? '#dc2626' : '#666';
+
+            document.getElementById('platformModalStats').innerHTML = `
+                <div class="platform-stat-card">
+                    <div class="platform-stat-label">Current Pass Rate</div>
+                    <div class="platform-stat-value">${currentRate}%</div>
+                </div>
+                <div class="platform-stat-card">
+                    <div class="platform-stat-label">Previous Pass Rate</div>
+                    <div class="platform-stat-value">${previousRate}%</div>
+                </div>
+                <div class="platform-stat-card">
+                    <div class="platform-stat-label">Change</div>
+                    <div class="platform-stat-value" style="color: ${deltaColor}">${arrow}${Math.abs(delta)}%</div>
+                </div>
+                <div class="platform-stat-card">
+                    <div class="platform-stat-label">Total Runs</div>
+                    <div class="platform-stat-value">${runs}</div>
+                </div>
+            `;
+
+            // Fetch platform-specific tests
+            const data = await fetchData('platform-tests', {
+                platform: platform,
+                days: currentDays,
+                version: version
+            });
+
+            // Render tests (already filtered by platform and version on server side)
+            const tbody = document.getElementById('platformModalTests');
+
+            if (!data.tests || data.tests.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#666;">No test data available for this platform</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = data.tests.map((test, index) => `
+                <tr style="border-bottom: 1px solid #f3f4f6;">
+                    <td style="padding: 12px;"><strong>${index + 1}</strong></td>
+                    <td style="padding: 12px;">
+                        <strong>${test.test_name}</strong>
+                        ${test.test_description ? `<br><span style="font-size:12px; color:#666;">${test.test_description}</span>` : ''}
+                    </td>
+                    <td style="padding: 12px;">${test.version}</td>
+                    <td style="padding: 12px;"><strong style="color: ${test.pass_rate < 50 ? '#dc2626' : test.pass_rate < 70 ? '#f59e0b' : '#666'}">${test.pass_rate.toFixed(1)}%</strong></td>
+                    <td style="padding: 12px;">${test.total_runs}</td>
+                    <td style="padding: 12px;">
+                        <div class="pass-rate-bar">
+                            <div class="fill" style="width: ${test.pass_rate}%"></div>
+                            <div class="label">${test.pass_rate.toFixed(1)}%</div>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function closePlatformModal() {
+            document.getElementById('platformModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('platformModal');
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
+        }
+
+        function renderTopFailingTests(tests) {
+            const tbody = document.getElementById('topFailingTests');
+
+            if (!tests || tests.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#666;">No failing tests found</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = tests.map((test, index) => `
+                <tr style="border-bottom: 1px solid #f3f4f6;">
+                    <td style="padding: 12px;"><strong>${index + 1}</strong></td>
+                    <td style="padding: 12px;">
+                        <strong>${test.test_name}</strong>
+                        ${test.test_description ? `<br><span style="font-size:12px; color:#666;">${test.test_description}</span>` : ''}
+                    </td>
+                    <td style="padding: 12px;">${test.version}</td>
+                    <td style="padding: 12px;"><strong style="color: ${test.pass_rate < 50 ? '#dc2626' : test.pass_rate < 70 ? '#f59e0b' : '#666'}">${test.pass_rate.toFixed(1)}%</strong></td>
+                    <td style="padding: 12px;">${test.total_runs}</td>
+                    <td style="padding: 12px;">
                         <div class="pass-rate-bar">
                             <div class="fill" style="width: ${test.pass_rate}%"></div>
                             <div class="label">${test.pass_rate.toFixed(1)}%</div>

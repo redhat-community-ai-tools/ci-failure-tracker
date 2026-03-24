@@ -9,6 +9,7 @@ import yaml
 
 from storage.database import DashboardDatabase
 from metrics.calculator import MetricsCalculator
+from reports.weekly_report import WeeklyReportGenerator
 
 
 def create_app(db_path: str, config: dict = None, config_file: str = 'config.yaml'):
@@ -42,6 +43,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     # Initialize database and calculator
     db = DashboardDatabase(db_path)
     calculator = MetricsCalculator(db, blocklist=blocklist)
+    report_generator = WeeklyReportGenerator(db, blocklist=blocklist)
 
     @app.route('/')
     def index():
@@ -76,11 +78,13 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         """Get test rankings (worst performers)"""
         days = request.args.get('days', 30, type=int)
         version = request.args.get('version')
+        platform = request.args.get('platform')
         limit = request.args.get('limit', 20, type=int)
 
         rankings = calculator.get_test_rankings(
             days=days,
             version=version,
+            platform=platform,
             limit=limit
         )
         return jsonify(rankings)
@@ -103,6 +107,56 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             version=version
         )
         return jsonify(comparison)
+
+    @app.route('/api/weekly-report')
+    def api_weekly_report():
+        """Get weekly platform breakdown report"""
+        current_days = request.args.get('current_days', 7, type=int)
+        previous_days = request.args.get('previous_days', 7, type=int)
+        version = request.args.get('version')
+        top = request.args.get('top', 10, type=int)
+
+        # Get platform comparison
+        comparison = report_generator.get_platform_week_over_week(
+            current_week_days=current_days,
+            previous_week_days=previous_days,
+            version=version
+        )
+
+        # Get top failing tests
+        top_tests = calculator.get_test_rankings(days=current_days, version=version, limit=top)
+
+        # Get overall summary
+        summary = calculator.get_summary_stats(days=current_days, version=version)
+
+        return jsonify({
+            'comparison': comparison,
+            'top_tests': top_tests,
+            'summary': summary
+        })
+
+    @app.route('/api/platform-tests')
+    def api_platform_tests():
+        """Get test results for a specific platform"""
+        platform = request.args.get('platform')
+        days = request.args.get('days', 7, type=int)
+        version = request.args.get('version')
+
+        if not platform:
+            return jsonify({'error': 'Platform parameter is required'}), 400
+
+        # Get test rankings for this platform
+        tests = calculator.get_test_rankings(days=days, version=version, platform=platform, limit=100)
+
+        # Get platform-specific summary
+        summary = calculator.get_summary_stats(days=days, platform=platform, version=version)
+
+        return jsonify({
+            'platform': platform,
+            'tests': tests,
+            'summary': summary,
+            'days': days
+        })
 
     @app.teardown_appcontext
     def close_db(error):

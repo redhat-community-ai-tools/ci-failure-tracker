@@ -236,9 +236,10 @@ class DashboardDatabase:
                 platform,
                 COUNT(*) as total_runs,
                 SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) as passed_runs,
-                AVG(pass_rate) as avg_pass_rate
+                CAST(SUM(passed_tests) AS REAL) / SUM(total_tests) * 100 as avg_pass_rate
             FROM job_runs
             WHERE timestamp >= ? AND timestamp <= ?
+            AND total_tests >= 10
         """
 
         params = [start_date.isoformat(), end_date.isoformat()]
@@ -262,6 +263,7 @@ class DashboardDatabase:
         end_date: datetime,
         test_name: Optional[str] = None,
         version: Optional[str] = None,
+        platform: Optional[str] = None,
         blocklist: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
@@ -272,6 +274,7 @@ class DashboardDatabase:
             end_date: End date
             test_name: Optional test name filter
             version: Optional version filter
+            platform: Optional platform filter
             blocklist: Optional list of test names to exclude
 
         Returns:
@@ -302,6 +305,10 @@ class DashboardDatabase:
         if version:
             query += " AND version = ?"
             params.append(version)
+
+        if platform:
+            query += " AND platform = ?"
+            params.append(platform)
 
         if blocklist:
             placeholders = ','.join(['?' for _ in blocklist])
@@ -335,10 +342,11 @@ class DashboardDatabase:
                 version,
                 COUNT(*) as total_runs,
                 SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) as passed_runs,
-                AVG(pass_rate) as avg_pass_rate,
+                CAST(SUM(passed_tests) AS REAL) / SUM(total_tests) * 100 as avg_pass_rate,
                 AVG(total_tests) as avg_total_tests
             FROM job_runs
             WHERE timestamp >= ? AND timestamp <= ?
+            AND total_tests >= 10
             GROUP BY version
             ORDER BY version
         """
