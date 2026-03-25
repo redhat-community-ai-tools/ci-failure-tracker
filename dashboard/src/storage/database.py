@@ -24,8 +24,13 @@ class DashboardDatabase:
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
         # Allow SQLite to be used across threads (safe for read-mostly workloads)
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        # Use longer timeout to handle concurrent access
+        self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30.0)
         self.conn.row_factory = sqlite3.Row  # Return rows as dictionaries
+
+        # Enable WAL mode for better concurrent access
+        self.conn.execute('PRAGMA journal_mode=WAL')
+
         self._create_tables()
 
     def _create_tables(self):

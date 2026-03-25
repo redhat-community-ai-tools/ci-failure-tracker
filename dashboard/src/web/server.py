@@ -98,6 +98,9 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
         inserted_jobs = db.insert_job_runs(job_runs)
         inserted_tests = db.insert_test_results(test_results)
 
+        # Close connection after write
+        db.conn.close()
+
         db.close()
 
         collection_status['progress'] = f'Complete! Saved {inserted_jobs} job runs and {inserted_tests} test results'
