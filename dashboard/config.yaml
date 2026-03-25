@@ -123,27 +123,11 @@ tracking:
   # ========================================================================
   # CUSTOMIZE: Blocklist - exclude specific test IDs from dashboard
   # Add test IDs that should not appear in your team's dashboard
+  # Note: Dashboard automatically filters to show only OCP-* tests
   # ========================================================================
   blocklist:
     - "OCP-60944"  # Example: Removed from test suite
     - "OCP-66352"  # Example: Not relevant to team
-
-    # Infrastructure/Setup failures (not actual winc tests)
-    - "Installation"
-    - "install should succeed: cluster bootstrap"
-    - "install should succeed: cluster creation"
-    - "install should succeed: cluster operator stability"
-    - "install should succeed: configuration"
-    - "install should succeed: infrastructure"
-    - "install should succeed: other"
-    - "install should succeed: overall"
-    - "Bug 1812261: iptables is segfaulting"
-    - "Infrastructure - quota exceeded or hit rate limit"
-    - "Node process segfaulted"
-    - "Undiagnosed panic detected in journal"
-    - "Undiagnosed panic detected in pod"
-    - "ensure 1 worker node at least gets ready"
-    - "verify all machines should be in Running state"
 
 # Database configuration
 database:

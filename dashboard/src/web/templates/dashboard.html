@@ -514,22 +514,27 @@
 
         <!-- Overview Tab -->
         <div id="overview-tab" class="tab-content active">
-            <div class="controls">
-                <label for="timeRange">Time Range:</label>
-                <select id="timeRange" onchange="refreshDashboard()">
-                    <option value="7">Last 7 days</option>
-                    <option value="14">Last 14 days</option>
-                    <option value="30" selected>Last 30 days</option>
-                    <option value="60">Last 60 days</option>
-                    <option value="90">Last 90 days</option>
-                </select>
+            <div class="controls" style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <label for="timeRange">Time Range:</label>
+                    <select id="timeRange" onchange="refreshDashboard()">
+                        <option value="7">Last 7 days</option>
+                        <option value="14">Last 14 days</option>
+                        <option value="30" selected>Last 30 days</option>
+                        <option value="60">Last 60 days</option>
+                        <option value="90">Last 90 days</option>
+                    </select>
 
-                <label for="versionFilter">Version:</label>
-                <select id="versionFilter" onchange="refreshDashboard()">
-                    <option value="">All Versions</option>
-                    <option value="4.21">4.21</option>
-                    <option value="4.22">4.22</option>
-                </select>
+                    <label for="versionFilter">Version:</label>
+                    <select id="versionFilter" onchange="refreshDashboard()">
+                        <option value="">All Versions</option>
+                        <option value="4.21">4.21</option>
+                        <option value="4.22">4.22</option>
+                    </select>
+                </div>
+                <button class="refresh-button" onclick="location.href='/api/trigger-collection?redirect=true'" title="Collect latest data from ReportPortal">
+                    🔄 Refresh Data
+                </button>
             </div>
 
         <div class="summary-cards">

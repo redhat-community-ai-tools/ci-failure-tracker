@@ -34,10 +34,7 @@ oc start-build winc-dashboard
 # 5. Wait for build to complete
 oc get builds -w
 
-# 6. Deploy the CronJob for scheduled data collection (optional but recommended)
-oc apply -f openshift/cronjob.yaml
-
-# 7. Get the dashboard URL
+# 6. Get the dashboard URL
 oc get route winc-dashboard -o jsonpath='{.spec.host}'
 ```
 
@@ -60,9 +57,6 @@ oc apply -f pvc.yaml
 oc apply -f deployment.yaml
 oc apply -f service.yaml
 oc apply -f route.yaml
-
-# Scheduled data collection (optional but recommended)
-oc apply -f cronjob.yaml
 ```
 
 ### 3. Verify Deployment
@@ -80,9 +74,9 @@ oc get route winc-dashboard
 
 ## Data Collection
 
-The dashboard uses a **hybrid collection strategy** for best performance:
+The dashboard uses **on-demand data collection**:
 
-### 1. On-Login Collection (Immediate)
+### Automatic Collection
 When you visit the dashboard for the first time (or if data is stale):
 
 1. **Auto-Check**: Dashboard checks for recent data (last 7 days)
@@ -90,43 +84,14 @@ When you visit the dashboard for the first time (or if data is stale):
 3. **Progress Banner**: Blue banner shows real-time progress
 4. **Completion**: Green banner appears when done, page auto-refreshes after 3 seconds
 
-### 2. Scheduled Collection (Background)
-A CronJob runs daily to keep data fresh:
+### Manual Refresh
+Click the **"🔄 Refresh Data"** button in the dashboard to trigger data collection at any time.
 
-- **Schedule**: Daily at 9 AM UTC (configurable in `cronjob.yaml`)
-- **Collection**: Automatically fetches last 30 days of test results
-- **No user interaction needed**: Runs in background
-
-**Deploy the CronJob:**
-```bash
-oc apply -f openshift/cronjob.yaml
-```
-
-**Check CronJob status:**
-```bash
-# View CronJob
-oc get cronjob
-
-# View recent job runs
-oc get jobs -l app=winc-dashboard
-
-# View logs from latest collection
-oc logs -l component=data-collector --tail=50
-```
-
-**Trigger manual collection:**
-```bash
-# Create one-time job from CronJob
-oc create job manual-collect-$(date +%s) --from=cronjob/dashboard-collector
-
-# Watch the job
-oc logs -f job/manual-collect-XXXXX
-```
-
-**Why both approaches?**
-- On-login: Ensures data is available immediately when needed
-- CronJob: Keeps dashboard fresh for users, reduces initial load time
-- Best of both worlds: Fast access + always up-to-date data
+This will:
+- Fetch the latest test results from ReportPortal
+- Update the database with the last 30 days of data
+- Show a progress banner during collection
+- Automatically refresh the page when complete
 
 ## GitHub Webhook - Automatic Deployments
 
