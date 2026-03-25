@@ -31,7 +31,13 @@ oc apply -f openshift/
 # 4. Trigger initial build
 oc start-build winc-dashboard
 
-# 5. Get the dashboard URL
+# 5. Wait for build to complete
+oc get builds -w
+
+# 6. Deploy the CronJob for scheduled data collection (optional but recommended)
+oc apply -f openshift/cronjob.yaml
+
+# 7. Get the dashboard URL
 oc get route winc-dashboard -o jsonpath='{.spec.host}'
 ```
 
@@ -54,6 +60,9 @@ oc apply -f pvc.yaml
 oc apply -f deployment.yaml
 oc apply -f service.yaml
 oc apply -f route.yaml
+
+# Scheduled data collection (optional but recommended)
+oc apply -f cronjob.yaml
 ```
 
 ### 3. Verify Deployment
@@ -71,14 +80,53 @@ oc get route winc-dashboard
 
 ## Data Collection
 
-Data collection happens automatically on first dashboard access. When you visit the dashboard:
+The dashboard uses a **hybrid collection strategy** for best performance:
 
-1. **First Access**: Dashboard checks for recent data (last 7 days)
+### 1. On-Login Collection (Immediate)
+When you visit the dashboard for the first time (or if data is stale):
+
+1. **Auto-Check**: Dashboard checks for recent data (last 7 days)
 2. **Auto-Collection**: If no recent data exists, collection starts automatically (30 days of data)
-3. **Progress Banner**: Blue banner shows real-time progress (e.g., "Collecting job runs...")
+3. **Progress Banner**: Blue banner shows real-time progress
 4. **Completion**: Green banner appears when done, page auto-refreshes after 3 seconds
 
-No manual intervention or scheduled jobs required - data collection is on-demand.
+### 2. Scheduled Collection (Background)
+A CronJob runs daily to keep data fresh:
+
+- **Schedule**: Daily at 9 AM UTC (configurable in `cronjob.yaml`)
+- **Collection**: Automatically fetches last 30 days of test results
+- **No user interaction needed**: Runs in background
+
+**Deploy the CronJob:**
+```bash
+oc apply -f openshift/cronjob.yaml
+```
+
+**Check CronJob status:**
+```bash
+# View CronJob
+oc get cronjob
+
+# View recent job runs
+oc get jobs -l app=winc-dashboard
+
+# View logs from latest collection
+oc logs -l component=data-collector --tail=50
+```
+
+**Trigger manual collection:**
+```bash
+# Create one-time job from CronJob
+oc create job manual-collect-$(date +%s) --from=cronjob/dashboard-collector
+
+# Watch the job
+oc logs -f job/manual-collect-XXXXX
+```
+
+**Why both approaches?**
+- On-login: Ensures data is available immediately when needed
+- CronJob: Keeps dashboard fresh for users, reduces initial load time
+- Best of both worlds: Fast access + always up-to-date data
 
 ## GitHub Webhook - Automatic Deployments
 
