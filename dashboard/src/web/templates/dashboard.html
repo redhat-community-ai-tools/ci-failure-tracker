@@ -532,7 +532,7 @@
                         <option value="4.22">4.22</option>
                     </select>
                 </div>
-                <button class="refresh-button" onclick="location.href='/api/trigger-collection?redirect=true'" title="Collect latest data from ReportPortal">
+                <button class="refresh-button" onclick="triggerCollection()" title="Collect latest data from ReportPortal">
                     🔄 Refresh Data
                 </button>
             </div>
@@ -714,6 +714,30 @@
             const queryString = new URLSearchParams(params).toString();
             const response = await fetch(`/api/${endpoint}?${queryString}`);
             return await response.json();
+        }
+
+        async function triggerCollection() {
+            try {
+                const response = await fetch('/api/trigger-collection', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ days: 30 })
+                });
+
+                if (response.ok) {
+                    // Show collection banner and reload to monitor progress
+                    alert('Data collection started! The page will monitor progress.');
+                    location.reload();
+                } else if (response.status === 409) {
+                    alert('Collection is already running. Please wait for it to complete.');
+                } else {
+                    alert('Failed to start collection. Please try again.');
+                }
+            } catch (error) {
+                alert('Error starting collection: ' + error.message);
+            }
         }
 
         async function refreshDashboard() {
