@@ -809,9 +809,7 @@
 
             return `
                 <a href="#" onclick="openLogWindow(document.getElementById('${id}').textContent, '${title.replace(/'/g, "\\'")}'); return false;"
-                   style="display: inline-block; padding: 6px 12px; background: #dbeafe; color: #1e40af;
-                          text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: 500;
-                          border: 1px solid #93c5fd;">
+                   style="color: #2563eb; text-decoration: underline; font-size: 12px;">
                     View logs
                 </a>
                 <div id="${id}" style="display:none;">${errorText}</div>
