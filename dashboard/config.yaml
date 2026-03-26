@@ -134,7 +134,7 @@ tracking:
 # Database configuration
 database:
   # Path to SQLite database file
-  path: "./data/dashboard.db"
+  path: "/data/dashboard.db"
 
 # Web server configuration
 web:
