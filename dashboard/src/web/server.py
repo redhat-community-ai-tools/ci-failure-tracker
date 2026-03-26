@@ -9,10 +9,15 @@ import yaml
 import threading
 import sys
 import os
+import logging
 
 from storage.database import DashboardDatabase
 from metrics.calculator import MetricsCalculator
 from reports.weekly_report import WeeklyReportGenerator
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Global collection status
 collection_status = {
@@ -29,6 +34,7 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
     global collection_status
 
     try:
+        logger.info(f"Starting data collection for {days} days")
         collection_status['progress'] = 'Starting collection...'
 
         # Load config
@@ -41,18 +47,24 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
 
         # Initialize collector
         collector_type = config['collector']['type']
+        logger.info(f"Using collector type: {collector_type}")
         if collector_type == 'reportportal':
             rp_config = config['collector']['reportportal']
             collector = ReportPortalCollector(rp_config)
         else:
-            collection_status['error'] = f'Unsupported collector type: {collector_type}'
+            error_msg = f'Unsupported collector type: {collector_type}'
+            logger.error(error_msg)
+            collection_status['error'] = error_msg
             collection_status['running'] = False
             return
 
         # Health check
+        logger.info("Running health check...")
         collection_status['progress'] = 'Checking data source...'
         if not collector.health_check():
-            collection_status['error'] = 'Failed to connect to data source'
+            error_msg = 'Failed to connect to data source'
+            logger.error(error_msg)
+            collection_status['error'] = error_msg
             collection_status['running'] = False
             return
 
@@ -72,6 +84,7 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
                 expanded_patterns.append(pattern.replace('{version}', version))
 
         # Collect job runs
+        logger.info("Collecting job runs...")
         collection_status['progress'] = 'Collecting job runs...'
         job_runs = collector.collect_job_runs(
             start_date=start_date,
@@ -80,9 +93,11 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
             versions=versions,
             platforms=platforms
         )
+        logger.info(f"Collected {len(job_runs)} job runs")
 
         # Collect test results
         collection_status['progress'] = f'Collected {len(job_runs)} job runs, collecting test results...'
+        logger.info("Collecting test results (fetching logs for failed tests)...")
         test_results = collector.collect_test_results(
             start_date=start_date,
             end_date=end_date,
@@ -90,9 +105,11 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
             versions=versions,
             platforms=platforms
         )
+        logger.info(f"Collected {len(test_results)} test results")
 
         # Save to database
         collection_status['progress'] = f'Collected {len(test_results)} test results, saving to database...'
+        logger.info("Saving to database...")
         db = DashboardDatabase(db_path)
 
         inserted_jobs = db.insert_job_runs(job_runs)
@@ -103,14 +120,17 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
 
         db.close()
 
+        logger.info(f"Collection complete! Inserted {inserted_jobs} job runs and {inserted_tests} test results")
         collection_status['progress'] = f'Complete! Saved {inserted_jobs} job runs and {inserted_tests} test results'
         collection_status['last_run'] = datetime.now().isoformat()
         collection_status['error'] = None
 
     except Exception as e:
+        logger.error(f"Collection failed: {e}", exc_info=True)
         collection_status['error'] = str(e)
         collection_status['progress'] = 'Failed'
     finally:
+        logger.info("Collection thread finished")
         collection_status['running'] = False
 
 
