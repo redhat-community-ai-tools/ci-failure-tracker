@@ -242,6 +242,36 @@ class ReportPortalCollector(BaseCollector):
 
         return launches
 
+    def _fetch_logs_for_item(self, item_id: str) -> Optional[str]:
+        """Fetch log messages for a test item"""
+        try:
+            url = f"{self.url}/api/v1/{self.project}/log"
+            params = {
+                'filter.eq.item': item_id,
+                'page.size': 100
+            }
+
+            response = self.session.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+
+            logs = data.get('content', [])
+            if not logs:
+                return None
+
+            # Combine all log messages
+            log_lines = []
+            for log in logs:
+                message = log.get('message', '').strip()
+                if message:
+                    log_lines.append(message)
+
+            return '\n'.join(log_lines) if log_lines else None
+
+        except Exception as e:
+            print(f"Error fetching logs for item {item_id}: {e}")
+            return None
+
     def _fetch_test_items(
         self,
         launch: Dict[str, Any],
@@ -288,12 +318,18 @@ class ReportPortalCollector(BaseCollector):
                     if test_names and test_name not in test_names:
                         continue
 
+                    # Fetch logs for failed tests only
+                    error_message = None
+                    item_status = self._map_status(item.get('status', 'UNKNOWN'))
+                    if item_status == TestStatus.FAILED:
+                        error_message = self._fetch_logs_for_item(str(item['id']))
+
                     result = TestResult(
                         test_name=test_name,
-                        status=self._map_status(item.get('status', 'UNKNOWN')),
+                        status=item_status,
                         timestamp=datetime.fromtimestamp(item['startTime'] / 1000),
                         duration_seconds=(item.get('endTime', item['startTime']) - item['startTime']) / 1000,
-                        error_message=item.get('issue', {}).get('comment'),
+                        error_message=error_message,
                         job_name=launch['name'],
                         build_id=str(launch['id']),
                         version=metadata['version'],
