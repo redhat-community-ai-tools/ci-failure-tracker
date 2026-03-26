@@ -576,11 +576,10 @@
                         <th>Runs</th>
                         <th>Pass Rate</th>
                         <th style="width: 200px;">Performance</th>
-                        <th style="width: 250px;">Latest Failure</th>
                     </tr>
                 </thead>
                 <tbody id="testRankings">
-                    <tr><td colspan="6" class="loading">Loading...</td></tr>
+                    <tr><td colspan="5" class="loading">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -939,30 +938,32 @@
             const tbody = document.getElementById('testRankings');
 
             if (rankings.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#666;">No data available</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px; color:#666;">No data available</td></tr>';
                 return;
             }
 
-            tbody.innerHTML = rankings.map(test => `
+            tbody.innerHTML = rankings.map(test => {
+                // Only show error for tests with failures (pass rate < 100%)
+                const showError = test.pass_rate < 100 && test.sample_error;
+
+                return `
                 <tr>
-                    <td>
-                        <strong>${test.test_name}</strong>
-                        ${test.test_description ? `<br><span style="font-size:12px; color:#666;">${test.test_description}</span>` : ''}
+                    <td style="vertical-align: top;">
+                        <div><strong>${test.test_name}</strong></div>
+                        ${test.test_description ? `<div style="font-size:12px; color:#666; margin-top:2px;">${test.test_description}</div>` : ''}
+                        ${showError ? `<div style="margin-top:8px; padding-top:8px; border-top:1px solid #e5e7eb;">${formatError(test.sample_error)}</div>` : ''}
                     </td>
-                    <td>${test.version}</td>
-                    <td>${test.total_runs}</td>
-                    <td><strong>${test.pass_rate.toFixed(1)}%</strong></td>
-                    <td>
+                    <td style="vertical-align: top;">${test.version}</td>
+                    <td style="vertical-align: top;">${test.total_runs}</td>
+                    <td style="vertical-align: top;"><strong>${test.pass_rate.toFixed(1)}%</strong></td>
+                    <td style="vertical-align: top;">
                         <div class="pass-rate-bar">
                             <div class="fill" style="width: ${test.pass_rate}%"></div>
                             <div class="label">${test.pass_rate.toFixed(1)}%</div>
                         </div>
                     </td>
-                    <td style="vertical-align: top; padding: 8px;">
-                        ${formatError(test.sample_error)}
-                    </td>
                 </tr>
-            `).join('');
+            `}).join('');
         }
 
         async function refreshWeeklyReport() {
