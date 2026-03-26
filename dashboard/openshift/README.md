@@ -74,24 +74,31 @@ oc get route winc-dashboard
 
 ## Data Collection
 
-The dashboard uses **on-demand data collection**:
-
-### Automatic Collection
-When you visit the dashboard for the first time (or if data is stale):
-
-1. **Auto-Check**: Dashboard checks for recent data (last 7 days)
-2. **Auto-Collection**: If no recent data exists, collection starts automatically (30 days of data)
-3. **Progress Banner**: Blue banner shows real-time progress
-4. **Completion**: Green banner appears when done, page auto-refreshes after 3 seconds
+The dashboard uses **manual on-demand data collection** (no scheduled CronJobs):
 
 ### Manual Refresh
-Click the **"🔄 Refresh Data"** button in the dashboard to trigger data collection at any time.
 
-This will:
-- Fetch the latest test results from ReportPortal
-- Update the database with the last 30 days of data
-- Show a progress banner during collection
-- Automatically refresh the page when complete
+Click the **"🔄 Refresh Data"** button in the dashboard to collect test results.
+
+**Collection process:**
+1. Fetches latest test results from ReportPortal (last 30 days)
+2. For each **failed** test, fetches actual stdout/stderr logs from ReportPortal API
+3. Stores ~3000 test results + logs in SQLite database
+4. Takes 2-3 minutes to complete
+5. Progress shown in blue banner with real-time status
+6. Dashboard data refreshes automatically when complete (no page reload)
+
+**What's collected:**
+- 36 job runs (periodic WINC jobs from last 30 days)
+- 3122 test results (only OCP-* tests, infrastructure failures excluded)
+- **Actual test logs** (not AI summaries) stored in `error_message` field
+- Pass rates, timestamps, versions, platforms
+
+### View Test Logs
+
+Each failing test shows a **"View logs"** link that opens actual stdout/stderr in a new tab.
+
+**No CronJob:** Due to OpenShift cluster resource constraints, there is no scheduled collection. Users click "Refresh Data" when they need updated results.
 
 ## GitHub Webhook - Automatic Deployments
 
