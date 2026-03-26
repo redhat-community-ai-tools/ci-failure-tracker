@@ -748,64 +748,74 @@
             const div = document.createElement('div');
             div.innerHTML = errorHtml;
 
-            // Try to extract AI Summary or error message content
+            // Try to extract AI Summary content from <pre> tag
             const pre = div.querySelector('pre');
             if (pre) {
-                return pre.textContent.trim();
+                // Clean up the pre content - remove extra newlines but keep structure
+                let text = pre.textContent.trim();
+                text = text.replace(/\n\s*\n\s*\n/g, '\n'); // Remove excessive blank lines
+                return text;
             }
 
             // Fallback: get all text and clean up
             let text = div.textContent.trim();
 
-            // Remove table headers and links
-            text = text.replace(/🤖.*?AI Summary/g, '');
-            text = text.replace(/TFA-R.*?Similarity Score/g, '');
+            // Remove ReportPortal specific elements
+            text = text.replace(/🤖\s*AI Summary/g, '');
+            text = text.replace(/TFA-R\s*Similarity Score/g, '');
             text = text.replace(/\[Result \d+\]/g, '');
             text = text.replace(/\|\s*-+\s*\|/g, '');
+            text = text.replace(/\d+\.\d+/g, ''); // Remove similarity scores
             text = text.replace(/https?:\/\/[^\s]+/g, '');
 
             // Clean up whitespace
-            text = text.replace(/\n\s*\n/g, '\n').trim();
+            text = text.replace(/\n\s*\n\s*\n/g, '\n').trim();
 
             return text || null;
         }
 
-        function formatError(errorText, maxLength = 100) {
-            if (!errorText) return '<span style="color: #ccc;">-</span>';
+        function formatError(errorText, maxLength = 120) {
+            if (!errorText) return '<span style="color: #999; font-size: 12px;">No error details</span>';
 
             const clean = extractErrorText(errorText);
-            if (!clean) return '<span style="color: #ccc;">-</span>';
+            if (!clean) return '<span style="color: #999; font-size: 12px;">No error details</span>';
 
-            // Get first line or truncate
-            const firstLine = clean.split('\n')[0];
-            const truncated = firstLine.length > maxLength
-                ? firstLine.substring(0, maxLength) + '...'
-                : firstLine;
+            // Clean HTML entities
+            const cleanText = clean.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+
+            // Get first sentence or line for preview
+            const sentences = cleanText.split(/[.\n]/);
+            const preview = sentences[0].trim();
+            const truncated = preview.length > maxLength
+                ? preview.substring(0, maxLength) + '...'
+                : preview;
 
             // Make it expandable if there's more content
-            if (clean.length > maxLength) {
+            if (cleanText.length > preview.length || preview.length > maxLength) {
                 const id = 'err-' + Math.random().toString(36).substr(2, 9);
                 return `
-                    <div style="font-size: 12px; font-family: monospace;">
-                        <div id="${id}-short" style="color: #dc2626;">
-                            ${truncated}
+                    <div style="font-size: 12px;">
+                        <div id="${id}-short">
+                            <span style="color: #b91c1c; line-height: 1.4;">${truncated}</span>
                             <a href="#" onclick="document.getElementById('${id}-short').style.display='none';
                                                document.getElementById('${id}-full').style.display='block';
                                                return false;"
-                               style="color: #2563eb; text-decoration: none; margin-left: 5px;">[more]</a>
+                               style="color: #2563eb; text-decoration: none; margin-left: 4px; white-space: nowrap;">[more]</a>
                         </div>
-                        <div id="${id}-full" style="display: none; color: #dc2626; max-height: 200px; overflow-y: auto; white-space: pre-wrap;">
-                            ${clean}
+                        <div id="${id}-full" style="display: none;">
+                            <div style="color: #b91c1c; line-height: 1.5; max-height: 180px; overflow-y: auto;
+                                      padding: 8px; background: #fef2f2; border-left: 3px solid #dc2626;
+                                      white-space: pre-wrap; font-family: 'Consolas', 'Monaco', monospace;">${cleanText}</div>
                             <a href="#" onclick="document.getElementById('${id}-short').style.display='block';
                                                document.getElementById('${id}-full').style.display='none';
                                                return false;"
-                               style="color: #2563eb; text-decoration: none; display: block; margin-top: 5px;">[less]</a>
+                               style="color: #2563eb; text-decoration: none; display: inline-block; margin-top: 4px;">[less]</a>
                         </div>
                     </div>
                 `;
             }
 
-            return `<span style="font-size: 12px; font-family: monospace; color: #dc2626;">${truncated}</span>`;
+            return `<span style="font-size: 12px; color: #b91c1c; line-height: 1.4;">${truncated}</span>`;
         }
 
         async function refreshDashboard() {
