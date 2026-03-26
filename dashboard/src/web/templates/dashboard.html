@@ -739,22 +739,82 @@
             }
         }
 
+        function openLogWindow(logContent, testTitle) {
+            const newWindow = window.open('', '_blank');
+            const escapedContent = logContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const escapedTitle = testTitle.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+            newWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>${escapedTitle}</title>
+                    <style>
+                        body {
+                            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                            margin: 0;
+                            padding: 20px;
+                            background: #f8fafc;
+                        }
+                        .container {
+                            max-width: 1200px;
+                            margin: 0 auto;
+                            background: white;
+                            border-radius: 8px;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                            overflow: hidden;
+                        }
+                        .header {
+                            background: #1e40af;
+                            color: white;
+                            padding: 20px;
+                            font-size: 18px;
+                            font-weight: 600;
+                        }
+                        .content {
+                            padding: 20px;
+                        }
+                        pre {
+                            background: #1e293b;
+                            color: #e2e8f0;
+                            padding: 20px;
+                            border-radius: 6px;
+                            overflow-x: auto;
+                            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                            font-size: 13px;
+                            line-height: 1.6;
+                            white-space: pre-wrap;
+                            word-wrap: break-word;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">${escapedTitle}</div>
+                        <div class="content">
+                            <pre>${escapedContent}</pre>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            `);
+            newWindow.document.close();
+        }
+
         function formatError(errorText, testName, testDescription) {
             if (!errorText) return '<span style="color: #999; font-size: 12px;">No logs available</span>';
 
-            // Encode log text and metadata for URL parameters
-            const encodedLog = encodeURIComponent(errorText);
-            const encodedName = encodeURIComponent(testName || 'Test Log');
+            const id = 'log-' + Math.random().toString(36).substr(2, 9);
             const title = testDescription ? `${testName} - ${testDescription}` : testName;
-            const encodedTitle = encodeURIComponent(title);
 
             return `
-                <a href="/logs?content=${encodedLog}&test=${encodedTitle}" target="_blank" rel="noopener noreferrer"
+                <a href="#" onclick="openLogWindow(document.getElementById('${id}').textContent, '${title.replace(/'/g, "\\'")}'); return false;"
                    style="display: inline-block; padding: 6px 12px; background: #dbeafe; color: #1e40af;
                           text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: 500;
                           border: 1px solid #93c5fd;">
                     View logs
                 </a>
+                <div id="${id}" style="display:none;">${errorText}</div>
             `;
         }
 
