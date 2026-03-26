@@ -299,23 +299,14 @@ class DashboardDatabase:
                 COUNT(*) as total_runs,
                 SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) as passed_runs,
                 CAST(SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) AS REAL) / COUNT(*) * 100 as pass_rate,
-                (SELECT error_message FROM test_results tr2
+                (SELECT log_url FROM test_results tr2
                  WHERE tr2.test_name = test_results.test_name
                  AND tr2.version = test_results.version
                  AND tr2.status = 'failed'
-                 AND tr2.error_message IS NOT NULL
+                 AND tr2.log_url IS NOT NULL
                  AND tr2.timestamp >= ?
                  AND tr2.timestamp <= ?
                  ORDER BY tr2.timestamp DESC
-                 LIMIT 1) as sample_error,
-                (SELECT log_url FROM test_results tr3
-                 WHERE tr3.test_name = test_results.test_name
-                 AND tr3.version = test_results.version
-                 AND tr3.status = 'failed'
-                 AND tr3.log_url IS NOT NULL
-                 AND tr3.timestamp >= ?
-                 AND tr3.timestamp <= ?
-                 ORDER BY tr3.timestamp DESC
                  LIMIT 1) as sample_log_url
             FROM test_results
             WHERE timestamp >= ? AND timestamp <= ?
@@ -323,7 +314,7 @@ class DashboardDatabase:
             AND test_name LIKE 'OCP-%'
         """
 
-        params = [start_date.isoformat(), end_date.isoformat(), start_date.isoformat(), end_date.isoformat(),
+        params = [start_date.isoformat(), end_date.isoformat(),
                   start_date.isoformat(), end_date.isoformat()]
 
         if test_name:
