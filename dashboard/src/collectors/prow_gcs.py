@@ -283,8 +283,16 @@ class ProwGCSCollector(BaseCollector):
         results = []
 
         try:
-            # Find JUnit XML files in artifacts
-            artifacts_url = f"{self.gcs_url}/logs/{job_run.job_name}/{job_run.build_id}/artifacts/"
+            # Extract GCS path from job_url to support both /logs/ and /pr-logs/ paths
+            if job_run.job_url and '/view/gs/qe-private-deck/' in job_run.job_url:
+                # Extract path after /view/gs/qe-private-deck/
+                # Example: pr-logs/pull/openshift_release/76816/rehearse-76816-.../2037290229743751168
+                # or: logs/periodic-ci-.../build_id
+                gcs_path = job_run.job_url.split('/view/gs/qe-private-deck/')[-1]
+                artifacts_url = f"{self.gcs_url}/{gcs_path}/artifacts/"
+            else:
+                # Fallback to default /logs/ path for jobs without URL
+                artifacts_url = f"{self.gcs_url}/logs/{job_run.job_name}/{job_run.build_id}/artifacts/"
 
             junit_files = self._find_junit_files(artifacts_url)
 
@@ -445,6 +453,13 @@ class ProwGCSCollector(BaseCollector):
                     # Description
                     classname = testcase.get('classname', '')
 
+                    # Construct log_url using same logic as artifacts_url
+                    if job_run.job_url and '/view/gs/qe-private-deck/' in job_run.job_url:
+                        gcs_path = job_run.job_url.split('/view/gs/qe-private-deck/')[-1]
+                        log_url = f"{self.gcs_url}/{gcs_path}/build-log.txt"
+                    else:
+                        log_url = f"{self.gcs_url}/logs/{job_run.job_name}/{job_run.build_id}/build-log.txt"
+
                     result = TestResult(
                         test_name=test_name,
                         status=status,
@@ -457,7 +472,7 @@ class ProwGCSCollector(BaseCollector):
                         platform=job_run.platform,
                         test_description=classname,
                         job_url=job_run.job_url,
-                        log_url=f"{self.gcs_url}/logs/{job_run.job_name}/{job_run.build_id}/build-log.txt"
+                        log_url=log_url
                     )
 
                     results.append(result)
