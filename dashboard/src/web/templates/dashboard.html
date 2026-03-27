@@ -112,6 +112,49 @@
         .trend.declining { color: #dc2626; }
         .trend.stable { color: #666; }
 
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            font-size: 18px;
+            font-weight: 600;
+            color: #2563eb;
+        }
+
+        .loading-overlay.active {
+            display: flex;
+        }
+
+        .loading-spinner {
+            border: 4px solid #f3f4f6;
+            border-top: 4px solid #2563eb;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-right: 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .card .label {
+            font-size: 13px;
+            color: #666;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
         .charts-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
@@ -489,6 +532,10 @@
     </style>
 </head>
 <body>
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <span>Loading data...</span>
+    </div>
     <div class="container">
         <header>
             <div class="header-title">
@@ -546,7 +593,10 @@
             <div class="card">
                 <h3>Total Test Runs</h3>
                 <div class="value" id="totalRuns">--</div>
-                <div id="dateRange" style="margin-top:10px; font-size:12px; color:#666;"></div>
+                <div style="margin-top:15px; padding-top:15px; border-top:1px solid #e5e7eb;">
+                    <div class="label">Date Range</div>
+                    <div id="dateRange" style="margin-top:5px; font-size:14px; color:#333; font-weight:600;">--</div>
+                </div>
             </div>
         </div>
 
@@ -801,17 +851,26 @@
             newWindow.document.close();
         }
 
-        function formatError(errorText, testName, testDescription) {
+        function formatError(errorText, testName, testDescription, failedPlatforms) {
             if (!errorText) return '<span style="color: #999; font-size: 12px;">No logs available</span>';
 
             const id = 'log-' + Math.random().toString(36).substr(2, 9);
             const title = testDescription ? `${testName} - ${testDescription}` : testName;
 
+            // Platform badges for all failed platforms
+            let platformBadges = '';
+            if (failedPlatforms) {
+                const platforms = failedPlatforms.split(',').filter(p => p);
+                platformBadges = platforms.map(platform =>
+                    `<span style="display: inline-block; background: #ef4444; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-left: 6px; text-transform: uppercase;">${platform.trim()}</span>`
+                ).join('');
+            }
+
             return `
                 <a href="#" onclick="openLogWindow(document.getElementById('${id}').textContent, '${title.replace(/'/g, "\\'")}'); return false;"
                    style="color: #2563eb; text-decoration: underline; font-size: 12px;">
                     View logs
-                </a>
+                </a>${platformBadges}
                 <div id="${id}" style="display:none;">${errorText}</div>
             `;
         }
@@ -820,34 +879,42 @@
             const days = parseInt(document.getElementById('timeRange').value);
             const version = document.getElementById('versionFilter').value;
 
-            // Update test list header based on selected time range
-            document.getElementById('testListHeader').textContent = `Lowest Performing Tests (Last ${days} Days)`;
+            // Show loading overlay
+            document.getElementById('loadingOverlay').classList.add('active');
 
-            // Fetch all data
-            const [summary, trend, versionComp, testRankings] = await Promise.all([
-                fetchData('summary', { days, version }),
-                fetchData('trend', { days, version }),
-                fetchData('version-comparison', { days }),
-                fetchData('test-rankings', { days, version, limit: 100 })
-            ]);
+            try {
+                // Update test list header based on selected time range
+                document.getElementById('testListHeader').textContent = `Lowest Performing Tests (Last ${days} Days)`;
 
-            // Update summary cards
-            document.getElementById('avgPassRate').textContent = `${summary.avg_pass_rate}%`;
-            document.getElementById('totalRuns').textContent = summary.total_runs;
-            document.getElementById('dateRange').textContent = summary.date_range;
+                // Fetch all data
+                const [summary, trend, versionComp, testRankings] = await Promise.all([
+                    fetchData('summary', { days, version }),
+                    fetchData('trend', { days, version }),
+                    fetchData('version-comparison', { days }),
+                    fetchData('test-rankings', { days, version, limit: 100 })
+                ]);
 
-            const trendEl = document.getElementById('trendIndicator');
-            trendEl.textContent = `Trend: ${summary.trend}`;
-            trendEl.className = `trend ${summary.trend}`;
+                // Update summary cards
+                document.getElementById('avgPassRate').textContent = `${summary.avg_pass_rate}%`;
+                document.getElementById('totalRuns').textContent = summary.total_runs;
+                document.getElementById('dateRange').textContent = summary.date_range;
 
-            // Update trend chart
-            updateTrendChart(trend);
+                const trendEl = document.getElementById('trendIndicator');
+                trendEl.textContent = `Trend: ${summary.trend}`;
+                trendEl.className = `trend ${summary.trend}`;
 
-            // Update version comparison chart
-            updateVersionChart(versionComp);
+                // Update trend chart
+                updateTrendChart(trend);
 
-            // Update test rankings table
-            updateTestRankings(testRankings);
+                // Update version comparison chart
+                updateVersionChart(versionComp);
+
+                // Update test rankings table
+                updateTestRankings(testRankings);
+            } finally {
+                // Hide loading overlay
+                document.getElementById('loadingOverlay').classList.remove('active');
+            }
         }
 
         function updateTrendChart(data) {
@@ -950,7 +1017,7 @@
                     <td style="vertical-align: top;">
                         <div><strong>${test.test_name}</strong></div>
                         ${test.test_description ? `<div style="font-size:12px; color:#666; margin-top:2px;">${test.test_description}</div>` : ''}
-                        ${showLogs ? `<div style="margin-top:8px; padding-top:8px; border-top:1px solid #e5e7eb;">${formatError(test.sample_error, test.test_name, test.test_description)}</div>` : ''}
+                        ${showLogs ? `<div style="margin-top:8px; padding-top:8px; border-top:1px solid #e5e7eb;">${formatError(test.sample_error, test.test_name, test.test_description, test.failed_platforms)}</div>` : ''}
                     </td>
                     <td style="vertical-align: top;">${test.version}</td>
                     <td style="vertical-align: top;">${test.total_runs}</td>

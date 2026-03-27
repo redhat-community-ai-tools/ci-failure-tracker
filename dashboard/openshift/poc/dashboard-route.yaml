@@ -1,0 +1,15 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: winc-dashboard-poc
+  labels:
+    app: winc-dashboard-poc
+spec:
+  to:
+    kind: Service
+    name: winc-dashboard-poc
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

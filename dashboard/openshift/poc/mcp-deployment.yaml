@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prow-mcp-server
+  labels:
+    app: prow-mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prow-mcp-server
+  template:
+    metadata:
+      labels:
+        app: prow-mcp-server
+    spec:
+      containers:
+        - name: prow-mcp-server
+          image: image-registry.openshift-image-registry.svc:5000/winc-dashboard-poc/prow-mcp-server:latest
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          env:
+            - name: MCP_TRANSPORT
+              value: "sse"
+            - name: MCP_HOST
+              value: "0.0.0.0"
+            - name: MCP_PORT
+              value: "8000"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+  triggers:
+    - type: ConfigChange
+    - type: ImageChange
+      imageChangeParams:
+        automatic: true
+        containerNames:
+          - prow-mcp-server
+        from:
+          kind: ImageStreamTag
+          name: prow-mcp-server:latest

@@ -1,0 +1,9 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: prow-mcp-server
+  labels:
+    app: prow-mcp-server
+spec:
+  lookupPolicy:
+    local: false

@@ -1,0 +1,9 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: winc-dashboard-poc
+  labels:
+    app: winc-dashboard-poc
+spec:
+  lookupPolicy:
+    local: false

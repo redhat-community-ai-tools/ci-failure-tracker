@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-config-poc
+  labels:
+    app: winc-dashboard-poc
+data:
+  config.yaml: |
+    # POC Configuration - Direct GCS access (no MCP, no ReportPortal)
+
+    collector:
+      type: "prow_gcs"
+
+      prow_gcs:
+        # QE Private Prow (WINC jobs are here)
+        prow_url: "https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com"
+        gcs_url: "https://gcsweb-qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com/gcs/qe-private-deck"
+
+        # Job patterns (supports wildcards: * matches any characters)
+        job_patterns:
+          # Periodic (nightly) jobs
+          - "periodic-ci-openshift-openshift-tests-private-release-4.21-*-winc-*"
+          - "periodic-ci-openshift-openshift-tests-private-release-4.22-*-winc-*"
+          - "periodic-ci-openshift-windows-machine-config-operator-release-4.21-*"
+          - "periodic-ci-openshift-windows-machine-config-operator-release-4.22-*"
+
+          # Pull request (presubmit) jobs
+          - "pull-ci-openshift-openshift-tests-private-*-winc-*"
+          - "pull-ci-openshift-windows-machine-config-operator-*-winc-*"
+
+          # Rehearse jobs (test changes to CI config)
+          - "rehearse-*-periodic-ci-openshift-openshift-tests-private-*-winc-*"
+          - "rehearse-*-periodic-ci-openshift-windows-machine-config-operator-*"
+
+        max_workers: 5
+
+      # Fallback to ReportPortal (not used in POC but kept for reference)
+      reportportal:
+        url: "https://reportportal-openshift.apps.dno.ocp-hub.prod.psi.redhat.com"
+        project: "prow"
+        job_patterns:
+          - "periodic-ci-openshift-openshift-tests-private-release-{version}-*-winc-*"
+          - "periodic-ci-openshift-windows-machine-config-operator-release-{version}-*"
+          - "pull-ci-openshift-openshift-tests-private-release-{version}-*-winc-*"
+          - "pull-ci-openshift-windows-machine-config-operator-release-{version}-*-winc-*"
+        page_size: 150
+        max_pages: 10
+        max_workers: 5
+
+    tracking:
+      versions:
+        - "4.21"
+        - "4.22"
+      platforms:
+        - "aws"
+        - "azure"
+        - "gcp"
+        - "nutanix"
+        - "vsphere"
+      lookback_days: 30
+      blocklist:
+        - "OCP-60944"
+        - "OCP-66352"
+
+    database:
+      path: "/data/dashboard.db"
+
+    web:
+      host: "0.0.0.0"
+      port: 8080
+      debug: false
+
+    schedule:
+      enabled: false
+      cron: "0 9 * * *"

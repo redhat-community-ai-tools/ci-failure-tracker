@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: winc-dashboard-poc
+  labels:
+    app: winc-dashboard-poc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: winc-dashboard-poc
+  template:
+    metadata:
+      labels:
+        app: winc-dashboard-poc
+    spec:
+      containers:
+        - name: dashboard
+          image: image-registry.openshift-image-registry.svc:5000/winc-dashboard-poc/winc-dashboard-poc:latest
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: REPORTPORTAL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: reportportal-token
+                  key: token
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: prow-api-token
+                  key: token
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: winc-dashboard-poc-data
+        - name: config
+          configMap:
+            name: dashboard-config-poc
+  triggers:
+    - type: ConfigChange
+    - type: ImageChange
+      imageChangeParams:
+        automatic: true
+        containerNames:
+          - dashboard
+        from:
+          kind: ImageStreamTag
+          name: winc-dashboard-poc:latest

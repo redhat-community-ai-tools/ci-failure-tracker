@@ -1,0 +1,27 @@
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: prow-mcp-server
+  labels:
+    app: prow-mcp-server
+spec:
+  output:
+    to:
+      kind: ImageStreamTag
+      name: prow-mcp-server:latest
+  source:
+    type: Git
+    git:
+      uri: https://github.com/rrasouli/prow-mcp-server.git
+      ref: main
+    contextDir: .
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Containerfile.sse
+  triggers:
+    - type: ConfigChange
+    - type: GitHub
+      github:
+        secretReference:
+          name: webhook-secret

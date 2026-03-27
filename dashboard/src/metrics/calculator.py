@@ -105,8 +105,8 @@ class MetricsCalculator:
         )
 
         # Filter tests with meaningful sample size
-        # Use lower threshold (1 run) when filtering by platform, higher (3 runs) for all platforms
-        min_runs = 1 if platform else 3
+        # Use lower threshold (1 run) when filtering by platform, (2 runs) for all platforms
+        min_runs = 1 if platform else 2
         meaningful_tests = [
             test for test in test_data
             if test['total_runs'] >= min_runs

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: winc-dashboard-poc
+  labels:
+    app: winc-dashboard-poc
+spec:
+  selector:
+    app: winc-dashboard-poc
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+      name: http
+  type: ClusterIP

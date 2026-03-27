@@ -299,6 +299,7 @@ class DashboardDatabase:
                 COUNT(*) as total_runs,
                 SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) as passed_runs,
                 CAST(SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) AS REAL) / COUNT(*) * 100 as pass_rate,
+                GROUP_CONCAT(DISTINCT CASE WHEN status = 'failed' THEN platform END) as failed_platforms,
                 (SELECT error_message FROM test_results tr2
                  WHERE tr2.test_name = test_results.test_name
                  AND tr2.version = test_results.version
@@ -307,7 +308,16 @@ class DashboardDatabase:
                  AND tr2.timestamp >= ?
                  AND tr2.timestamp <= ?
                  ORDER BY tr2.timestamp DESC
-                 LIMIT 1) as sample_error
+                 LIMIT 1) as sample_error,
+                (SELECT platform FROM test_results tr2
+                 WHERE tr2.test_name = test_results.test_name
+                 AND tr2.version = test_results.version
+                 AND tr2.status = 'failed'
+                 AND tr2.error_message IS NOT NULL
+                 AND tr2.timestamp >= ?
+                 AND tr2.timestamp <= ?
+                 ORDER BY tr2.timestamp DESC
+                 LIMIT 1) as sample_error_platform
             FROM test_results
             WHERE timestamp >= ? AND timestamp <= ?
             AND status != 'skipped'
@@ -315,6 +325,7 @@ class DashboardDatabase:
         """
 
         params = [start_date.isoformat(), end_date.isoformat(),
+                  start_date.isoformat(), end_date.isoformat(),
                   start_date.isoformat(), end_date.isoformat()]
 
         if test_name:
@@ -330,9 +341,10 @@ class DashboardDatabase:
             params.append(platform)
 
         if blocklist:
-            placeholders = ','.join(['?' for _ in blocklist])
-            query += f" AND test_name NOT IN ({placeholders})"
-            params.extend(blocklist)
+            # Use LIKE to match test ID prefix (e.g., OCP-60944 matches OCP-60944:author:...)
+            blocklist_conditions = ' AND '.join([f"test_name NOT LIKE ?" for _ in blocklist])
+            query += f" AND ({blocklist_conditions})"
+            params.extend([f"{test_id}%" for test_id in blocklist])
 
         query += " GROUP BY test_name, version ORDER BY pass_rate ASC"
 

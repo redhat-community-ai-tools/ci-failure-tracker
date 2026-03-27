@@ -1,0 +1,27 @@
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: winc-dashboard-poc
+  labels:
+    app: winc-dashboard-poc
+spec:
+  output:
+    to:
+      kind: ImageStreamTag
+      name: winc-dashboard-poc:latest
+  source:
+    type: Git
+    git:
+      uri: https://github.com/rrasouli/ci-failure-tracker.git
+      ref: poc-prow-mcp
+    contextDir: dashboard
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  triggers:
+    - type: ConfigChange
+    - type: GitHub
+      github:
+        secretReference:
+          name: webhook-secret

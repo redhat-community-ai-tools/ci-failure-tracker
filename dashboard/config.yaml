@@ -19,9 +19,9 @@
 
 # Data collector configuration
 collector:
-  # Type of collector: "reportportal", "prow_gcs", "gcsweb"
-  # Currently using ReportPortal (requires API token in env var)
-  # TODO: Switch to prow_gcs once GCS authentication is configured
+  # Type of collector: "reportportal", "prow_mcp", "prow_gcs", "gcsweb"
+  # Production uses ReportPortal
+  # POC uses prow_gcs (direct GCS access via QE Private Prow)
   type: "reportportal"
 
   # ReportPortal configuration
@@ -33,10 +33,28 @@ collector:
     # ========================================================================
     # CUSTOMIZE: Job name patterns to monitor for your team
     # {version} will be replaced with each version from tracking.versions
+    #
+    # Job types:
+    # - periodic-ci-* = Periodic/nightly jobs
+    # - pull-ci-* = Presubmit jobs (run on PRs)
+    # - branch-ci-* = Postsubmit jobs (run after merge)
     # ========================================================================
     job_patterns:
+      # Periodic (nightly) jobs
       - "periodic-ci-openshift-openshift-tests-private-release-{version}-*-winc-*"
       - "periodic-ci-openshift-windows-machine-config-operator-release-{version}-*"
+
+      # Presubmit (PR) jobs - for debugging PR failures
+      - "pull-ci-openshift-openshift-tests-private-release-{version}-*-winc-*"
+      - "pull-ci-openshift-windows-machine-config-operator-release-{version}-*-winc-*"
+      - "pull-ci-openshift-windows-machine-config-operator-*-e2e-*"
+
+      # Rehearse jobs (test changes to CI config before merging)
+      - "rehearse-*-periodic-ci-openshift-openshift-tests-private-release-{version}-*-winc-*"
+      - "rehearse-*-periodic-ci-openshift-windows-machine-config-operator-release-{version}-*"
+
+      # Postsubmit jobs (after merge)
+      - "branch-ci-openshift-windows-machine-config-operator-*"
 
     # API settings
     page_size: 150
@@ -47,6 +65,23 @@ collector:
   prow_gcs:
     # GCS bucket (default: origin-ci-test, publicly accessible for OpenShift CI)
     bucket: "origin-ci-test"
+
+    # Job patterns to monitor (supports wildcards: * matches any characters)
+    # These patterns match periodic, pull, and rehearse WINC jobs
+    job_patterns:
+      # Periodic (nightly) jobs
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-*-winc-*"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-*-winc-*"
+      - "periodic-ci-openshift-windows-machine-config-operator-release-4.21-*"
+      - "periodic-ci-openshift-windows-machine-config-operator-release-4.22-*"
+
+      # Pull request (presubmit) jobs
+      - "pull-ci-openshift-openshift-tests-private-*-winc-*"
+      - "pull-ci-openshift-windows-machine-config-operator-*-winc-*"
+
+      # Rehearse jobs (test changes to CI config)
+      - "rehearse-*-periodic-ci-openshift-openshift-tests-private-*-winc-*"
+      - "rehearse-*-periodic-ci-openshift-windows-machine-config-operator-*"
 
     # Job name patterns to monitor (exact job names, no wildcards in GCS paths)
     # Use the actual Prow job names from your periodic jobs
@@ -100,6 +135,33 @@ collector:
     # Parallel processing
     max_workers: 3
 
+  # prow_mcp configuration (POC - uses prow-mcp-server)
+  prow_mcp:
+    # MCP server URL (run prow-mcp-server separately)
+    # Default: http://localhost:3000
+    # For OpenShift POC: http://prow-mcp-server:3000 (in same namespace)
+    server_url: "http://localhost:3000"
+
+    # WINC job names (same as gcsweb)
+    job_names:
+      # 4.21 WINC jobs
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-aws-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-azure-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-gcp-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-nutanix-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-vsphere-ipi-ovn-winc-f7"
+
+      # 4.22 WINC jobs
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-aws-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-aws-upi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-azure-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-gcp-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-nutanix-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-vsphere-ipi-ovn-winc-f7"
+
+    # Parallel processing
+    max_workers: 5
+
 # Tracking configuration
 tracking:
   # ========================================================================
@@ -118,6 +180,7 @@ tracking:
     - "azure"
     - "gcp"
     - "nutanix"
+    - "vsphere"
 
   # How many days to look back when collecting data
   lookback_days: 30
