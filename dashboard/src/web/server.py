@@ -474,6 +474,49 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             'days': days
         })
 
+    @app.route('/api/test-error-by-platform')
+    def api_test_error_by_platform():
+        """Get latest error for a specific test on a specific platform"""
+        test_name = request.args.get('test_name')
+        version = request.args.get('version')
+        platform = request.args.get('platform')
+        days = request.args.get('days', 30, type=int)
+
+        if not test_name or not platform:
+            return jsonify({'error': 'test_name and platform parameters are required'}), 400
+
+        # Query for most recent failure on this platform
+        query = """
+            SELECT
+                error_message,
+                timestamp,
+                job_name,
+                build_id,
+                job_url,
+                platform
+            FROM test_results
+            WHERE test_name = ?
+            AND platform = ?
+            AND status = 'failed'
+            AND error_message IS NOT NULL
+            AND timestamp >= datetime('now', ? || ' days')
+        """
+
+        params = [test_name, platform, f'-{days}']
+
+        if version:
+            query += " AND version = ?"
+            params.append(version)
+
+        query += " ORDER BY timestamp DESC LIMIT 1"
+
+        result = db.execute_query(query, params)
+
+        if result:
+            return jsonify(result[0])
+        else:
+            return jsonify({'error': 'No error found for this test/platform combination'}), 404
+
     @app.teardown_appcontext
     def close_db(error):
         """Close database connection on app shutdown"""
