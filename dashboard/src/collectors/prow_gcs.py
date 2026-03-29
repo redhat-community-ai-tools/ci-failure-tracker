@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import xml.etree.ElementTree as ET
+import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -21,6 +22,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
 from .base import BaseCollector, TestResult, JobRun, TestStatus
+
+logger = logging.getLogger(__name__)
 
 
 class ProwGCSCollector(BaseCollector):
@@ -80,7 +83,7 @@ class ProwGCSCollector(BaseCollector):
             response = self.session.get(url, timeout=5)
             return response.status_code == 200
         except Exception as e:
-            print(f"Health check failed: {e}")
+            logger.error(f"[prow_gcs] Health check failed: {e}")
             return False
 
     def _extract_version_platform(self, job_name: str) -> tuple[str, str]:
@@ -133,7 +136,7 @@ class ProwGCSCollector(BaseCollector):
             data = json.loads(json_str)
 
             all_jobs = data.get('items', [])
-            print(f"Fetched {len(all_jobs)} total jobs from Prow API")
+            logger.info(f"[prow_gcs] Fetched {len(all_jobs)} total jobs from Prow API")
 
             # Filter jobs
             job_list = job_patterns if job_patterns else self.job_names
@@ -221,10 +224,10 @@ class ProwGCSCollector(BaseCollector):
 
                 job_runs.append(job_run)
 
-            print(f"Filtered to {len(job_runs)} matching job runs")
+            logger.info(f"[prow_gcs] Filtered to {len(job_runs)} matching job runs")
 
         except Exception as e:
-            print(f"Error collecting job runs: {e}")
+            logger.error(f"[prow_gcs] Error collecting job runs: {e}")
             import traceback
             traceback.print_exc()
 
@@ -267,11 +270,11 @@ class ProwGCSCollector(BaseCollector):
                 try:
                     results = future.result()
                     all_results.extend(results)
-                    print(f"Collected {len(results)} tests from {job_run.job_name}/{job_run.build_id}")
+                    logger.info(f"[prow_gcs] Collected {len(results)} tests from {job_run.job_name}/{job_run.build_id}")
                 except Exception as e:
-                    print(f"Error fetching tests for {job_run.job_name}: {e}")
+                    logger.error(f"[prow_gcs] Error fetching tests for {job_run.job_name}: {e}")
 
-        print(f"Total test results collected: {len(all_results)}")
+        logger.info(f"[prow_gcs] Total test results collected: {len(all_results)}")
         return all_results
 
     def _fetch_test_results_for_job(
@@ -303,7 +306,7 @@ class ProwGCSCollector(BaseCollector):
             # JUnit XML already contains the test failure messages, no need to fetch build-log.txt
 
         except Exception as e:
-            print(f"Error fetching test results for {job_run.job_name}/{job_run.build_id}: {e}")
+            logger.error(f"[prow_gcs] Error fetching test results for {job_run.job_name}/{job_run.build_id}: {e}")
 
         return results
 
@@ -315,10 +318,10 @@ class ProwGCSCollector(BaseCollector):
             return junit_files
 
         try:
-            print(f"Searching for junit files at depth {current_depth}: {artifacts_url}")
+            logger.debug(f"[prow_gcs] Searching for junit files at depth {current_depth}: {artifacts_url}")
             response = self.session.get(artifacts_url, timeout=30)
             if response.status_code != 200:
-                print(f"Non-200 response ({response.status_code}) from {artifacts_url}")
+                logger.warning(f"[prow_gcs] Non-200 response ({response.status_code}) from {artifacts_url}")
                 return junit_files
 
             html = response.text
@@ -342,7 +345,7 @@ class ProwGCSCollector(BaseCollector):
                         match = match[2:]
                     junit_url = artifacts_url.rstrip('/') + '/' + match
 
-                print(f"Found junit file: {junit_url}")
+                logger.debug(f"[prow_gcs] Found junit file: {junit_url}")
                 junit_files.append(junit_url)
 
             # Only recurse if we haven't hit max depth
@@ -382,7 +385,7 @@ class ProwGCSCollector(BaseCollector):
                     junit_files.extend(sub_files)
 
         except Exception as e:
-            print(f"Error finding JUnit files at depth {current_depth} in {artifacts_url}: {e}")
+            logger.error(f"[prow_gcs] Error finding JUnit files at depth {current_depth} in {artifacts_url}: {e}")
 
         return junit_files
 
@@ -478,7 +481,7 @@ class ProwGCSCollector(BaseCollector):
                     results.append(result)
 
         except Exception as e:
-            print(f"Error parsing JUnit XML {junit_url}: {e}")
+            logger.error(f"[prow_gcs] Error parsing JUnit XML {junit_url}: {e}")
 
         return results
 
@@ -493,6 +496,6 @@ class ProwGCSCollector(BaseCollector):
                 return response.text[-5000:]
 
         except Exception as e:
-            print(f"Error fetching logs for {job_run.job_name}/{job_run.build_id}: {e}")
+            logger.error(f"[prow_gcs] Error fetching logs for {job_run.job_name}/{job_run.build_id}: {e}")
 
         return "Logs not available"

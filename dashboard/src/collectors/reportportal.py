@@ -6,6 +6,7 @@ Collects test results from ReportPortal API to calculate pass rates.
 
 import re
 import os
+import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -17,6 +18,8 @@ from .base import BaseCollector, TestResult, JobRun, TestStatus
 
 # Disable SSL warnings for internal services
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+logger = logging.getLogger(__name__)
 
 
 class ReportPortalCollector(BaseCollector):
@@ -162,7 +165,7 @@ class ReportPortalCollector(BaseCollector):
                     all_results.extend(results)
                 except Exception as e:
                     launch = futures[future]
-                    print(f"Error fetching tests for launch {launch['id']}: {e}")
+                    logger.error(f"[reportportal] Error fetching tests for launch {launch['id']}: {e}")
 
         return all_results
 
@@ -237,7 +240,7 @@ class ReportPortalCollector(BaseCollector):
                     page += 1
 
                 except Exception as e:
-                    print(f"Error fetching launches page {page} for pattern '{pattern}': {e}")
+                    logger.error(f"[reportportal] Error fetching launches page {page} for pattern '{pattern}': {e}")
                     break
 
         return launches
@@ -269,7 +272,7 @@ class ReportPortalCollector(BaseCollector):
             return '\n'.join(log_lines) if log_lines else None
 
         except Exception as e:
-            print(f"Error fetching logs for item {item_id}: {e}")
+            logger.error(f"[reportportal] Error fetching logs for item {item_id}: {e}")
             return None
 
     def _fetch_test_items(
@@ -346,7 +349,7 @@ class ReportPortalCollector(BaseCollector):
                 page += 1
 
             except Exception as e:
-                print(f"Error fetching test items for launch {launch['id']}: {e}")
+                logger.error(f"[reportportal] Error fetching test items for launch {launch['id']}: {e}")
                 break
 
         return results
