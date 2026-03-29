@@ -317,7 +317,43 @@ class DashboardDatabase:
                  AND tr2.timestamp >= ?
                  AND tr2.timestamp <= ?
                  ORDER BY tr2.timestamp DESC
-                 LIMIT 1) as sample_error_platform
+                 LIMIT 1) as sample_error_platform,
+                (SELECT timestamp FROM test_results tr2
+                 WHERE tr2.test_name = test_results.test_name
+                 AND tr2.version = test_results.version
+                 AND tr2.status = 'failed'
+                 AND tr2.error_message IS NOT NULL
+                 AND tr2.timestamp >= ?
+                 AND tr2.timestamp <= ?
+                 ORDER BY tr2.timestamp DESC
+                 LIMIT 1) as sample_error_timestamp,
+                (SELECT job_name FROM test_results tr2
+                 WHERE tr2.test_name = test_results.test_name
+                 AND tr2.version = test_results.version
+                 AND tr2.status = 'failed'
+                 AND tr2.error_message IS NOT NULL
+                 AND tr2.timestamp >= ?
+                 AND tr2.timestamp <= ?
+                 ORDER BY tr2.timestamp DESC
+                 LIMIT 1) as sample_error_job_name,
+                (SELECT build_id FROM test_results tr2
+                 WHERE tr2.test_name = test_results.test_name
+                 AND tr2.version = test_results.version
+                 AND tr2.status = 'failed'
+                 AND tr2.error_message IS NOT NULL
+                 AND tr2.timestamp >= ?
+                 AND tr2.timestamp <= ?
+                 ORDER BY tr2.timestamp DESC
+                 LIMIT 1) as sample_error_build_id,
+                (SELECT job_url FROM test_results tr2
+                 WHERE tr2.test_name = test_results.test_name
+                 AND tr2.version = test_results.version
+                 AND tr2.status = 'failed'
+                 AND tr2.error_message IS NOT NULL
+                 AND tr2.timestamp >= ?
+                 AND tr2.timestamp <= ?
+                 ORDER BY tr2.timestamp DESC
+                 LIMIT 1) as sample_error_job_url
             FROM test_results
             WHERE timestamp >= ? AND timestamp <= ?
             AND status != 'skipped'
@@ -325,6 +361,10 @@ class DashboardDatabase:
         """
 
         params = [start_date.isoformat(), end_date.isoformat(),
+                  start_date.isoformat(), end_date.isoformat(),
+                  start_date.isoformat(), end_date.isoformat(),
+                  start_date.isoformat(), end_date.isoformat(),
+                  start_date.isoformat(), end_date.isoformat(),
                   start_date.isoformat(), end_date.isoformat(),
                   start_date.isoformat(), end_date.isoformat()]
 

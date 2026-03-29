@@ -789,10 +789,59 @@
             }
         }
 
-        function openLogWindow(logContent, testTitle) {
+        function openLogWindow(logContent, testTitle, metadata) {
             const newWindow = window.open('', '_blank');
             const escapedContent = logContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
             const escapedTitle = testTitle.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+            // Format timestamp
+            let formattedTimestamp = 'Unknown';
+            if (metadata && metadata.timestamp && metadata.timestamp !== 'Unknown') {
+                try {
+                    const date = new Date(metadata.timestamp);
+                    formattedTimestamp = date.toLocaleString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZoneName: 'short'
+                    });
+                } catch (e) {
+                    formattedTimestamp = metadata.timestamp;
+                }
+            }
+
+            // Build metadata section
+            let metadataHtml = '';
+            if (metadata) {
+                metadataHtml = `
+                    <div class="metadata">
+                        <div class="meta-row">
+                            <span class="meta-label">Timestamp:</span>
+                            <span class="meta-value">${formattedTimestamp}</span>
+                        </div>
+                        <div class="meta-row">
+                            <span class="meta-label">Platform:</span>
+                            <span class="meta-value platform-badge">${metadata.platform || 'Unknown'}</span>
+                        </div>
+                        <div class="meta-row">
+                            <span class="meta-label">Job:</span>
+                            <span class="meta-value">${metadata.jobName || 'Unknown'}</span>
+                        </div>
+                        <div class="meta-row">
+                            <span class="meta-label">Build ID:</span>
+                            <span class="meta-value">${metadata.buildId || 'Unknown'}</span>
+                        </div>
+                        ${metadata.jobUrl ? `
+                        <div class="meta-row">
+                            <span class="meta-label">Job URL:</span>
+                            <span class="meta-value"><a href="${metadata.jobUrl}" target="_blank" style="color: #2563eb; text-decoration: underline;">View in Prow</a></span>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
 
             newWindow.document.write(`
                 <!DOCTYPE html>
@@ -821,6 +870,34 @@
                             font-size: 18px;
                             font-weight: 600;
                         }
+                        .metadata {
+                            background: #f1f5f9;
+                            padding: 15px 20px;
+                            border-bottom: 1px solid #e2e8f0;
+                        }
+                        .meta-row {
+                            padding: 6px 0;
+                            font-size: 14px;
+                        }
+                        .meta-label {
+                            font-weight: 600;
+                            color: #475569;
+                            display: inline-block;
+                            width: 100px;
+                        }
+                        .meta-value {
+                            color: #1e293b;
+                        }
+                        .platform-badge {
+                            display: inline-block;
+                            background: #3b82f6;
+                            color: white;
+                            padding: 2px 8px;
+                            border-radius: 4px;
+                            font-size: 12px;
+                            font-weight: 600;
+                            text-transform: uppercase;
+                        }
                         .content {
                             padding: 20px;
                         }
@@ -841,6 +918,7 @@
                 <body>
                     <div class="container">
                         <div class="header">${escapedTitle}</div>
+                        ${metadataHtml}
                         <div class="content">
                             <pre>${escapedContent}</pre>
                         </div>
@@ -851,27 +929,70 @@
             newWindow.document.close();
         }
 
-        function formatError(errorText, testName, testDescription, failedPlatforms) {
+        async function openPlatformLog(testName, testDescription, platform, version, days) {
+            const title = testDescription ? `${testName} - ${testDescription}` : testName;
+
+            try {
+                const params = new URLSearchParams({
+                    test_name: testName,
+                    platform: platform,
+                    days: days
+                });
+                if (version) params.append('version', version);
+
+                const response = await fetch(`/api/test-error-by-platform?${params}`);
+                if (!response.ok) {
+                    alert(`No logs found for ${testName} on ${platform}`);
+                    return;
+                }
+
+                const data = await response.json();
+                const metadata = {
+                    timestamp: data.timestamp,
+                    platform: data.platform,
+                    jobName: data.job_name,
+                    buildId: data.build_id,
+                    jobUrl: data.job_url
+                };
+
+                openLogWindow(data.error_message, title, metadata);
+            } catch (error) {
+                alert('Error fetching logs: ' + error.message);
+            }
+        }
+
+        function formatError(errorText, testName, testDescription, failedPlatforms, timestamp, platform, jobName, buildId, jobUrl, version, days) {
             if (!errorText) return '<span style="color: #999; font-size: 12px;">No logs available</span>';
 
             const id = 'log-' + Math.random().toString(36).substr(2, 9);
+            const metaId = 'meta-' + Math.random().toString(36).substr(2, 9);
             const title = testDescription ? `${testName} - ${testDescription}` : testName;
 
-            // Platform badges for all failed platforms
+            // Platform badges for all failed platforms - make them clickable
             let platformBadges = '';
             if (failedPlatforms) {
                 const platforms = failedPlatforms.split(',').filter(p => p);
-                platformBadges = platforms.map(platform =>
-                    `<span style="display: inline-block; background: #ef4444; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-left: 6px; text-transform: uppercase;">${platform.trim()}</span>`
-                ).join('');
+                platformBadges = platforms.map(p => {
+                    const platformName = p.trim();
+                    return `<a href="#" onclick="openPlatformLog('${testName.replace(/'/g, "\\'")}', '${(testDescription || '').replace(/'/g, "\\'")}', '${platformName}', '${version || ''}', ${days || 30}); return false;"
+                        style="display: inline-block; background: #ef4444; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-left: 6px; text-transform: uppercase; text-decoration: none; cursor: pointer;"
+                        title="Click to view ${platformName} logs">${platformName}</a>`;
+                }).join('');
             }
 
+            // Store metadata as JSON
+            const metadata = JSON.stringify({
+                timestamp: timestamp || 'Unknown',
+                platform: platform || 'Unknown',
+                jobName: jobName || 'Unknown',
+                buildId: buildId || 'Unknown',
+                jobUrl: jobUrl || ''
+            });
+
             return `
-                <a href="#" onclick="openLogWindow(document.getElementById('${id}').textContent, '${title.replace(/'/g, "\\'")}'); return false;"
-                   style="color: #2563eb; text-decoration: underline; font-size: 12px;">
-                    View logs
-                </a>${platformBadges}
+                ${platformBadges}
                 <div id="${id}" style="display:none;">${errorText}</div>
+                <div id="${metaId}" style="display:none;">${metadata}</div>
             `;
         }
 
@@ -910,7 +1031,7 @@
                 updateVersionChart(versionComp);
 
                 // Update test rankings table
-                updateTestRankings(testRankings);
+                updateTestRankings(testRankings, days, version);
             } finally {
                 // Hide loading overlay
                 document.getElementById('loadingOverlay').classList.remove('active');
@@ -1000,7 +1121,7 @@
             });
         }
 
-        function updateTestRankings(rankings) {
+        function updateTestRankings(rankings, days, version) {
             const tbody = document.getElementById('testRankings');
 
             if (rankings.length === 0) {
@@ -1017,7 +1138,7 @@
                     <td style="vertical-align: top;">
                         <div><strong>${test.test_name}</strong></div>
                         ${test.test_description ? `<div style="font-size:12px; color:#666; margin-top:2px;">${test.test_description}</div>` : ''}
-                        ${showLogs ? `<div style="margin-top:8px; padding-top:8px; border-top:1px solid #e5e7eb;">${formatError(test.sample_error, test.test_name, test.test_description, test.failed_platforms)}</div>` : ''}
+                        ${showLogs ? `<div style="margin-top:8px; padding-top:8px; border-top:1px solid #e5e7eb;">${formatError(test.sample_error, test.test_name, test.test_description, test.failed_platforms, test.sample_error_timestamp, test.sample_error_platform, test.sample_error_job_name, test.sample_error_build_id, test.sample_error_job_url, test.version, days)}</div>` : ''}
                     </td>
                     <td style="vertical-align: top;">${test.version}</td>
                     <td style="vertical-align: top;">${test.total_runs}</td>
