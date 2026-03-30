@@ -815,6 +815,16 @@
             // Build metadata section
             let metadataHtml = '';
             if (metadata) {
+                // Determine link text based on URL
+                let linkText = 'View Job';
+                if (metadata.jobUrl) {
+                    if (metadata.jobUrl.includes('reportportal')) {
+                        linkText = 'View in ReportPortal';
+                    } else if (metadata.jobUrl.includes('prow') || metadata.jobUrl.includes('deck')) {
+                        linkText = 'View in Prow';
+                    }
+                }
+
                 metadataHtml = `
                     <div class="metadata">
                         <div class="meta-row">
@@ -836,7 +846,7 @@
                         ${metadata.jobUrl ? `
                         <div class="meta-row">
                             <span class="meta-label">Job URL:</span>
-                            <span class="meta-value"><a href="${metadata.jobUrl}" target="_blank" style="color: #2563eb; text-decoration: underline;">View in Prow</a></span>
+                            <span class="meta-value"><a href="${metadata.jobUrl}" target="_blank" style="color: #2563eb; text-decoration: underline;">${linkText}</a></span>
                         </div>
                         ` : ''}
                     </div>
