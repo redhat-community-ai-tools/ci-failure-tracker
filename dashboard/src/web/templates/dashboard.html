@@ -575,8 +575,6 @@
                     <label for="versionFilter">Version:</label>
                     <select id="versionFilter" onchange="refreshDashboard()">
                         <option value="">All Versions</option>
-                        <option value="4.21">4.21</option>
-                        <option value="4.22">4.22</option>
                     </select>
                 </div>
                 <button class="refresh-button" onclick="triggerCollection()" title="Collect latest data from ReportPortal">
@@ -655,8 +653,6 @@
                 <label for="reportVersion">Version:</label>
                 <select id="reportVersion" onchange="refreshWeeklyReport()">
                     <option value="">All Versions</option>
-                    <option value="4.21">4.21</option>
-                    <option value="4.22">4.22</option>
                 </select>
 
                 <label for="reportTopTests">Top Tests:</label>
@@ -1446,9 +1442,42 @@
             }
         }
 
+        // Load metadata (versions and platforms) from database
+        async function loadMetadata() {
+            try {
+                const response = await fetch('/api/metadata');
+                const data = await response.json();
+
+                // Populate version dropdowns
+                const versionFilter = document.getElementById('versionFilter');
+                const reportVersion = document.getElementById('reportVersion');
+
+                // Clear existing options except "All Versions"
+                versionFilter.innerHTML = '<option value="">All Versions</option>';
+                reportVersion.innerHTML = '<option value="">All Versions</option>';
+
+                // Add version options
+                data.versions.forEach(version => {
+                    const option1 = document.createElement('option');
+                    option1.value = version;
+                    option1.textContent = version;
+                    versionFilter.appendChild(option1);
+
+                    const option2 = document.createElement('option');
+                    option2.value = version;
+                    option2.textContent = version;
+                    reportVersion.appendChild(option2);
+                });
+            } catch (error) {
+                console.error('Failed to load metadata:', error);
+            }
+        }
+
         // Initial load
-        checkCollectionStatus();
-        refreshDashboard();
+        loadMetadata().then(() => {
+            checkCollectionStatus();
+            refreshDashboard();
+        });
     </script>
 </body>
 </html>
