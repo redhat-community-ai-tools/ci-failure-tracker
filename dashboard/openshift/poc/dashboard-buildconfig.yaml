@@ -12,8 +12,8 @@ spec:
   source:
     type: Git
     git:
-      uri: https://github.com/rrasouli/ci-failure-tracker.git
-      ref: poc-prow-mcp
+      uri: https://github.com/redhat-community-ai-tools/ci-failure-tracker.git
+      ref: master
     contextDir: dashboard
   strategy:
     type: Docker
