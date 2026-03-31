@@ -31,6 +31,8 @@ data:
           # Rehearse jobs (test changes to CI config)
           - "rehearse-*-periodic-ci-openshift-openshift-tests-private-*-winc-*"
           - "rehearse-*-periodic-ci-openshift-windows-machine-config-operator-*"
+          - "rehearse-*-pull-ci-openshift-openshift-tests-private-*-winc-*"
+          - "rehearse-*-pull-ci-openshift-windows-machine-config-operator-*-winc-*"
 
         max_workers: 5
 
