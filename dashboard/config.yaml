@@ -52,6 +52,8 @@ collector:
       # Rehearse jobs (test changes to CI config before merging)
       - "rehearse-*-periodic-ci-openshift-openshift-tests-private-release-{version}-*-winc-*"
       - "rehearse-*-periodic-ci-openshift-windows-machine-config-operator-release-{version}-*"
+      - "rehearse-*-pull-ci-openshift-openshift-tests-private-release-{version}-*-winc-*"
+      - "rehearse-*-pull-ci-openshift-windows-machine-config-operator-*-winc-*"
 
       # Postsubmit jobs (after merge)
       - "branch-ci-openshift-windows-machine-config-operator-*"
