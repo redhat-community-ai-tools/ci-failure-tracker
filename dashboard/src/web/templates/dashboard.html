@@ -623,11 +623,12 @@
                         <th>Version</th>
                         <th>Runs</th>
                         <th>Pass Rate</th>
+                        <th>Last Run</th>
                         <th style="width: 200px;">Performance</th>
                     </tr>
                 </thead>
                 <tbody id="testRankings">
-                    <tr><td colspan="5" class="loading">Loading...</td></tr>
+                    <tr><td colspan="6" class="loading">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -1127,11 +1128,35 @@
             });
         }
 
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return 'N/A';
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+
+            let relativeTime;
+            if (diffMins < 60) {
+                relativeTime = `${diffMins}m ago`;
+            } else if (diffHours < 24) {
+                relativeTime = `${diffHours}h ago`;
+            } else if (diffDays < 7) {
+                relativeTime = `${diffDays}d ago`;
+            } else {
+                relativeTime = date.toLocaleDateString();
+            }
+
+            const fullDate = date.toLocaleString();
+            return `<span title="${fullDate}">${relativeTime}</span>`;
+        }
+
         function updateTestRankings(rankings, days, version) {
             const tbody = document.getElementById('testRankings');
 
             if (rankings.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px; color:#666;">No data available</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#666;">No data available</td></tr>';
                 return;
             }
 
@@ -1149,6 +1174,7 @@
                     <td style="vertical-align: top;">${test.version}</td>
                     <td style="vertical-align: top;">${test.total_runs}</td>
                     <td style="vertical-align: top;"><strong>${test.pass_rate.toFixed(1)}%</strong></td>
+                    <td style="vertical-align: top;">${formatTimestamp(test.last_run_timestamp)}</td>
                     <td style="vertical-align: top;">
                         <div class="pass-rate-bar">
                             <div class="fill" style="width: ${test.pass_rate}%"></div>
