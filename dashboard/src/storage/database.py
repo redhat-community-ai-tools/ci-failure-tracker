@@ -374,7 +374,6 @@ class DashboardDatabase:
                   start_date.isoformat(), end_date.isoformat(),
                   start_date.isoformat(), end_date.isoformat(),
                   start_date.isoformat(), end_date.isoformat(),
-                  start_date.isoformat(), end_date.isoformat(),
                   start_date.isoformat(), end_date.isoformat()]
 
         if test_name:
