@@ -75,9 +75,12 @@ class ProwMCPCollector(BaseCollector):
         platform = 'unknown'
 
         # Extract version (e.g., 4.21, 4.22)
+        # Note: main branch maps to 4.22 (current development version)
         version_match = re.search(r'release-(\d+\.\d+)', job_name)
         if version_match:
             version = version_match.group(1)
+        elif '-main-' in job_name:
+            version = '4.22'
 
         # Extract platform
         platforms = ['aws', 'gcp', 'azure', 'vsphere', 'nutanix', 'metal']
