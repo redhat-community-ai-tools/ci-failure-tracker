@@ -565,6 +565,7 @@
                 <div>
                     <label for="timeRange">Time Range:</label>
                     <select id="timeRange" onchange="refreshDashboard()">
+                        <option value="3">Last 3 days</option>
                         <option value="7">Last 7 days</option>
                         <option value="14">Last 14 days</option>
                         <option value="30" selected>Last 30 days</option>
@@ -638,6 +639,7 @@
             <div class="controls">
                 <label for="reportCurrentDays">Current Period:</label>
                 <select id="reportCurrentDays" onchange="refreshWeeklyReport()">
+                    <option value="3">Last 3 days</option>
                     <option value="7" selected>Last 7 days</option>
                     <option value="14">Last 14 days</option>
                     <option value="30">Last 30 days</option>
@@ -645,6 +647,7 @@
 
                 <label for="reportPreviousDays">Compare To:</label>
                 <select id="reportPreviousDays" onchange="refreshWeeklyReport()">
+                    <option value="3">Previous 3 days</option>
                     <option value="7" selected>Previous 7 days</option>
                     <option value="14">Previous 14 days</option>
                     <option value="30">Previous 30 days</option>
