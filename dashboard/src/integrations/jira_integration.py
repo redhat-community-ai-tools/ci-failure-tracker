@@ -84,8 +84,8 @@ class JiraIntegration:
         try:
             logger.info(f"Searching for existing Jira: {jql}")
 
-            # Call Jira search API
-            search_url = f"{self.config.url}/rest/api/2/search"
+            # Call Jira search API (v3)
+            search_url = f"{self.config.url}/rest/api/3/search"
             response = requests.post(
                 search_url,
                 headers=self._get_headers(),
@@ -195,8 +195,8 @@ _This issue was automatically created by CI Failure Tracker_
             if self.config.component:
                 issue_data['fields']['components'] = [{'name': self.config.component}]
 
-            # Call Jira create API
-            create_url = f"{self.config.url}/rest/api/2/issue"
+            # Call Jira create API (v3)
+            create_url = f"{self.config.url}/rest/api/3/issue"
             response = requests.post(
                 create_url,
                 headers=self._get_headers(),
