@@ -5,8 +5,8 @@ metadata:
   labels:
     app: winc-dashboard-poc
 spec:
-  # Run every 2 hours (at :00)
-  schedule: "0 */2 * * *"
+  # Run every 30 minutes to ensure we don't miss jobs (Prow API only keeps ~2 hours)
+  schedule: "*/30 * * * *"
 
   # Keep last 3 successful and 1 failed job
   successfulJobsHistoryLimit: 3
