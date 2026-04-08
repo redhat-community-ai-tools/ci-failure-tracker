@@ -973,8 +973,10 @@
         function formatError(errorText, testName, testDescription, failedPlatforms, timestamp, platform, jobName, buildId, jobUrl, version, days) {
             if (!errorText) return '<span style="color: #999; font-size: 12px;">No logs available</span>';
 
-            const id = 'log-' + Math.random().toString(36).substr(2, 9);
-            const metaId = 'meta-' + Math.random().toString(36).substr(2, 9);
+            // Use test name for consistent IDs so Jira creation can find them
+            const safeTestName = testName.replace(/[^a-zA-Z0-9]/g, '-');
+            const id = `error-${safeTestName}`;
+            const metaId = `meta-${safeTestName}`;
             const title = testDescription ? `${testName} - ${testDescription}` : testName;
 
             // Platform badges for all failed platforms - make them clickable
@@ -989,14 +991,8 @@
                 }).join('');
             }
 
-            // Store metadata as JSON
-            const metadata = JSON.stringify({
-                timestamp: timestamp || 'Unknown',
-                platform: platform || 'Unknown',
-                jobName: jobName || 'Unknown',
-                buildId: buildId || 'Unknown',
-                jobUrl: jobUrl || ''
-            });
+            // Store metadata as pipe-separated string: jobUrl|jobName|buildId|platform|timestamp
+            const metadata = `${jobUrl || ''}|${jobName || ''}|${buildId || ''}|${platform || ''}|${timestamp || ''}`;
 
             return `
                 ${platformBadges}
@@ -1516,12 +1512,22 @@
                 button.innerHTML = '<span style="font-size:12px;">Creating...</span>';
 
                 // Get error message from the test data (from hidden div)
-                const errorDiv = document.getElementById(`error-${testName}`);
+                const safeTestName = testName.replace(/[^a-zA-Z0-9]/g, '-');
+                const errorDiv = document.getElementById(`error-${safeTestName}`);
                 const errorMessage = errorDiv ? errorDiv.textContent : 'No error message available';
 
-                // Get job URL from metadata
-                const metaDiv = document.getElementById(`meta-${testName}`);
-                const jobUrl = metaDiv ? metaDiv.textContent.split('|')[0] : '';
+                // Get metadata: jobUrl|jobName|buildId|platform|timestamp
+                const metaDiv = document.getElementById(`meta-${safeTestName}`);
+                let jobUrl = '';
+                let jobName = '';
+                let buildId = '';
+
+                if (metaDiv) {
+                    const parts = metaDiv.textContent.split('|');
+                    jobUrl = parts[0] || '';
+                    jobName = parts[1] || '';
+                    buildId = parts[2] || '';
+                }
 
                 // Calculate failure rate
                 const failureRate = 100 - passRate;

@@ -151,6 +151,29 @@ class JiraIntegration:
         # Create issue summary and description
         summary = f"{test_name}: Test failure on {platform} {version}"
 
+        # Build links section
+        links_content = []
+
+        # Add job URL link if available
+        if job_url:
+            links_content.append({
+                "type": "paragraph",
+                "content": [
+                    {"type": "text", "text": "Failed Job: ", "marks": [{"type": "strong"}]},
+                    {"type": "text", "text": job_url, "marks": [{"type": "link", "attrs": {"href": job_url}}]}
+                ]
+            })
+
+        # Add dashboard link
+        dashboard_url = os.environ.get('DASHBOARD_URL', 'https://winc-dashboard-poc-winc-dashboard-poc.apps.build10.ci.devcluster.openshift.com')
+        links_content.append({
+            "type": "paragraph",
+            "content": [
+                {"type": "text", "text": "CI Dashboard: ", "marks": [{"type": "strong"}]},
+                {"type": "text", "text": dashboard_url, "marks": [{"type": "link", "attrs": {"href": dashboard_url}}]}
+            ]
+        })
+
         # Atlassian Document Format (ADF) for description
         description = {
             "version": 1,
@@ -227,20 +250,14 @@ class JiraIntegration:
                 },
                 {
                     "type": "codeBlock",
-                    "content": [{"type": "text", "text": error_message[:500]}]
+                    "content": [{"type": "text", "text": error_message if error_message else "No error message available"}]
                 },
                 {
                     "type": "heading",
                     "attrs": {"level": 3},
                     "content": [{"type": "text", "text": "Links"}]
                 },
-                {
-                    "type": "paragraph",
-                    "content": [
-                        {"type": "text", "text": "Job URL: "},
-                        {"type": "text", "text": job_url, "marks": [{"type": "link", "attrs": {"href": job_url}}]}
-                    ]
-                },
+                *links_content,
                 {
                     "type": "rule"
                 },
