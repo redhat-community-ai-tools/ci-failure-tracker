@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: winc-dashboard-zstream-collector
+  labels:
+    app: winc-dashboard-zstream
+spec:
+  # Run every 2 hours (at :10)
+  schedule: "10 */2 * * *"
+
+  # Keep last 3 successful and 1 failed job
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: winc-dashboard-zstream-collector
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: collector
+            image: curlimages/curl:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Triggering z-stream dashboard data collection..."
+              curl -X POST http://winc-dashboard-zstream:8080/api/trigger-collection \
+                -H "Content-Type: application/json" \
+                -d '{"days": 7}' \
+                --max-time 1800
+              echo "Collection triggered successfully"
