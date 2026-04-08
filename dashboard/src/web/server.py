@@ -394,7 +394,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     @app.route('/api/metadata')
     def api_metadata():
         """Get available versions and platforms from database"""
-        query_versions = "SELECT DISTINCT version FROM job_runs ORDER BY version"
+        query_versions = "SELECT DISTINCT version FROM job_runs ORDER BY version DESC"
         query_platforms = "SELECT DISTINCT platform FROM job_runs ORDER BY platform"
 
         versions = [row['version'] for row in db.execute_query(query_versions)]

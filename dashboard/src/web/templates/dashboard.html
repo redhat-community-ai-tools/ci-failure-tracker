@@ -575,7 +575,6 @@
 
                     <label for="versionFilter">Version:</label>
                     <select id="versionFilter" onchange="refreshDashboard()">
-                        <option value="">All Versions</option>
                     </select>
                 </div>
                 <button class="refresh-button" onclick="triggerCollection()" title="Collect latest data from ReportPortal">
@@ -1466,20 +1465,24 @@
                 const versionFilter = document.getElementById('versionFilter');
                 const reportVersion = document.getElementById('reportVersion');
 
-                // Clear existing options except "All Versions"
-                versionFilter.innerHTML = '<option value="">All Versions</option>';
-                reportVersion.innerHTML = '<option value="">All Versions</option>';
+                // Clear existing options
+                versionFilter.innerHTML = '';
+                reportVersion.innerHTML = '';
 
-                // Add version options
-                data.versions.forEach(version => {
+                // Add version options (versions are sorted DESC, so first is latest)
+                data.versions.forEach((version, index) => {
                     const option1 = document.createElement('option');
                     option1.value = version;
                     option1.textContent = version;
+                    // Select the first (latest) version by default
+                    if (index === 0) option1.selected = true;
                     versionFilter.appendChild(option1);
 
                     const option2 = document.createElement('option');
                     option2.value = version;
                     option2.textContent = version;
+                    // Select the first (latest) version by default
+                    if (index === 0) option2.selected = true;
                     reportVersion.appendChild(option2);
                 });
             } catch (error) {
