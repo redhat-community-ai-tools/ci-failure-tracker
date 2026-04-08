@@ -36,7 +36,7 @@ class ProwGCSCollector(BaseCollector):
         self.prow_url = config.get('prow_url', 'https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com')
         self.gcs_url = config.get('gcs_url', 'https://gcsweb-qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com/gcs/qe-private-deck')
 
-        # Authentication
+        # Authentication (optional for public Prow instances)
         self.api_token = self._get_api_token(config)
 
         # Job patterns
@@ -45,13 +45,13 @@ class ProwGCSCollector(BaseCollector):
 
         # HTTP session
         self.session = requests.Session()
-        self.session.headers.update({
-            'Authorization': f'Bearer {self.api_token}',
-            'Accept': 'application/json'
-        })
+        headers = {'Accept': 'application/json'}
+        if self.api_token:
+            headers['Authorization'] = f'Bearer {self.api_token}'
+        self.session.headers.update(headers)
 
-    def _get_api_token(self, config: Dict[str, Any]) -> str:
-        """Get API token from config, environment, or oc CLI"""
+    def _get_api_token(self, config: Dict[str, Any]) -> Optional[str]:
+        """Get API token from config, environment, or oc CLI (optional for public Prow)"""
         # Try config first
         token = config.get('api_token')
         if token:
@@ -70,7 +70,8 @@ class ProwGCSCollector(BaseCollector):
         except Exception:
             pass
 
-        raise ValueError("No API token found. Set API_KEY environment variable or login with 'oc login'")
+        # No token found - this is OK for public Prow instances
+        return None
 
     @property
     def name(self) -> str:
