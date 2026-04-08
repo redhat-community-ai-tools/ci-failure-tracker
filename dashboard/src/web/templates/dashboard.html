@@ -859,6 +859,71 @@
                 `;
             }
 
+            // Build the script section separately to avoid template nesting issues
+            let scriptSection = '';
+            if (metadata.testName) {
+                scriptSection = `
+                    <script>
+                        const jiraMetadata = {
+                            testName: ${JSON.stringify(metadata.testName)},
+                            testDescription: ${JSON.stringify(metadata.testDescription || '')},
+                            version: ${JSON.stringify(metadata.version || '')},
+                            platform: ${JSON.stringify(metadata.platform || '')},
+                            jobUrl: ${JSON.stringify(metadata.jobUrl || '')},
+                            errorMessage: ${JSON.stringify(logContent)}
+                        };
+
+                        async function fileJira() {
+                            const button = document.getElementById('jiraButton');
+                            const originalContent = button.innerHTML;
+
+                            try {
+                                button.disabled = true;
+                                button.innerHTML = '<span>Filing Jira...</span>';
+
+                                const response = await fetch('/api/jira/create', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({
+                                        test_name: jiraMetadata.testName,
+                                        test_description: jiraMetadata.testDescription,
+                                        version: jiraMetadata.version,
+                                        platform: jiraMetadata.platform,
+                                        error_message: jiraMetadata.errorMessage,
+                                        job_url: jiraMetadata.jobUrl,
+                                        failure_rate: 100,
+                                        runs: 1,
+                                        failures: 1
+                                    })
+                                });
+
+                                const data = await response.json();
+
+                                if (!response.ok) {
+                                    throw new Error(data.error || 'Failed to create Jira');
+                                }
+
+                                if (data.status === 'existing' || data.status === 'created') {
+                                    window.open(data.issue_url, '_blank');
+                                    button.innerHTML = '<img src="https://uxwing.com/wp-content/themes/uxwing/download/brands-and-social-media/atlassian-confluence-icon.png" width="20" height="20" alt="Jira" style="filter: brightness(0) invert(1);"><span>' + data.issue_key + '</span>';
+                                    button.style.background = '#10b981';
+                                    button.onclick = () => window.open(data.issue_url, '_blank');
+                                    alert((data.status === 'created' ? 'Jira created: ' : 'Existing Jira found: ') + data.issue_key);
+                                } else if (data.status === 'disabled') {
+                                    alert('Jira integration is not enabled');
+                                    button.disabled = false;
+                                    button.innerHTML = originalContent;
+                                }
+                            } catch (error) {
+                                alert('Failed to create Jira: ' + error.message);
+                                button.disabled = false;
+                                button.innerHTML = originalContent;
+                            }
+                        }
+                    </script>
+                `;
+            }
+
             newWindow.document.write(`
                 <!DOCTYPE html>
                 <html>
@@ -939,66 +1004,7 @@
                             <pre>${escapedContent}</pre>
                         </div>
                     </div>
-                    ${metadata.testName ? `
-                    <script>
-                        const jiraMetadata = {
-                            testName: ${JSON.stringify(metadata.testName)},
-                            testDescription: ${JSON.stringify(metadata.testDescription || '')},
-                            version: ${JSON.stringify(metadata.version || '')},
-                            platform: ${JSON.stringify(metadata.platform || '')},
-                            jobUrl: ${JSON.stringify(metadata.jobUrl || '')},
-                            errorMessage: ${JSON.stringify(logContent)}
-                        };
-
-                        async function fileJira() {
-                            const button = document.getElementById('jiraButton');
-                            const originalContent = button.innerHTML;
-
-                            try {
-                                button.disabled = true;
-                                button.innerHTML = '<span>Filing Jira...</span>';
-
-                                const response = await fetch('/api/jira/create', {
-                                    method: 'POST',
-                                    headers: {'Content-Type': 'application/json'},
-                                    body: JSON.stringify({
-                                        test_name: jiraMetadata.testName,
-                                        test_description: jiraMetadata.testDescription,
-                                        version: jiraMetadata.version,
-                                        platform: jiraMetadata.platform,
-                                        error_message: jiraMetadata.errorMessage,
-                                        job_url: jiraMetadata.jobUrl,
-                                        failure_rate: 100,
-                                        runs: 1,
-                                        failures: 1
-                                    })
-                                });
-
-                                const data = await response.json();
-
-                                if (!response.ok) {
-                                    throw new Error(data.error || 'Failed to create Jira');
-                                }
-
-                                if (data.status === 'existing' || data.status === 'created') {
-                                    window.open(data.issue_url, '_blank');
-                                    button.innerHTML = '<img src="https://uxwing.com/wp-content/themes/uxwing/download/brands-and-social-media/atlassian-confluence-icon.png" width="20" height="20" alt="Jira" style="filter: brightness(0) invert(1);"><span>' + data.issue_key + '</span>';
-                                    button.style.background = '#10b981';
-                                    button.onclick = () => window.open(data.issue_url, '_blank');
-                                    alert((data.status === 'created' ? 'Jira created: ' : 'Existing Jira found: ') + data.issue_key);
-                                } else if (data.status === 'disabled') {
-                                    alert('Jira integration is not enabled');
-                                    button.disabled = false;
-                                    button.innerHTML = originalContent;
-                                }
-                            } catch (error) {
-                                alert('Failed to create Jira: ' + error.message);
-                                button.disabled = false;
-                                button.innerHTML = originalContent;
-                            }
-                        }
-                    </script>
-                    ` : ''}
+                    ${scriptSection}
                 </body>
                 </html>
             `);
