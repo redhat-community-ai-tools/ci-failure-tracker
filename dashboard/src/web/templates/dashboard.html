@@ -850,11 +850,7 @@
                         ${metadata.testName ? `
                         <div class="meta-row" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0;">
                             <button onclick="fileJira()" id="jiraButton" style="background: #0052CC; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px;">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M11.53 2c0 2.4 1.97 4.35 4.35 4.35h1.78v1.7c0 2.4 1.94 4.34 4.34 4.34V4.35C22 2.5 20.5 1 18.65 1h-7.12v1z"/>
-                                    <path d="M12.47 22c0-2.4-1.97-4.35-4.35-4.35H6.35v-1.7c0-2.4-1.94-4.34-4.34-4.34v8.04C2 21.5 3.5 23 5.35 23h7.12v-1z"/>
-                                    <path d="M11.53 11.53c0 2.4 1.97 4.35 4.35 4.35h1.78v1.7c0 2.4 1.94 4.34 4.34 4.34v-8.04c0-1.85-1.5-3.35-3.35-3.35h-7.12v1z" opacity="0.6"/>
-                                </svg>
+                                <img src="https://uxwing.com/wp-content/themes/uxwing/download/brands-and-social-media/atlassian-confluence-icon.png" width="20" height="20" alt="Jira" style="filter: brightness(0) invert(1);">
                                 <span>File Jira Issue</span>
                             </button>
                         </div>
@@ -978,7 +974,7 @@
 
                                 if (data.status === 'existing' || data.status === 'created') {
                                     window.open(data.issue_url, '_blank');
-                                    button.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="#10b981" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="#10b981" stroke-width="2" fill="none"/><path d="M9 12l2 2 4-4" stroke="#10b981" stroke-width="2" fill="none"/></svg><span>' + data.issue_key + '</span>';
+                                    button.innerHTML = '<img src="https://uxwing.com/wp-content/themes/uxwing/download/brands-and-social-media/atlassian-confluence-icon.png" width="20" height="20" alt="Jira" style="filter: brightness(0) invert(1);"><span>' + data.issue_key + '</span>';
                                     button.style.background = '#10b981';
                                     button.onclick = () => window.open(data.issue_url, '_blank');
                                     alert((data.status === 'created' ? 'Jira created: ' : 'Existing Jira found: ') + data.issue_key);
