@@ -849,7 +849,7 @@
                     (metadata.testName ?
                         '<div class="meta-row" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0;">' +
                             '<button onclick="fileJira()" id="jiraButton" style="background: #0052CC; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px;">' +
-                                '<img src="https://uxwing.com/wp-content/themes/uxwing/download/brands-and-social-media/atlassian-confluence-icon.png" width="20" height="20" alt="Jira" style="filter: brightness(0) invert(1);">' +
+                                '<img src="https://play-lh.googleusercontent.com/_AZCbg39DTuk8k3DiPRASr9EwyW058pOfzvAu1DsfN9ygtbOlbuucmXaHJi5ooYbokQX=s48" width="20" height="20" alt="Jira">' +
                                 '<span>File Jira Issue</span>' +
                             '</button>' +
                         '</div>'
@@ -894,7 +894,7 @@
                             'if (!response.ok) throw new Error(data.error || "Failed to create Jira");' +
                             'if (data.status === "existing" || data.status === "created") {' +
                                 'window.open(data.issue_url, "_blank");' +
-                                'button.innerHTML = "<img src=\\"https://uxwing.com/wp-content/themes/uxwing/download/brands-and-social-media/atlassian-confluence-icon.png\\" width=\\"20\\" height=\\"20\\" alt=\\"Jira\\" style=\\"filter: brightness(0) invert(1);\\"><span>" + data.issue_key + "</span>";' +
+                                'button.innerHTML = "<img src=\\"https://play-lh.googleusercontent.com/_AZCbg39DTuk8k3DiPRASr9EwyW058pOfzvAu1DsfN9ygtbOlbuucmXaHJi5ooYbokQX=s48\\" width=\\"20\\" height=\\"20\\" alt=\\"Jira\\"><span>" + data.issue_key + "</span>";' +
                                 'button.style.background = "#10b981";' +
                                 'button.onclick = () => window.open(data.issue_url, "_blank");' +
                                 'alert((data.status === "created" ? "Jira created: " : "Existing Jira found: ") + data.issue_key);' +
