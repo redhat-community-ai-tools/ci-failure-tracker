@@ -128,6 +128,44 @@ class ProwGCSCollector(BaseCollector):
 
         return version, platform
 
+    def _extract_test_name(self, raw_name: str) -> tuple:
+        """
+        Extract clean test name and description from raw name
+
+        Example formats:
+        - "OCP-25593:sgao:Windows_Containers:[sig-windows] Windows_Containers Prevent scheduling..."
+        - "Smokerun-Author:rrasouli-Medium-37362-[wmco] wmco using correct golang version"
+
+        Returns: ("OCP-XXXXX", "clean description")
+        """
+        # Try to find OCP-XXXXX pattern
+        ocp_match = re.search(r'OCP-\d+', raw_name)
+
+        if ocp_match:
+            test_id = ocp_match.group(0)
+
+            # Look for [sig-windows] or similar bracket pattern and extract everything after it
+            sig_match = re.search(r'\[sig-[\w-]+\]\s+(.+)', raw_name)
+            if sig_match:
+                description = sig_match.group(1)
+            else:
+                # Try other bracket patterns like [wmco]
+                bracket_match = re.search(r'\[[\w-]+\]\s+(.+)', raw_name)
+                if bracket_match:
+                    description = bracket_match.group(1)
+                else:
+                    # No bracket pattern found, use everything after first colon
+                    if ':' in raw_name:
+                        parts = raw_name.split(':', 3)  # Split on first 3 colons
+                        description = parts[-1] if len(parts) > 3 else raw_name
+                    else:
+                        description = raw_name
+
+            return test_id, description
+        else:
+            # No OCP-XXXXX found, return original name
+            return raw_name, ''
+
     def collect_job_runs(
         self,
         start_date: datetime,
@@ -435,7 +473,10 @@ class ProwGCSCollector(BaseCollector):
 
             for testsuite in testsuites:
                 for testcase in testsuite.findall('testcase'):
-                    test_name = testcase.get('name', 'unknown')
+                    raw_test_name = testcase.get('name', 'unknown')
+
+                    # Extract clean test name (OCP-XXXXX) and description
+                    test_name, test_description = self._extract_test_name(raw_test_name)
 
                     # Filter by test name pattern
                     if test_names and test_name not in test_names:
@@ -476,9 +517,6 @@ class ProwGCSCollector(BaseCollector):
                     except ValueError:
                         duration = 0
 
-                    # Description
-                    classname = testcase.get('classname', '')
-
                     # Construct log_url using same logic as artifacts_url
                     if job_run.job_url and '/view/gs/qe-private-deck/' in job_run.job_url:
                         gcs_path = job_run.job_url.split('/view/gs/qe-private-deck/')[-1]
@@ -496,7 +534,7 @@ class ProwGCSCollector(BaseCollector):
                         build_id=job_run.build_id,
                         version=job_run.version,
                         platform=job_run.platform,
-                        test_description=classname,
+                        test_description=test_description,
                         job_url=job_run.job_url,
                         log_url=log_url
                     )
