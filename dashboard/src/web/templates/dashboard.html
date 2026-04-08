@@ -823,40 +823,38 @@
                     }
                 }
 
-                metadataHtml = `
-                    <div class="metadata">
-                        <div class="meta-row">
-                            <span class="meta-label">Timestamp:</span>
-                            <span class="meta-value">${formattedTimestamp}</span>
-                        </div>
-                        <div class="meta-row">
-                            <span class="meta-label">Platform:</span>
-                            <span class="meta-value platform-badge">${metadata.platform || 'Unknown'}</span>
-                        </div>
-                        <div class="meta-row">
-                            <span class="meta-label">Job:</span>
-                            <span class="meta-value">${metadata.jobName || 'Unknown'}</span>
-                        </div>
-                        <div class="meta-row">
-                            <span class="meta-label">Build ID:</span>
-                            <span class="meta-value">${metadata.buildId || 'Unknown'}</span>
-                        </div>
-                        ${metadata.jobUrl ? `
-                        <div class="meta-row">
-                            <span class="meta-label">Job URL:</span>
-                            <span class="meta-value"><a href="${metadata.jobUrl}" target="_blank" style="color: #2563eb; text-decoration: underline;">${linkText}</a></span>
-                        </div>
-                        ` : ''}
-                        ${metadata.testName ? `
-                        <div class="meta-row" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0;">
-                            <button onclick="fileJira()" id="jiraButton" style="background: #0052CC; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px;">
-                                <img src="https://uxwing.com/wp-content/themes/uxwing/download/brands-and-social-media/atlassian-confluence-icon.png" width="20" height="20" alt="Jira" style="filter: brightness(0) invert(1);">
-                                <span>File Jira Issue</span>
-                            </button>
-                        </div>
-                        ` : ''}
-                    </div>
-                `;
+                metadataHtml = '<div class="metadata">' +
+                    '<div class="meta-row">' +
+                        '<span class="meta-label">Timestamp:</span>' +
+                        '<span class="meta-value">' + formattedTimestamp + '</span>' +
+                    '</div>' +
+                    '<div class="meta-row">' +
+                        '<span class="meta-label">Platform:</span>' +
+                        '<span class="meta-value platform-badge">' + (metadata.platform || 'Unknown') + '</span>' +
+                    '</div>' +
+                    '<div class="meta-row">' +
+                        '<span class="meta-label">Job:</span>' +
+                        '<span class="meta-value">' + (metadata.jobName || 'Unknown') + '</span>' +
+                    '</div>' +
+                    '<div class="meta-row">' +
+                        '<span class="meta-label">Build ID:</span>' +
+                        '<span class="meta-value">' + (metadata.buildId || 'Unknown') + '</span>' +
+                    '</div>' +
+                    (metadata.jobUrl ?
+                        '<div class="meta-row">' +
+                            '<span class="meta-label">Job URL:</span>' +
+                            '<span class="meta-value"><a href="' + metadata.jobUrl + '" target="_blank" style="color: #2563eb; text-decoration: underline;">' + linkText + '</a></span>' +
+                        '</div>'
+                    : '') +
+                    (metadata.testName ?
+                        '<div class="meta-row" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0;">' +
+                            '<button onclick="fileJira()" id="jiraButton" style="background: #0052CC; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px;">' +
+                                '<img src="https://uxwing.com/wp-content/themes/uxwing/download/brands-and-social-media/atlassian-confluence-icon.png" width="20" height="20" alt="Jira" style="filter: brightness(0) invert(1);">' +
+                                '<span>File Jira Issue</span>' +
+                            '</button>' +
+                        '</div>'
+                    : '') +
+                '</div>';
             }
 
             // Build the script section using string concatenation to avoid template literal nesting
@@ -914,90 +912,90 @@
                     '</script>';
             }
 
-            newWindow.document.write(`
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>${escapedTitle}</title>
-                    <style>
-                        body {
-                            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                            margin: 0;
-                            padding: 20px;
-                            background: #f8fafc;
-                        }
-                        .container {
-                            max-width: 1200px;
-                            margin: 0 auto;
-                            background: white;
-                            border-radius: 8px;
-                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                            overflow: hidden;
-                        }
-                        .header {
-                            background: #1e40af;
-                            color: white;
-                            padding: 20px;
-                            font-size: 18px;
-                            font-weight: 600;
-                        }
-                        .metadata {
-                            background: #f1f5f9;
-                            padding: 15px 20px;
-                            border-bottom: 1px solid #e2e8f0;
-                        }
-                        .meta-row {
-                            padding: 6px 0;
-                            font-size: 14px;
-                        }
-                        .meta-label {
-                            font-weight: 600;
-                            color: #475569;
-                            display: inline-block;
-                            width: 100px;
-                        }
-                        .meta-value {
-                            color: #1e293b;
-                        }
-                        .platform-badge {
-                            display: inline-block;
-                            background: #3b82f6;
-                            color: white;
-                            padding: 2px 8px;
-                            border-radius: 4px;
-                            font-size: 12px;
-                            font-weight: 600;
-                            text-transform: uppercase;
-                        }
-                        .content {
-                            padding: 20px;
-                        }
-                        pre {
-                            background: #1e293b;
-                            color: #e2e8f0;
-                            padding: 20px;
-                            border-radius: 6px;
-                            overflow-x: auto;
-                            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                            font-size: 13px;
-                            line-height: 1.6;
-                            white-space: pre-wrap;
-                            word-wrap: break-word;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="container">
-                        <div class="header">${escapedTitle}</div>
-                        ${metadataHtml}
-                        <div class="content">
-                            <pre>${escapedContent}</pre>
-                        </div>
-                    </div>
-                    ${scriptSection}
-                </body>
-                </html>
-            `);
+            newWindow.document.write(
+                '<!DOCTYPE html>' +
+                '<html>' +
+                '<head>' +
+                    '<title>' + escapedTitle + '</title>' +
+                    '<style>' +
+                        'body {' +
+                            'font-family: \'Segoe UI\', Tahoma, Geneva, Verdana, sans-serif;' +
+                            'margin: 0;' +
+                            'padding: 20px;' +
+                            'background: #f8fafc;' +
+                        '}' +
+                        '.container {' +
+                            'max-width: 1200px;' +
+                            'margin: 0 auto;' +
+                            'background: white;' +
+                            'border-radius: 8px;' +
+                            'box-shadow: 0 2px 4px rgba(0,0,0,0.1);' +
+                            'overflow: hidden;' +
+                        '}' +
+                        '.header {' +
+                            'background: #1e40af;' +
+                            'color: white;' +
+                            'padding: 20px;' +
+                            'font-size: 18px;' +
+                            'font-weight: 600;' +
+                        '}' +
+                        '.metadata {' +
+                            'background: #f1f5f9;' +
+                            'padding: 15px 20px;' +
+                            'border-bottom: 1px solid #e2e8f0;' +
+                        '}' +
+                        '.meta-row {' +
+                            'padding: 6px 0;' +
+                            'font-size: 14px;' +
+                        '}' +
+                        '.meta-label {' +
+                            'font-weight: 600;' +
+                            'color: #475569;' +
+                            'display: inline-block;' +
+                            'width: 100px;' +
+                        '}' +
+                        '.meta-value {' +
+                            'color: #1e293b;' +
+                        '}' +
+                        '.platform-badge {' +
+                            'display: inline-block;' +
+                            'background: #3b82f6;' +
+                            'color: white;' +
+                            'padding: 2px 8px;' +
+                            'border-radius: 4px;' +
+                            'font-size: 12px;' +
+                            'font-weight: 600;' +
+                            'text-transform: uppercase;' +
+                        '}' +
+                        '.content {' +
+                            'padding: 20px;' +
+                        '}' +
+                        'pre {' +
+                            'background: #1e293b;' +
+                            'color: #e2e8f0;' +
+                            'padding: 20px;' +
+                            'border-radius: 6px;' +
+                            'overflow-x: auto;' +
+                            'font-family: \'Consolas\', \'Monaco\', \'Courier New\', monospace;' +
+                            'font-size: 13px;' +
+                            'line-height: 1.6;' +
+                            'white-space: pre-wrap;' +
+                            'word-wrap: break-word;' +
+                        '}' +
+                    '</style>' +
+                '</head>' +
+                '<body>' +
+                    '<div class="container">' +
+                        '<div class="header">' + escapedTitle + '</div>' +
+                        metadataHtml +
+                        '<div class="content">' +
+                            '<pre>' + escapedContent + '</pre>' +
+                        '</div>' +
+                    '</div>' +
+                    scriptSection +
+                '</body>' +
+                '</html>'
+            );
             newWindow.document.close();
         }
 
