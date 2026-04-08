@@ -84,12 +84,12 @@ class JiraIntegration:
         try:
             logger.info(f"Searching for existing Jira: {jql}")
 
-            # Call Jira search API (v3)
+            # Call Jira search API (v3) - use GET with query params
             search_url = f"{self.config.url}/rest/api/3/search"
-            response = requests.post(
+            response = requests.get(
                 search_url,
                 headers=self._get_headers(),
-                json={'jql': jql, 'maxResults': 1, 'fields': ['key', 'summary']}
+                params={'jql': jql, 'maxResults': 1, 'fields': 'key,summary'}
             )
 
             if response.status_code == 200:
@@ -151,31 +151,107 @@ class JiraIntegration:
         # Create issue summary and description
         summary = f"{test_name}: Test failure on {platform} {version}"
 
-        description = f"""
-h2. Test Failure Report
-
-*Test:* {test_name}
-*Description:* {test_description}
-*Version:* {version}
-*Platform:* {platform}
-
-h3. Failure Statistics
-* Failure Rate: {failure_rate:.1f}%
-* Total Runs: {runs}
-* Failures: {failures}
-
-h3. Error Message
-{{code}}
-{error_message[:500]}...
-{{code}}
-
-h3. Links
-* [Job URL|{job_url}]
-* [Dashboard|{os.environ.get('DASHBOARD_URL', 'http://dashboard')}]
-
----
-_This issue was automatically created by CI Failure Tracker_
-"""
+        # Atlassian Document Format (ADF) for description
+        description = {
+            "version": 1,
+            "type": "doc",
+            "content": [
+                {
+                    "type": "heading",
+                    "attrs": {"level": 2},
+                    "content": [{"type": "text", "text": "Test Failure Report"}]
+                },
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Test: ", "marks": [{"type": "strong"}]},
+                        {"type": "text", "text": test_name}
+                    ]
+                },
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Description: ", "marks": [{"type": "strong"}]},
+                        {"type": "text", "text": test_description or "N/A"}
+                    ]
+                },
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Version: ", "marks": [{"type": "strong"}]},
+                        {"type": "text", "text": version}
+                    ]
+                },
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Platform: ", "marks": [{"type": "strong"}]},
+                        {"type": "text", "text": platform}
+                    ]
+                },
+                {
+                    "type": "heading",
+                    "attrs": {"level": 3},
+                    "content": [{"type": "text", "text": "Failure Statistics"}]
+                },
+                {
+                    "type": "bulletList",
+                    "content": [
+                        {
+                            "type": "listItem",
+                            "content": [{
+                                "type": "paragraph",
+                                "content": [{"type": "text", "text": f"Failure Rate: {failure_rate:.1f}%"}]
+                            }]
+                        },
+                        {
+                            "type": "listItem",
+                            "content": [{
+                                "type": "paragraph",
+                                "content": [{"type": "text", "text": f"Total Runs: {runs}"}]
+                            }]
+                        },
+                        {
+                            "type": "listItem",
+                            "content": [{
+                                "type": "paragraph",
+                                "content": [{"type": "text", "text": f"Failures: {failures}"}]
+                            }]
+                        }
+                    ]
+                },
+                {
+                    "type": "heading",
+                    "attrs": {"level": 3},
+                    "content": [{"type": "text", "text": "Error Message"}]
+                },
+                {
+                    "type": "codeBlock",
+                    "content": [{"type": "text", "text": error_message[:500]}]
+                },
+                {
+                    "type": "heading",
+                    "attrs": {"level": 3},
+                    "content": [{"type": "text", "text": "Links"}]
+                },
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Job URL: "},
+                        {"type": "text", "text": job_url, "marks": [{"type": "link", "attrs": {"href": job_url}}]}
+                    ]
+                },
+                {
+                    "type": "rule"
+                },
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "This issue was automatically created by CI Failure Tracker", "marks": [{"type": "em"}]}
+                    ]
+                }
+            ]
+        }
 
         try:
             logger.info(f"Creating Jira: {summary}")
