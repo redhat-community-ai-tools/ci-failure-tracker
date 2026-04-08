@@ -6,16 +6,17 @@ metadata:
     app: winc-dashboard-zstream
 data:
   config.yaml: |
-    # Z-Stream Dashboard Configuration - OCP 4.17, 4.19
+    # Z-Stream Dashboard Configuration - OCP 4.17, 4.18, 4.19
 
     collector:
-      type: "reportportal"
+      type: "prow_gcs"
 
-      reportportal:
-        url: "https://reportportal-openshift.apps.dno.ocp-hub.prod.psi.redhat.com"
-        project: "prow"
+      prow_gcs:
+        # QE Private Prow (WINC jobs are here)
+        prow_url: "https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com"
+        gcs_url: "https://gcsweb-qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com/gcs/qe-private-deck"
 
-        # Job patterns for z-stream versions
+        # Job patterns (supports wildcards: * matches any characters)
         job_patterns:
           # Periodic (nightly) jobs
           - "periodic-ci-openshift-openshift-tests-private-release-{version}-*-winc-*"
@@ -26,7 +27,7 @@ data:
           - "pull-ci-openshift-windows-machine-config-operator-release-{version}-*-winc-*"
           - "pull-ci-openshift-windows-machine-config-operator-*-e2e-*"
 
-          # Rehearse jobs
+          # Rehearse jobs (CI config testing)
           - "rehearse-*-periodic-ci-openshift-openshift-tests-private-release-{version}-*-winc-*"
           - "rehearse-*-periodic-ci-openshift-windows-machine-config-operator-release-{version}-*"
           - "rehearse-*-pull-ci-openshift-openshift-tests-private-release-{version}-*-winc-*"
@@ -35,8 +36,6 @@ data:
           # Postsubmit jobs
           - "branch-ci-openshift-windows-machine-config-operator-*"
 
-        page_size: 150
-        max_pages: 10
         max_workers: 5
 
     tracking:
