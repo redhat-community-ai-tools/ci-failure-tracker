@@ -87,6 +87,7 @@ Example job patterns for different teams:
 6. **Team Configuration**: YAML-based per-team configuration (jobs, platforms, thresholds)
 7. **Server-Side Filtering**: Efficient API queries with status and name filtering
 8. **Configurable CLI**: Adjust page size, max pages, and workers via command-line options
+9. **SAML/OAuth Authentication**: Optional Red Hat SSO integration for dashboard access control (see [SAML Authentication](docs/SAML_AUTHENTICATION.md))
 
 ## Data Flow
 
