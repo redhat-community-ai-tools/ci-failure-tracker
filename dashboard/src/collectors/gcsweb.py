@@ -237,6 +237,10 @@ class GCSWebCollector(BaseCollector):
                 # Extract test name and description (look for OCP-XXXXX)
                 test_name, test_description = self._extract_test_name(name)
 
+                # Only include Windows_Containers tests
+                if not test_description or not test_description.startswith('Windows_Containers'):
+                    continue
+
                 result = TestResult(
                     test_name=test_name,
                     status=status,

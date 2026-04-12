@@ -278,6 +278,11 @@ class ProwMCPCollector(BaseCollector):
                 if not test_name.startswith('OCP-'):
                     continue
 
+                # Only include Windows_Containers tests
+                test_description = test.get('description', '')
+                if not test_description or not test_description.startswith('Windows_Containers'):
+                    continue
+
                 # Get logs for failed tests
                 error_message = None
                 if test.get('status') == 'FAILED':
@@ -297,7 +302,7 @@ class ProwMCPCollector(BaseCollector):
                     build_id=str(build_id),
                     version=version,
                     platform=platform,
-                    test_description=test.get('description', ''),
+                    test_description=test_description,
                     job_url=job_info.get('url', ''),
                     log_url=f"https://prow.ci.openshift.org/view/gs/origin-ci-test/logs/{job_name}/{build_id}"
                 )

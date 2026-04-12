@@ -486,6 +486,10 @@ class ProwGCSCollector(BaseCollector):
                     if not test_name.startswith('OCP-'):
                         continue
 
+                    # Only include Windows_Containers tests
+                    if not test_description or not test_description.startswith('Windows_Containers'):
+                        continue
+
                     # Determine status
                     failure = testcase.find('failure')
                     skipped = testcase.find('skipped')

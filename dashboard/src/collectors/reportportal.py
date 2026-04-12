@@ -343,6 +343,10 @@ class ReportPortalCollector(BaseCollector):
                     if test_names and test_name not in test_names:
                         continue
 
+                    # Only include Windows_Containers tests
+                    if not test_description or not test_description.startswith('Windows_Containers'):
+                        continue
+
                     # Fetch logs for failed tests only
                     error_message = None
                     item_status = self._map_status(item.get('status', 'UNKNOWN'))
