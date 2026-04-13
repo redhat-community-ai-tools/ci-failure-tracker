@@ -205,7 +205,7 @@ class WeeklyReportGenerator:
         current_start = current_end - timedelta(days=current_week_days)
         summary = self.calculator.get_summary_stats(days=current_week_days)
 
-        lines.append(f"Overall: {summary['avg_pass_rate']}% pass rate, {summary['total_runs']} total runs")
+        lines.append(f"Overall: {summary['avg_pass_rate']}% pass rate ({summary['total_tests']} tests: {summary['passed_tests']} passed, {summary['failed_tests']} failed)")
         lines.append(f"Period: {current_start.strftime('%Y-%m-%d')} to {current_end.strftime('%Y-%m-%d')}")
 
         return "\n".join(lines)
@@ -296,7 +296,7 @@ class WeeklyReportGenerator:
         summary = self.calculator.get_summary_stats(days=current_week_days)
 
         lines.append(f"Overall Pass Rate: {summary['avg_pass_rate']}%")
-        lines.append(f"Total Test Runs:   {summary['total_runs']}")
+        lines.append(f"Total Tests:       {summary['total_tests']} ({summary['passed_tests']} passed, {summary['failed_tests']} failed)")
         lines.append(f"Trend:             {summary['trend'].upper()}")
         lines.append(f"Period:            {current_start.strftime('%Y-%m-%d')} to {current_end.strftime('%Y-%m-%d')}")
         lines.append("=" * 70)
