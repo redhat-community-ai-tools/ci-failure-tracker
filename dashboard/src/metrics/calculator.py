@@ -218,42 +218,61 @@ class MetricsCalculator:
             platform: Optional platform filter
 
         Returns:
-            Dictionary with summary statistics
+            Dictionary with summary statistics including:
+            - total_tests: Total number of unique tests
+            - passed_tests: Number of tests with 100% pass rate
+            - failed_tests: Number of tests with < 100% pass rate
+            - avg_pass_rate: Percentage of tests passing (passed_tests/total_tests * 100)
+            - trend: 'improving', 'declining', or 'stable'
         """
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
 
-        daily_data = self.db.get_daily_pass_rates(start_date, end_date, version=version, platform=platform)
+        # Get test-level pass rates
+        test_data = self.db.get_test_pass_rates(start_date, end_date, version=version, platform=platform, blocklist=self.blocklist)
 
-        if not daily_data:
+        if not test_data:
             return {
-                'total_runs': 0,
+                'total_tests': 0,
+                'passed_tests': 0,
+                'failed_tests': 0,
                 'avg_pass_rate': 0,
                 'trend': 'stable'
             }
 
-        total_runs = sum(row['total_runs'] for row in daily_data)
-        all_rates = [row['avg_pass_rate'] for row in daily_data]
-        avg_pass_rate = sum(all_rates) / len(all_rates) if all_rates else 0
+        # Count tests by pass rate
+        total_tests = len(test_data)
+        passed_tests = sum(1 for test in test_data if test['pass_rate'] == 100)
+        failed_tests = total_tests - passed_tests
 
-        # Calculate trend (compare first half vs second half)
-        midpoint = len(all_rates) // 2
-        if midpoint > 0:
-            first_half = sum(all_rates[:midpoint]) / midpoint
-            second_half = sum(all_rates[midpoint:]) / len(all_rates[midpoint:])
-            diff = second_half - first_half
+        # Calculate overall pass rate
+        avg_pass_rate = (passed_tests / total_tests * 100) if total_tests > 0 else 0
 
-            if diff > 2:
-                trend = 'improving'
-            elif diff < -2:
-                trend = 'declining'
+        # Calculate trend based on daily pass rates
+        daily_data = self.db.get_daily_pass_rates(start_date, end_date, version=version, platform=platform)
+        if daily_data and len(daily_data) > 1:
+            all_rates = [row['avg_pass_rate'] for row in daily_data]
+            midpoint = len(all_rates) // 2
+            if midpoint > 0:
+                first_half = sum(all_rates[:midpoint]) / midpoint
+                second_half = sum(all_rates[midpoint:]) / len(all_rates[midpoint:])
+                diff = second_half - first_half
+
+                if diff > 2:
+                    trend = 'improving'
+                elif diff < -2:
+                    trend = 'declining'
+                else:
+                    trend = 'stable'
             else:
                 trend = 'stable'
         else:
             trend = 'stable'
 
         return {
-            'total_runs': total_runs,
+            'total_tests': total_tests,
+            'passed_tests': passed_tests,
+            'failed_tests': failed_tests,
             'avg_pass_rate': round(avg_pass_rate, 2),
             'trend': trend,
             'date_range': f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"

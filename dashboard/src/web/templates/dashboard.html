@@ -584,16 +584,19 @@
 
         <div class="summary-cards">
             <div class="card">
-                <h3>Average Pass Rate</h3>
+                <h3>Test Pass Rate</h3>
                 <div class="value" id="avgPassRate">--%</div>
+                <div style="margin-top:10px; font-size:14px; color:#666;">
+                    <span id="testBreakdown">-- tests: -- passed, -- failed</span>
+                </div>
                 <div class="trend" id="trendIndicator">Loading...</div>
             </div>
             <div class="card">
-                <h3>Total Test Runs</h3>
-                <div class="value" id="totalRuns">--</div>
+                <h3>Date Range</h3>
+                <div id="dateRange" style="margin-top:15px; font-size:18px; color:#333; font-weight:600;">--</div>
                 <div style="margin-top:15px; padding-top:15px; border-top:1px solid #e5e7eb;">
-                    <div class="label">Date Range</div>
-                    <div id="dateRange" style="margin-top:5px; font-size:14px; color:#333; font-weight:600;">--</div>
+                    <div class="label">Trend</div>
+                    <div id="trendText" style="margin-top:5px; font-size:16px; color:#333; font-weight:600;">--</div>
                 </div>
             </div>
         </div>
@@ -1086,8 +1089,10 @@
 
                 // Update summary cards
                 document.getElementById('avgPassRate').textContent = `${summary.avg_pass_rate}%`;
-                document.getElementById('totalRuns').textContent = summary.total_runs;
+                document.getElementById('testBreakdown').textContent =
+                    `${summary.total_tests} tests: ${summary.passed_tests} passed, ${summary.failed_tests} failed`;
                 document.getElementById('dateRange').textContent = summary.date_range;
+                document.getElementById('trendText').textContent = summary.trend.charAt(0).toUpperCase() + summary.trend.slice(1);
 
                 const trendEl = document.getElementById('trendIndicator');
                 trendEl.textContent = `Trend: ${summary.trend}`;
@@ -1256,7 +1261,7 @@
             document.getElementById('reportTitle').textContent =
                 `WINC PROW CI Health — Week ${data.comparison.current_period}`;
             document.getElementById('reportSubtitle').textContent =
-                `Overall: ${data.summary.avg_pass_rate}% pass rate, ${data.summary.total_runs} total runs | Trend: ${data.summary.trend}`;
+                `Overall: ${data.summary.total_tests} tests (${data.summary.passed_tests} passed, ${data.summary.failed_tests} failed) — ${data.summary.avg_pass_rate}% | Trend: ${data.summary.trend}`;
 
             // Render platform comparison
             renderPlatformComparison(data.comparison.platforms);
