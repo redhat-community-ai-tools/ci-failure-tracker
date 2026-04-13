@@ -233,6 +233,11 @@ class ProwGCSCollector(BaseCollector):
                     if not matched:
                         continue
 
+                # Exclude non-Windows test jobs that match -winc- pattern
+                excluded_suffixes = ['-compliance', '-compliance-destructive', '-file-integrity']
+                if any(job_name.endswith(suffix) for suffix in excluded_suffixes):
+                    continue
+
                 # Extract metadata
                 version, platform = self._extract_version_platform(job_name)
 
