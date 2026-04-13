@@ -189,6 +189,28 @@ def collect(ctx, days, dry_run):
 
     console.print(f"[green]✓ Collected {len(test_results)} test results[/green]")
 
+    # Update job runs with actual test counts from test_results
+    from collections import defaultdict
+    job_test_counts = defaultdict(lambda: {'total': 0, 'passed': 0, 'failed': 0})
+
+    for test in test_results:
+        key = (test.job_name, test.build_id)
+        job_test_counts[key]['total'] += 1
+        if test.status.value == 'passed':
+            job_test_counts[key]['passed'] += 1
+        else:
+            job_test_counts[key]['failed'] += 1
+
+    # Update JobRun objects with actual counts
+    for job_run in job_runs:
+        key = (job_run.job_name, job_run.build_id)
+        if key in job_test_counts:
+            counts = job_test_counts[key]
+            job_run.total_tests = counts['total']
+            job_run.passed_tests = counts['passed']
+            job_run.failed_tests = counts['failed']
+            job_run.pass_rate = (counts['passed'] / counts['total'] * 100) if counts['total'] > 0 else 0
+
     if dry_run:
         # Show sample data
         if job_runs:
