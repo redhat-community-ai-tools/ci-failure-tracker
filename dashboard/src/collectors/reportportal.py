@@ -7,7 +7,7 @@ Collects test results from ReportPortal API to calculate pass rates.
 import re
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -65,14 +65,15 @@ class ReportPortalCollector(BaseCollector):
             timestamp_value: Either numeric milliseconds or ISO 8601 string
 
         Returns:
-            datetime object
+            datetime object (timezone-aware UTC)
         """
         if isinstance(timestamp_value, str):
-            # ISO 8601 format: '2026-04-06T06:16:18.581174Z'
+            # ISO 8601 format: '2026-04-05T00:12:20.594631Z'
             return datetime.fromisoformat(timestamp_value.replace('Z', '+00:00'))
         else:
-            # Numeric milliseconds
-            return datetime.fromtimestamp(int(timestamp_value) / 1000)
+            # Numeric milliseconds (epoch timestamp)
+            # Convert to timezone-aware datetime in UTC
+            return datetime.fromtimestamp(int(timestamp_value) / 1000, tz=timezone.utc)
 
     def _map_status(self, rp_status: str) -> TestStatus:
         """Map ReportPortal status to normalized TestStatus"""
