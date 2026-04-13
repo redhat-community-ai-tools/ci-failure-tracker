@@ -79,7 +79,7 @@ def get_collector(config: dict):
         rp_config = config['collector']['reportportal'].copy()
         rp_config['test_suite_filter'] = test_suite_filter
         return ReportPortalCollector(rp_config)
-    elif collector_type == 'prow-gcs':
+    elif collector_type in ['prow-gcs', 'prow_gcs']:
         prow_config = config['collector']['prow_gcs'].copy()
         prow_config['test_suite_filter'] = test_suite_filter
         return ProwGCSCollector(prow_config)
