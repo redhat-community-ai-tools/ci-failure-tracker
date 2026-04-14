@@ -189,11 +189,15 @@ def collect(ctx, days, dry_run):
 
     console.print(f"[green]✓ Collected {len(test_results)} test results[/green]")
 
-    # Update job runs with actual test counts from test_results
+    # Update job runs with actual test counts from test_results (excluding skipped)
     from collections import defaultdict
     job_test_counts = defaultdict(lambda: {'total': 0, 'passed': 0, 'failed': 0})
 
     for test in test_results:
+        # Skip skipped tests - they don't count toward pass/fail statistics
+        if test.status.value == 'skipped':
+            continue
+
         key = (test.job_name, test.build_id)
         job_test_counts[key]['total'] += 1
         if test.status.value == 'passed':
