@@ -31,6 +31,11 @@ spec:
                 secretKeyRef:
                   name: prow-api-token
                   key: token
+            - name: CLAUDE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: claude-api-key
+                  key: api-key
           volumeMounts:
             - name: data
               mountPath: /data
