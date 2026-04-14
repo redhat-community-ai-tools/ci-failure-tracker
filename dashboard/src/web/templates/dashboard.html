@@ -696,11 +696,10 @@
                                 <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Pass Rate</th>
                                 <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Runs</th>
                                 <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Performance</th>
-                                <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">AI Analysis</th>
                             </tr>
                         </thead>
                         <tbody id="topFailingTests">
-                            <tr><td colspan="7" style="text-align: center; padding: 20px; color: #666;">Loading...</td></tr>
+                            <tr><td colspan="6" style="text-align: center; padding: 20px; color: #666;">Loading...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -728,11 +727,10 @@
                                 <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Pass Rate</th>
                                 <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Runs</th>
                                 <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">Performance</th>
-                                <th style="text-align: left; padding: 12px; background: #f9fafb; font-weight: 600; font-size: 13px; text-transform: uppercase; color: #666; border-bottom: 2px solid #e5e7eb;">AI Analysis</th>
                             </tr>
                         </thead>
                         <tbody id="platformModalTests">
-                            <tr><td colspan="7" style="text-align: center; padding: 20px; color: #666;">Loading...</td></tr>
+                            <tr><td colspan="6" style="text-align: center; padding: 20px; color: #666;">Loading...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -854,10 +852,13 @@
                         '</div>'
                     : '') +
                     (metadata.testName ?
-                        '<div class="meta-row" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0;">' +
+                        '<div class="meta-row" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0; display: flex; gap: 10px;">' +
                             '<button onclick="fileJira()" id="jiraButton" style="background: #0052CC; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px;">' +
                                 '<img src="https://play-lh.googleusercontent.com/_AZCbg39DTuk8k3DiPRASr9EwyW058pOfzvAu1DsfN9ygtbOlbuucmXaHJi5ooYbokQX=s48" width="20" height="20" alt="Jira">' +
                                 '<span>File Jira Issue</span>' +
+                            '</button>' +
+                            '<button onclick="analyzeFailureInWindow()" id="analyzeButton" style="background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px;">' +
+                                '<span>Analyze</span>' +
                             '</button>' +
                         '</div>'
                     : '') +
@@ -912,6 +913,75 @@
                             '}' +
                         '} catch (error) {' +
                             'alert("Failed to create Jira: " + error.message);' +
+                            'button.disabled = false;' +
+                            'button.innerHTML = originalContent;' +
+                        '}' +
+                    '}' +
+                    'async function analyzeFailureInWindow() {' +
+                        'const button = document.getElementById("analyzeButton");' +
+                        'const originalContent = button.innerHTML;' +
+                        'try {' +
+                            'button.disabled = true;' +
+                            'button.innerHTML = "<span>Analyzing...</span>";' +
+                            'const response = await fetch("/api/analyze-failure", {' +
+                                'method: "POST",' +
+                                'headers: {"Content-Type": "application/json"},' +
+                                'body: JSON.stringify({' +
+                                    'test_name: jiraMetadata.testName,' +
+                                    'version: jiraMetadata.version,' +
+                                    'platform: jiraMetadata.platform,' +
+                                    'use_cached: true' +
+                                '})' +
+                            '});' +
+                            'const data = await response.json();' +
+                            'if (!response.ok) throw new Error(data.error || "Analysis failed");' +
+                            'button.innerHTML = "<span>View Analysis</span>";' +
+                            'button.style.background = "#10b981";' +
+                            'const analysisWindow = window.open("", "_blank");' +
+                            'const modeText = data.analysis_mode === "local-claude-code" ? "FREE (Local)" : ' +
+                                'data.analysis_mode === "anthropic-api" ? "API (~$0.02)" : "Cached";' +
+                            'const costColor = data.analysis_mode === "local-claude-code" ? "#10b981" : ' +
+                                'data.analysis_mode === "anthropic-api" ? "#f59e0b" : "#6b7280";' +
+                            'analysisWindow.document.write(' +
+                                '"<!DOCTYPE html><html><head><title>AI Analysis: " + jiraMetadata.testName + "</title>" +' +
+                                '"<style>" +' +
+                                    '"body { font-family: system-ui; margin: 20px; background: #f8fafc; }" +' +
+                                    '".container { max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }" +' +
+                                    '"h1 { color: #1e40af; margin-top: 0; }" +' +
+                                    '"h2 { color: #475569; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-top: 24px; }" +' +
+                                    '".badge { display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; }" +' +
+                                    '".mode-badge { background: " + costColor + "; color: white; }" +' +
+                                    '".confidence { background: #3b82f6; color: white; }" +' +
+                                    '".meta { background: #f1f5f9; padding: 16px; border-radius: 6px; margin: 16px 0; }" +' +
+                                    '".evidence { background: #fef3c7; padding: 16px; border-left: 4px solid #f59e0b; margin: 12px 0; }" +' +
+                                    '"pre { background: #1e293b; color: #e2e8f0; padding: 16px; border-radius: 6px; overflow-x: auto; }" +' +
+                                    '"button { background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; }" +' +
+                                    '"button:hover { background: #2563eb; }" +' +
+                                '"</style></head><body><div class=\\"container\\">" +' +
+                                '"<h1>AI Failure Analysis</h1>" +' +
+                                '"<div class=\\"meta\\">" +' +
+                                    '"<strong>Test:</strong> " + jiraMetadata.testName + "<br>" +' +
+                                    '"<strong>Platform:</strong> " + jiraMetadata.platform + "<br>" +' +
+                                    '"<strong>Version:</strong> " + jiraMetadata.version + "<br>" +' +
+                                    '"<strong>Analysis Mode:</strong> <span class=\\"badge mode-badge\\">" + modeText + "</span>" +' +
+                                    '" <span class=\\"badge confidence\\">Confidence: " + (data.confidence || "N/A") + "%</span>" +' +
+                                '"</div>" +' +
+                                '"<h2>Root Cause</h2>" +' +
+                                '"<p>" + (data.root_cause || "Unknown") + "</p>" +' +
+                                '"<h2>Component</h2>" +' +
+                                '"<p>" + (data.component || "Unknown") + "</p>" +' +
+                                '"<h2>Evidence</h2>" +' +
+                                '"<div class=\\"evidence\\">" + (data.evidence || "No evidence available") + "</div>" +' +
+                                '"<h2>Suggested Action</h2>" +' +
+                                '"<p>" + (data.suggested_action || "No suggestion available") + "</p>" +' +
+                                '"<h2>Issue Template</h2>" +' +
+                                '"<button onclick=\\"navigator.clipboard.writeText(document.getElementById(\'template\').textContent); alert(\'Copied to clipboard!\')\\">Copy to Clipboard</button>" +' +
+                                '"<pre id=\\"template\\">" + (data.issue_description || "No template available") + "</pre>" +' +
+                                '"</div></body></html>"' +
+                            ');' +
+                            'analysisWindow.document.close();' +
+                        '} catch (error) {' +
+                            'alert("Analysis failed: " + error.message);' +
                             'button.disabled = false;' +
                             'button.innerHTML = originalContent;' +
                         '}' +
@@ -1441,146 +1511,8 @@
                             <div class="label">${test.pass_rate.toFixed(1)}%</div>
                         </div>
                     </td>
-                    <td style="padding: 12px;">
-                        ${test.pass_rate < 100 ? `
-                            <button onclick="analyzeFailure('${test.test_name}', '${test.version}', '${platform}')"
-                                    style="background: #3b82f6; color: white; padding: 6px 12px; border-radius: 4px; border: none; cursor: pointer; font-size: 12px;">
-                                🤖 Analyze
-                            </button>
-                        ` : '<span style="color: #10b981; font-size: 12px;">Passing</span>'}
-                    </td>
                 </tr>
             `).join('');
-        }
-
-        async function analyzeFailure(testName, version, platform) {
-            const btn = event.target;
-            const originalText = btn.textContent;
-            btn.disabled = true;
-            btn.textContent = '🤖 Analyzing...';
-
-            try {
-                const response = await fetch('/api/analyze-failure', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        test_name: testName,
-                        version: version,
-                        platform: platform,
-                        use_cached: true
-                    })
-                });
-
-                const analysis = await response.json();
-
-                if (analysis.error) {
-                    alert('Analysis failed: ' + analysis.error);
-                    return;
-                }
-
-                // Display results
-                showAnalysisModal(analysis, testName, version, platform);
-
-            } catch (error) {
-                alert('Analysis failed: ' + error.message);
-            } finally {
-                btn.disabled = false;
-                btn.textContent = originalText;
-            }
-        }
-
-        function showAnalysisModal(analysis, testName, version, platform) {
-            const mode = analysis.analysis_mode || 'unknown';
-            const modeLabel = mode === 'local-claude-code'
-                ? '🆓 FREE (Local Claude Code)'
-                : mode === 'anthropic-api'
-                ? '💰 API (~$0.02)'
-                : '❓ Unknown';
-
-            const modeColor = mode === 'local-claude-code' ? '#10b981' : '#3b82f6';
-            const cached = analysis.cached ? ' (Cached)' : '';
-
-            const modal = document.createElement('div');
-            modal.innerHTML = `
-                <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
-                    <div style="background: white; padding: 30px; border-radius: 12px; max-width: 900px; max-height: 85vh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                            <h2 style="margin: 0;">🤖 AI Failure Analysis</h2>
-                            <span style="background: ${modeColor}; color: white; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600;">
-                                ${modeLabel}${cached}
-                            </span>
-                        </div>
-
-                        <div style="background: #f3f4f6; padding: 12px; border-radius: 6px; margin-bottom: 20px; font-size: 13px;">
-                            <strong>${testName}</strong> on ${platform} (${version})
-                        </div>
-
-                        <div style="margin: 20px 0;">
-                            <strong style="color: #374151;">Root Cause:</strong>
-                            <p style="margin: 8px 0; line-height: 1.6;">${analysis.root_cause || 'Not determined'}</p>
-                        </div>
-
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 20px 0;">
-                            <div>
-                                <strong style="color: #374151;">Component:</strong>
-                                <span style="background: #dbeafe; padding: 4px 8px; border-radius: 4px; margin-left: 8px; font-size: 13px;">${analysis.component || 'unknown'}</span>
-                            </div>
-                            <div>
-                                <strong style="color: #374151;">Confidence:</strong>
-                                <span style="color: ${(analysis.confidence || 0) > 70 ? '#059669' : '#f59e0b'}; font-weight: 600; margin-left: 8px;">${analysis.confidence || 0}%</span>
-                            </div>
-                        </div>
-
-                        ${analysis.evidence ? `
-                        <div style="margin: 20px 0;">
-                            <strong style="color: #374151;">Evidence:</strong>
-                            <pre style="background: #1f2937; color: #f3f4f6; padding: 12px; border-radius: 6px; overflow-x: auto; margin-top: 8px; font-size: 12px; line-height: 1.5;">${analysis.evidence}</pre>
-                        </div>
-                        ` : ''}
-
-                        ${analysis.suggested_action ? `
-                        <div style="margin: 20px 0;">
-                            <strong style="color: #374151;">Suggested Action:</strong>
-                            <p style="margin: 8px 0; line-height: 1.6; background: #fef3c7; padding: 12px; border-left: 4px solid #f59e0b; border-radius: 4px;">${analysis.suggested_action}</p>
-                        </div>
-                        ` : ''}
-
-                        ${analysis.issue_title ? `
-                        <div style="margin: 20px 0; border-top: 1px solid #e5e7eb; padding-top: 20px;">
-                            <strong style="color: #374151;">Suggested Issue:</strong>
-                            <p style="margin: 8px 0; font-weight: 600;">${analysis.issue_title}</p>
-                            <pre style="background: #f9fafb; padding: 12px; border-radius: 6px; margin-top: 8px; font-size: 12px; white-space: pre-wrap; line-height: 1.5;">${analysis.issue_description || ''}</pre>
-                            <button onclick="copyIssueTemplate('${escapeHtml(analysis.issue_title)}', '${escapeHtml(analysis.issue_description || '')}')"
-                                    style="margin-top: 10px; background: #059669; color: white; padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer; font-weight: 600;">
-                                📋 Copy Issue Template
-                            </button>
-                        </div>
-                        ` : ''}
-
-                        <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
-                            <button onclick="this.closest('div').parentElement.parentElement.remove()"
-                                    style="background: #6b7280; color: white; padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600;">
-                                Close
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(modal);
-        }
-
-        function escapeHtml(text) {
-            if (!text) return '';
-            return text.replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n');
-        }
-
-        function copyIssueTemplate(title, description) {
-            const text = `${title}\n\n${description}`;
-            navigator.clipboard.writeText(text).then(() => {
-                alert('Issue template copied to clipboard!');
-            }).catch(err => {
-                alert('Failed to copy: ' + err);
-            });
         }
 
         function closePlatformModal() {
@@ -1599,15 +1531,11 @@
             const tbody = document.getElementById('topFailingTests');
 
             if (!tests || tests.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:#666;">No failing tests found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#666;">No failing tests found</td></tr>';
                 return;
             }
 
             tbody.innerHTML = tests.map((test, index) => {
-                // Get first failed platform for analysis
-                const failedPlatforms = test.failed_platforms ? test.failed_platforms.split(',').map(p => p.trim()).filter(p => p) : [];
-                const platform = failedPlatforms[0] || 'unknown';
-
                 return `
                 <tr style="border-bottom: 1px solid #f3f4f6;">
                     <td style="padding: 12px;"><strong>${index + 1}</strong></td>
@@ -1623,13 +1551,6 @@
                             <div class="fill" style="width: ${test.pass_rate}%"></div>
                             <div class="label">${test.pass_rate.toFixed(1)}%</div>
                         </div>
-                    </td>
-                    <td style="padding: 12px;">
-                        <button onclick="analyzeFailure('${test.test_name.replace(/'/g, "\\'")}', '${test.version}', '${platform}')"
-                                style="background: #3b82f6; color: white; padding: 6px 12px; border-radius: 4px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; white-space: nowrap;"
-                                title="Analyze failure with AI">
-                            🤖 Analyze
-                        </button>
                     </td>
                 </tr>
                 `;
