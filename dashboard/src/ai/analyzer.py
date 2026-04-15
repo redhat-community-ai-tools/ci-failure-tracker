@@ -3,6 +3,7 @@ REAL AI analyzer - uses only Claude (local or Vertex AI), NO pattern matching
 """
 
 import os
+import re
 import requests
 import json
 import logging
