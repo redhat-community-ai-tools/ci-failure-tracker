@@ -216,6 +216,12 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 template_folder=str(Path(__file__).parent / 'templates'),
                 static_folder=str(Path(__file__).parent / 'static'))
 
+    # Disable template caching for development
+    app.config['TEMPLATES_AUTO_RELOAD'] = True
+    app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
+    app.jinja_env.auto_reload = True
+    app.jinja_env.cache = {}
+
     if config:
         app.config.update(config)
 

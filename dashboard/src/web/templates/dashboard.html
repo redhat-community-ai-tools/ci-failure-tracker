@@ -742,7 +742,10 @@
     <div id="logModal" class="modal" style="display: none;">
         <div class="modal-content" style="max-width: 1000px;">
             <div class="modal-header">
-                <h2 id="logModalTitle">Test Log</h2>
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <h2 id="logModalTitle">Test Log</h2>
+                    <span style="background: #10b981; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">BUILD 67</span>
+                </div>
                 <span class="close" onclick="closeLogModal()">&times;</span>
             </div>
             <div class="modal-body">
@@ -828,6 +831,9 @@
 
         // Simple modal-based log viewer (NO popup windows!)
         function openLogWindow(logContent, testTitle, metadata) {
+            console.log('=== BUILD 67 - MODAL VERSION LOADED ===');
+            console.log('openLogWindow called at line 830');
+
             // Store data globally for AI analysis
             currentLogData = {
                 logContent: logContent,
