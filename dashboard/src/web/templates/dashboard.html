@@ -744,15 +744,9 @@
             <div class="modal-header">
                 <div style="display: flex; align-items: center; gap: 15px;">
                     <h2 id="logModalTitle">Test Log</h2>
-                    <span style="background: {% if enable_ai %}#8b5cf6{% else %}#6b7280{% endif %}; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">BUILD 70{% if enable_ai %} + AI{% endif %}</span>
+                    <span style="background: {% if enable_ai %}#8b5cf6{% else %}#6b7280{% endif %}; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">BUILD 71{% if enable_ai %} + AI{% endif %}</span>
                 </div>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <button id="jiraBtn" onclick="createJiraFromModal()" style="background: #0052CC; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M11.53 2c0 2.4 1.97 4.35 4.35 4.35h1.78v1.7c0 2.4 1.94 4.34 4.34 4.34V2.84A.84.84 0 0 0 21.16 2h-9.63zM2.84 11.53c2.4 0 4.35-1.97 4.35-4.35V5.4h1.7c2.4 0 4.34-1.94 4.34-4.34H2.84A.84.84 0 0 0 2 1.9v9.63zM11.53 21.16c0-2.4 1.97-4.35 4.35-4.35h1.78v-1.7c0-2.4 1.94-4.34 4.34-4.34v9.55a.84.84 0 0 1-.84.84h-9.63z"/></svg>
-                        Jira
-                    </button>
-                    <span class="close" onclick="closeLogModal()">&times;</span>
-                </div>
+                <span class="close" onclick="closeLogModal()">&times;</span>
             </div>
             <div class="modal-body">
                 <!-- Metadata -->
@@ -800,11 +794,17 @@
                 <div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                         <h3 style="margin: 0;">Error Log</h3>
-                        {% if enable_ai %}
-                        <button id="analyzeBtn" onclick="runAIAnalysis()" style="background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;">
-                            Analyze with AI
-                        </button>
-                        {% endif %}
+                        <div style="display: flex; gap: 10px;">
+                            <button id="jiraBtn" onclick="createJiraFromModal()" style="background: #0052CC; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px;">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M11.53 2c0 2.4 1.97 4.35 4.35 4.35h1.78v1.7c0 2.4 1.94 4.34 4.34 4.34V2.84A.84.84 0 0 0 21.16 2h-9.63zM2.84 11.53c2.4 0 4.35-1.97 4.35-4.35V5.4h1.7c2.4 0 4.34-1.94 4.34-4.34H2.84A.84.84 0 0 0 2 1.9v9.63zM11.53 21.16c0-2.4 1.97-4.35 4.35-4.35h1.78v-1.7c0-2.4 1.94-4.34 4.34-4.34v9.55a.84.84 0 0 1-.84.84h-9.63z"/></svg>
+                                Jira
+                            </button>
+                            {% if enable_ai %}
+                            <button id="analyzeBtn" onclick="runAIAnalysis()" style="background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;">
+                                Analyze with AI
+                            </button>
+                            {% endif %}
+                        </div>
                     </div>
                     <pre id="logContent" style="background: #1e293b; color: #e2e8f0; padding: 20px; border-radius: 6px; overflow-x: auto; max-height: 500px; overflow-y: auto; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word;"></pre>
                 </div>
@@ -869,7 +869,7 @@
 
         // Simple modal-based log viewer (NO popup windows!)
         function openLogWindow(logContent, testTitle, metadata) {
-            console.log('=== BUILD 70 - LOG VIEWER WITH CLASSIFICATION (AI: {{ "enabled" if enable_ai else "disabled" }}) ===');
+            console.log('=== BUILD 71 - JIRA BUTTON MOVED + DB CLEANER (AI: {{ "enabled" if enable_ai else "disabled" }}) ===');
 
             // Store data globally for AI analysis and Jira creation
             currentLogData = {
