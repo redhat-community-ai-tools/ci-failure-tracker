@@ -295,7 +295,18 @@ Only return the JSON, no additional text.
         combined_text = f"{error_message}\n{log_content[-2000:]}".lower()
 
         # Pattern matching for common Windows failures
-        if "timeout" in combined_text or "timed out" in combined_text:
+
+        # SSH/Connection failures (exit 255) - usually transient
+        if "exit status 255" in combined_text or "ssh" in combined_text and "failed" in combined_text:
+            root_cause = "SSH connection failure to Windows node - likely transient infrastructure issue"
+            component = "infrastructure"
+            confidence = 50  # Low confidence - likely flake
+            failure_type = "flake"
+            platform_specific = False
+            evidence = "Exit status 255 indicates SSH connection failure"
+            suggested_action = "Retry test - likely transient network/SSH issue, not a product bug"
+
+        elif "timeout" in combined_text or "timed out" in combined_text:
             if "azure" in combined_text or "disk" in combined_text:
                 root_cause = "Azure CSI driver timeout when mounting volumes to Windows pod"
                 component = "azure-csi-driver"
@@ -360,10 +371,40 @@ Only return the JSON, no additional text.
             evidence = "Kubelet CA or certificate errors in logs"
             suggested_action = "Verify kubelet CA bundle and certificate rotation configuration"
 
-        # Build issue template
-        issue_title = f"{test_name} fails on {platform} - {root_cause[:50]}"
-        issue_description = f"""## Test Failure Analysis
+        elif "containerd" in combined_text and "service" in combined_text:
+            if "exit status 255" in combined_text:
+                root_cause = "Failed to check containerd service status - SSH connection failure (transient)"
+                component = "infrastructure"
+                confidence = 40
+                failure_type = "flake"
+                evidence = "SSH failure when checking containerd service"
+                suggested_action = "Retry test - SSH connection issue, not containerd problem"
+            else:
+                root_cause = "Containerd service issue on Windows node"
+                component = "containerd"
+                confidence = 75
+                failure_type = "infrastructure"
+                evidence = "Containerd service errors in logs"
+                suggested_action = "Check containerd service status and logs on Windows node"
 
+        elif "unable to connect" in combined_text or "connection timed out" in combined_text:
+            root_cause = "Network connection timeout - likely transient network issue"
+            component = "networking"
+            confidence = 45
+            failure_type = "flake"
+            evidence = "Connection timeout in logs"
+            suggested_action = "Retry test - likely transient network issue"
+
+        # Build issue template
+        if failure_type == "flake":
+            issue_title = f"Flake: {test_name} - {root_cause[:50]}"
+            flake_note = f"\n**⚠️ LIKELY FLAKE (Confidence: {confidence}%)** - This appears to be a transient issue, not a real bug. Consider retrying before filing.\n"
+        else:
+            issue_title = f"{test_name} fails on {platform} - {root_cause[:50]}"
+            flake_note = ""
+
+        issue_description = f"""## Test Failure Analysis
+{flake_note}
 **Test:** {test_name}
 **Platform:** {platform}
 **Version:** {version}
