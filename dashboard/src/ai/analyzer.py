@@ -150,15 +150,22 @@ class HybridFailureAnalyzer:
                     'platform': platform,
                     'version': version
                 },
-                timeout=60  # Allow time for analysis
+                timeout=10  # Quick check - fall back to pattern matching if no immediate response
             )
 
             if response.status_code == 200:
                 result = response.json()
                 logger.debug(f"Local analysis succeeded: {result.get('root_cause', '')[:100]}")
                 return result
+            elif response.status_code == 202:
+                # Analysis queued - service will wait internally
+                result = response.json()
+                logger.info(f"Analysis queued: {result.get('message', '')}")
+                # The /analyze endpoint waits up to 60s, so if we got 202 it timed out
+                # Return None to fall back to pattern analysis
+                return None
             else:
-                logger.warning(f"Local service returned {response.status_code}")
+                logger.warning(f"Local service returned {response.status_code}: {response.text[:200]}")
                 return None
 
         except requests.exceptions.Timeout:

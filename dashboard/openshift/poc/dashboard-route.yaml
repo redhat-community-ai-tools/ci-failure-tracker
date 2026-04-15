@@ -4,6 +4,8 @@ metadata:
   name: winc-dashboard-poc
   labels:
     app: winc-dashboard-poc
+  annotations:
+    haproxy.router.openshift.io/timeout: 90s
 spec:
   to:
     kind: Service

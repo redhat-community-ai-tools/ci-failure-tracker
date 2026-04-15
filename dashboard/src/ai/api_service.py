@@ -133,9 +133,9 @@ def analyze():
     if not success:
         return jsonify({'error': 'Failed to queue request'}), 500
 
-    # Poll for response (timeout after 60 seconds)
+    # Poll for response (timeout after 10 seconds)
     import time
-    for _ in range(60):
+    for _ in range(10):
         response = queue.get_response(request_id)
         if response:
             # Add metadata
