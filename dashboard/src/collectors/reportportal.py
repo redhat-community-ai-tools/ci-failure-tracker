@@ -418,10 +418,10 @@ class ReportPortalCollector(BaseCollector):
                     after_id = raw_name.split(test_id, 1)[-1]
                     description = after_id.strip(':- \t')
 
-            # Remove test suite prefix (if configured)
-            test_suite_filter = self.config.get('test_suite_filter', '')
-            if test_suite_filter:
-                description = re.sub(rf'^{re.escape(test_suite_filter)}[-\s]+', '', description)
+            # Remove Windows_Containers prefix (always)
+            description = re.sub(r'^Windows_Containers[-\s]+', '', description)
+
+            # Remove Smokerun prefix
             description = re.sub(r'^Smokerun-[^\s]+\s+', '', description)
 
             # Remove [wmco] or similar prefixes at the start
