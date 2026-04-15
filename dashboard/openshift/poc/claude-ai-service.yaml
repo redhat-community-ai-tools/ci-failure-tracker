@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: claude-ai
+  labels:
+    app: claude-ai
+spec:
+  ports:
+    - name: http
+      port: 5002
+      targetPort: 5002
+      protocol: TCP
+  selector:
+    app: claude-ai
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: claude-ai
+  labels:
+    app: claude-ai
+spec:
+  to:
+    kind: Service
+    name: claude-ai
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: claude-ai
+  labels:
+    app: claude-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: claude-ai
+  template:
+    metadata:
+      labels:
+        app: claude-ai
+    spec:
+      containers:
+        - name: api-service
+          image: image-registry.openshift-image-registry.svc:5000/winc-dashboard-poc/winc-dashboard-poc:latest
+          command:
+            - python3
+            - src/ai/api_service.py
+          ports:
+            - containerPort: 5002
+              protocol: TCP
+          env:
+            - name: PYTHONPATH
+              value: src
+            - name: PORT
+              value: "5002"
+          volumeMounts:
+            - name: analysis-queue
+              mountPath: /tmp
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5002
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5002
+            initialDelaySeconds: 5
+            periodSeconds: 15
+
+      volumes:
+        - name: analysis-queue
+          persistentVolumeClaim:
+            claimName: claude-ai-queue
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: claude-ai-queue
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
