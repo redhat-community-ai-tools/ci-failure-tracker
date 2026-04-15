@@ -13,16 +13,13 @@ logger = logging.getLogger(__name__)
 
 class HybridFailureAnalyzer:
     """
-    Real AI failure analyzer with 2-tier approach:
-    1. Try local Claude Code service first (FREE, queue-based)
-    2. Fall back to Vertex AI if local not available (~$0.02 per analysis)
+    Real AI failure analyzer using Google Vertex AI.
 
+    Uses Claude via Vertex AI API (~$0.02 per analysis).
     NO pattern matching - real AI only.
     """
 
     def __init__(self):
-        self.local_service_url = os.getenv('LOCAL_AI_SERVICE_URL', 'http://localhost:5001')
-        self.claude_api_key = os.getenv('CLAUDE_API_KEY')
         self.vertex_project_id = os.getenv('ANTHROPIC_VERTEX_PROJECT_ID')
         self.vertex_region = os.getenv('ANTHROPIC_VERTEX_REGION')
 
@@ -54,18 +51,6 @@ class HybridFailureAnalyzer:
             self.claude_client = None
             logger.warning("Neither Vertex AI credentials nor CLAUDE_API_KEY set - API fallback unavailable")
 
-    def _check_local_service(self) -> bool:
-        """Check if local Claude Code service is running"""
-        try:
-            response = requests.get(
-                f"{self.local_service_url}/health",
-                timeout=2  # Quick timeout
-            )
-            return response.status_code == 200
-        except Exception as e:
-            logger.debug(f"Local service check failed: {e}")
-            return False
-
     def analyze_failure(
         self,
         test_name: str,
@@ -75,11 +60,10 @@ class HybridFailureAnalyzer:
         version: str
     ) -> Dict[str, Any]:
         """
-        Analyze failure using 2-tier REAL AI approach:
-        1. Try local Claude Code service first (FREE, requires me to be actively processing queue)
-        2. Fall back to Vertex AI API (cost: ~$0.02 per analysis)
+        Analyze failure using Vertex AI (Claude via Google Cloud).
 
-        NO pattern matching fallback - REAL AI only per user requirement.
+        NO pattern matching - REAL AI only.
+        Cost: ~$0.02 per analysis
 
         Args:
             test_name: Test identifier (e.g., OCP-39030)
@@ -92,20 +76,8 @@ class HybridFailureAnalyzer:
             Analysis dictionary with root_cause, component, confidence, etc.
         """
 
-        # Try local service first (queue-based, requires Claude Code to be monitoring)
-        logger.info(f"Attempting local Claude Code analysis for {test_name}")
-        local_result = self._try_local_analysis(
-            test_name, error_message, log_url, platform, version
-        )
-
-        if local_result:
-            logger.info(f"✓ Used local Claude Code (FREE) for {test_name}")
-            local_result['cost'] = 0.0
-            local_result['analysis_mode'] = 'local-claude-code'
-            return local_result
-
-        # Fall back to Vertex AI API
-        logger.info(f"Local service unavailable, using Vertex AI API for {test_name}")
+        # Use Vertex AI for analysis
+        logger.info(f"Analyzing {test_name} with Vertex AI")
         api_result = self._try_api_analysis(
             test_name, error_message, log_url, platform, version
         )
@@ -116,66 +88,16 @@ class HybridFailureAnalyzer:
             api_result['analysis_mode'] = 'vertex-ai'
             return api_result
 
-        # No AI available - fail with clear error
-        logger.error(f"✗ No AI analysis available for {test_name} - check Vertex AI credentials")
+        # Vertex AI failed - return error
+        logger.error(f"✗ Vertex AI analysis failed for {test_name}")
         return {
-            'error': 'AI analysis unavailable - check Vertex AI configuration',
-            'root_cause': 'Real AI analysis failed - verify ANTHROPIC_VERTEX_PROJECT_ID and credentials',
-            'component': 'ai-service',
+            'error': 'Vertex AI analysis failed',
+            'root_cause': 'Vertex AI analysis failed - check credentials and quota',
+            'component': 'vertex-ai',
             'confidence': 0,
             'analysis_mode': 'failed',
             'cost': 0.0
         }
-
-    def _try_local_analysis(
-        self,
-        test_name: str,
-        error_message: str,
-        log_url: str,
-        platform: str,
-        version: str
-    ) -> Optional[Dict[str, Any]]:
-        """Try to use local Claude Code service"""
-        try:
-            # Check if service is running
-            if not self._check_local_service():
-                logger.debug("Local service not running")
-                return None
-
-            # Call local service
-            response = requests.post(
-                f"{self.local_service_url}/analyze",
-                json={
-                    'test_name': test_name,
-                    'error_message': error_message,
-                    'log_url': log_url,
-                    'platform': platform,
-                    'version': version
-                },
-                timeout=10  # Quick check - fall back to pattern matching if no immediate response
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-                logger.debug(f"Local analysis succeeded: {result.get('root_cause', '')[:100]}")
-                return result
-            elif response.status_code == 202:
-                # Analysis queued - service will wait internally
-                result = response.json()
-                logger.info(f"Analysis queued: {result.get('message', '')}")
-                # The /analyze endpoint waits up to 60s, so if we got 202 it timed out
-                # Return None to fall back to pattern analysis
-                return None
-            else:
-                logger.warning(f"Local service returned {response.status_code}: {response.text[:200]}")
-                return None
-
-        except requests.exceptions.Timeout:
-            logger.warning("Local service timeout")
-            return None
-        except Exception as e:
-            logger.debug(f"Local service error: {e}")
-            return None
 
     def _try_api_analysis(
         self,
@@ -185,14 +107,22 @@ class HybridFailureAnalyzer:
         platform: str,
         version: str
     ) -> Optional[Dict[str, Any]]:
-        """Fall back to Anthropic API"""
+        """Fall back to Vertex AI API"""
         try:
             if not self.claude_client:
                 logger.error("No Claude API client available")
                 return None
 
             # Fetch logs (truncated for cost optimization)
-            logs = self._fetch_logs(log_url)
+            logs = ""
+            if log_url:
+                try:
+                    response = requests.get(log_url, timeout=10)
+                    if response.status_code == 200:
+                        logs = response.text
+                except Exception as e:
+                    logger.warning(f"Failed to fetch logs from {log_url}: {e}")
+
             logs_excerpt = logs[-3000:] if len(logs) > 3000 else logs
 
             # Build prompt
