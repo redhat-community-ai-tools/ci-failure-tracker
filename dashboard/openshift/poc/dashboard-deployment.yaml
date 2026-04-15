@@ -42,15 +42,18 @@ spec:
                 secretKeyRef:
                   name: vertex-ai-credentials
                   key: project-id
-                  optional: true
             - name: ANTHROPIC_VERTEX_REGION
               valueFrom:
                 secretKeyRef:
                   name: vertex-ai-credentials
                   key: region
-                  optional: true
-            - name: GOOGLE_APPLICATION_CREDENTIALS
-              value: "/var/secrets/vertex-ai/credentials.json"
+            - name: CLAUDE_CODE_USE_VERTEX
+              value: "1"
+            - name: CLOUD_ML_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: vertex-ai-credentials
+                  key: region
             - name: LOCAL_AI_SERVICE_URL
               value: "http://claude-ai:5002"
           volumeMounts:
@@ -59,9 +62,6 @@ spec:
             - name: config
               mountPath: /app/config.yaml
               subPath: config.yaml
-            - name: vertex-ai-sa
-              mountPath: /var/secrets/vertex-ai
-              readOnly: true
           resources:
             requests:
               memory: "512Mi"
@@ -90,10 +90,6 @@ spec:
         - name: config
           configMap:
             name: dashboard-config-poc
-        - name: vertex-ai-sa
-          secret:
-            secretName: vertex-ai-service-account
-            optional: true
   triggers:
     - type: ConfigChange
     - type: ImageChange

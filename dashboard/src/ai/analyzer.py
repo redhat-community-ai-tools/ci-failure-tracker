@@ -75,10 +75,11 @@ class HybridFailureAnalyzer:
         version: str
     ) -> Dict[str, Any]:
         """
-        Analyze failure using 3-tier fallback approach:
-        1. Try local Claude Code service (FREE)
-        2. Fall back to Anthropic API if local not available (~$0.02)
-        3. Fall back to built-in pattern matching if API not available (FREE)
+        Analyze failure using 2-tier REAL AI approach:
+        1. Try local Claude Code service first (FREE, requires me to be actively processing queue)
+        2. Fall back to Vertex AI API (cost: ~$0.02 per analysis)
+
+        NO pattern matching fallback - REAL AI only per user requirement.
 
         Args:
             test_name: Test identifier (e.g., OCP-39030)
@@ -91,7 +92,7 @@ class HybridFailureAnalyzer:
             Analysis dictionary with root_cause, component, confidence, etc.
         """
 
-        # Try local service first
+        # Try local service first (queue-based, requires Claude Code to be monitoring)
         logger.info(f"Attempting local Claude Code analysis for {test_name}")
         local_result = self._try_local_analysis(
             test_name, error_message, log_url, platform, version
@@ -103,40 +104,24 @@ class HybridFailureAnalyzer:
             local_result['analysis_mode'] = 'local-claude-code'
             return local_result
 
-        # Fall back to API
-        logger.info(f"Local service unavailable, falling back to API for {test_name}")
+        # Fall back to Vertex AI API
+        logger.info(f"Local service unavailable, using Vertex AI API for {test_name}")
         api_result = self._try_api_analysis(
             test_name, error_message, log_url, platform, version
         )
 
         if api_result:
-            logger.info(f"✓ Used Anthropic API (cost: ~$0.024) for {test_name}")
+            logger.info(f"✓ Used Vertex AI (cost: ~$0.024) for {test_name}")
             api_result['cost'] = 0.024  # Approximate cost with Sonnet
-            api_result['analysis_mode'] = 'anthropic-api'
+            api_result['analysis_mode'] = 'vertex-ai'
             return api_result
 
-        # Fall back to built-in pattern matching
-        logger.info(f"Using built-in pattern analysis for {test_name}")
-
-        # Fetch logs for pattern analysis
-        logs = self._fetch_logs(log_url)
-
-        pattern_result = self._pattern_analysis(
-            test_name, error_message, logs, platform, version
-        )
-
-        if pattern_result:
-            logger.info(f"✓ Used pattern matching (FREE) for {test_name}")
-            pattern_result['cost'] = 0.0
-            pattern_result['analysis_mode'] = 'pattern-matching'
-            return pattern_result
-
-        # Complete failure
-        logger.error(f"✗ All analysis methods failed for {test_name}")
+        # No AI available - fail with clear error
+        logger.error(f"✗ No AI analysis available for {test_name} - check Vertex AI credentials")
         return {
-            'error': 'Analysis unavailable',
-            'root_cause': 'Could not analyze - no analysis method available',
-            'component': 'unknown',
+            'error': 'AI analysis unavailable - check Vertex AI configuration',
+            'root_cause': 'Real AI analysis failed - verify ANTHROPIC_VERTEX_PROJECT_ID and credentials',
+            'component': 'ai-service',
             'confidence': 0,
             'analysis_mode': 'failed',
             'cost': 0.0
