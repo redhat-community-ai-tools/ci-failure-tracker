@@ -955,6 +955,304 @@
             }
         }
 
+        // Keep the old placeholder for compatibility (will be removed later)
+        function OLD_openLogWindow_REMOVED(logContent, testTitle, metadata) {
+            const newWindow = window.open('', '_blank');
+            const escapedContent = logContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const escapedTitle = testTitle.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+            // Format timestamp
+            let formattedTimestamp = 'Unknown';
+            if (metadata && metadata.timestamp && metadata.timestamp !== 'Unknown') {
+                try {
+                    const date = new Date(metadata.timestamp);
+                    formattedTimestamp = date.toLocaleString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZoneName: 'short'
+                    });
+                } catch (e) {
+                    formattedTimestamp = metadata.timestamp;
+                }
+            }
+
+            // Build metadata section
+            let metadataHtml = '';
+            if (metadata) {
+                // Determine link text based on URL
+                let linkText = 'View Job';
+                if (metadata.jobUrl) {
+                    if (metadata.jobUrl.includes('reportportal')) {
+                        linkText = 'View in ReportPortal';
+                    } else if (metadata.jobUrl.includes('prow') || metadata.jobUrl.includes('deck')) {
+                        linkText = 'View in Prow';
+                    }
+                }
+
+                metadataHtml = '<div class="metadata">' +
+                    '<div class="meta-row">' +
+                        '<span class="meta-label">Timestamp:</span>' +
+                        '<span class="meta-value">' + formattedTimestamp + '</span>' +
+                    '</div>' +
+                    '<div class="meta-row">' +
+                        '<span class="meta-label">Platform:</span>' +
+                        '<span class="meta-value platform-badge">' + (metadata.platform || 'Unknown') + '</span>' +
+                    '</div>' +
+                    '<div class="meta-row">' +
+                        '<span class="meta-label">Job:</span>' +
+                        '<span class="meta-value">' + (metadata.jobName || 'Unknown') + '</span>' +
+                    '</div>' +
+                    '<div class="meta-row">' +
+                        '<span class="meta-label">Build ID:</span>' +
+                        '<span class="meta-value">' + (metadata.buildId || 'Unknown') + '</span>' +
+                    '</div>' +
+                    (metadata.jobUrl ?
+                        '<div class="meta-row">' +
+                            '<span class="meta-label">Job URL:</span>' +
+                            '<span class="meta-value"><a href="' + metadata.jobUrl + '" target="_blank" style="color: #2563eb; text-decoration: underline;">' + linkText + '</a></span>' +
+                        '</div>'
+                    : '') +
+                    (metadata.testName ?
+                        '<div class="meta-row" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0; display: flex; gap: 10px;">' +
+                            '<button onclick="fileJira()" id="jiraButton" style="background: #0052CC; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px;">' +
+                                '<img src="https://play-lh.googleusercontent.com/_AZCbg39DTuk8k3DiPRASr9EwyW058pOfzvAu1DsfN9ygtbOlbuucmXaHJi5ooYbokQX=s48" width="20" height="20" alt="Jira">' +
+                                '<span>File Jira Issue</span>' +
+                            '</button>' +
+                            '<button onclick="analyzeFailureInWindow()" id="analyzeButton" style="background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px;">' +
+                                '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 22.5l-.394-1.933a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z"></path></svg>' +
+                                '<span>AI Analyze</span>' +
+                            '</button>' +
+                        '</div>'
+                    : '') +
+                '</div>';
+            }
+
+            // Build the script section using string concatenation to avoid template literal nesting
+            let scriptSection = '';
+            if (metadata.testName) {
+                scriptSection = '<script>' +
+                    'const jiraMetadata = {' +
+                        'testName: ' + JSON.stringify(metadata.testName) + ',' +
+                        'testDescription: ' + JSON.stringify(metadata.testDescription || '') + ',' +
+                        'version: ' + JSON.stringify(metadata.version || '') + ',' +
+                        'platform: ' + JSON.stringify(metadata.platform || '') + ',' +
+                        'jobUrl: ' + JSON.stringify(metadata.jobUrl || '') + ',' +
+                        'errorMessage: ' + JSON.stringify(logContent) +
+                    '};' +
+                    'async function fileJira() {' +
+                        'const button = document.getElementById("jiraButton");' +
+                        'const originalContent = button.innerHTML;' +
+                        'try {' +
+                            'button.disabled = true;' +
+                            'button.innerHTML = "<span>Filing Jira...</span>";' +
+                            'const response = await fetch("/api/jira/create", {' +
+                                'method: "POST",' +
+                                'headers: {"Content-Type": "application/json"},' +
+                                'body: JSON.stringify({' +
+                                    'test_name: jiraMetadata.testName,' +
+                                    'test_description: jiraMetadata.testDescription,' +
+                                    'version: jiraMetadata.version,' +
+                                    'platform: jiraMetadata.platform,' +
+                                    'error_message: jiraMetadata.errorMessage,' +
+                                    'job_url: jiraMetadata.jobUrl,' +
+                                    'failure_rate: 100,' +
+                                    'runs: 1,' +
+                                    'failures: 1' +
+                                '})' +
+                            '});' +
+                            'const data = await response.json();' +
+                            'if (!response.ok) throw new Error(data.error || "Failed to create Jira");' +
+                            'if (data.status === "existing" || data.status === "created") {' +
+                                'window.open(data.issue_url, "_blank");' +
+                                'button.innerHTML = "<img src=\\"https://play-lh.googleusercontent.com/_AZCbg39DTuk8k3DiPRASr9EwyW058pOfzvAu1DsfN9ygtbOlbuucmXaHJi5ooYbokQX=s48\\" width=\\"20\\" height=\\"20\\" alt=\\"Jira\\"><span>" + data.issue_key + "</span>";' +
+                                'button.style.background = "#10b981";' +
+                                'button.onclick = () => window.open(data.issue_url, "_blank");' +
+                                'alert((data.status === "created" ? "Jira created: " : "Existing Jira found: ") + data.issue_key);' +
+                            '} else if (data.status === "disabled") {' +
+                                'alert("Jira integration is not enabled");' +
+                                'button.disabled = false;' +
+                                'button.innerHTML = originalContent;' +
+                            '}' +
+                        '} catch (error) {' +
+                            'alert("Failed to create Jira: " + error.message);' +
+                            'button.disabled = false;' +
+                            'button.innerHTML = originalContent;' +
+                        '}' +
+                    '}' +
+                    'async function analyzeFailureInWindow() {' +
+                        'const button = document.getElementById("analyzeButton");' +
+                        'const originalContent = button.innerHTML;' +
+                        'const analysisWindow = window.open("", "_blank");' +
+                        'if (!analysisWindow) {' +
+                            'alert("Please allow popups for this site to view AI analysis results");' +
+                            'return;' +
+                        '}' +
+                        'analysisWindow.document.write("<html><body><h2>Analyzing...</h2><p>Please wait while AI analyzes the failure...</p></body></html>");' +
+                        'try {' +
+                            'button.disabled = true;' +
+                            'button.innerHTML = "<span>Analyzing...</span>";' +
+                            'const response = await fetch("/api/analyze-failure", {' +
+                                'method: "POST",' +
+                                'headers: {"Content-Type": "application/json"},' +
+                                'body: JSON.stringify({' +
+                                    'test_name: jiraMetadata.testName,' +
+                                    'version: jiraMetadata.version,' +
+                                    'platform: jiraMetadata.platform,' +
+                                    'error_message: jiraMetadata.errorMessage,' +
+                                    'use_cached: true' +
+                                '})' +
+                            '});' +
+                            'const data = await response.json();' +
+                            'if (!response.ok) {' +
+                                'analysisWindow.close();' +
+                                'throw new Error(data.error || "Analysis failed");' +
+                            '}' +
+                            'button.innerHTML = "<span>View Analysis</span>";' +
+                            'button.style.background = "#10b981";' +
+                            'const modeText = data.analysis_mode === "local-claude-code" ? "FREE (Local)" : ' +
+                                'data.analysis_mode === "anthropic-api" ? "API (~$0.02)" : "Cached";' +
+                            'const costColor = data.analysis_mode === "local-claude-code" ? "#10b981" : ' +
+                                'data.analysis_mode === "anthropic-api" ? "#f59e0b" : "#6b7280";' +
+                            'analysisWindow.document.write(' +
+                                '"<!DOCTYPE html><html><head><title>AI Analysis: " + jiraMetadata.testName + "</title>" +' +
+                                '"<style>" +' +
+                                    '"body { font-family: system-ui; margin: 20px; background: #f8fafc; }" +' +
+                                    '".container { max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }" +' +
+                                    '"h1 { color: #1e40af; margin-top: 0; }" +' +
+                                    '"h2 { color: #475569; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-top: 24px; }" +' +
+                                    '".badge { display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; }" +' +
+                                    '".mode-badge { background: " + costColor + "; color: white; }" +' +
+                                    '".confidence { background: #3b82f6; color: white; }" +' +
+                                    '".meta { background: #f1f5f9; padding: 16px; border-radius: 6px; margin: 16px 0; }" +' +
+                                    '".evidence { background: #fef3c7; padding: 16px; border-left: 4px solid #f59e0b; margin: 12px 0; }" +' +
+                                    '"pre { background: #1e293b; color: #e2e8f0; padding: 16px; border-radius: 6px; overflow-x: auto; }" +' +
+                                    '"button { background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; }" +' +
+                                    '"button:hover { background: #2563eb; }" +' +
+                                '"</style></head><body><div class=\\"container\\">" +' +
+                                '"<h1>AI Failure Analysis</h1>" +' +
+                                '"<div class=\\"meta\\">" +' +
+                                    '"<strong>Test:</strong> " + jiraMetadata.testName + "<br>" +' +
+                                    '"<strong>Platform:</strong> " + jiraMetadata.platform + "<br>" +' +
+                                    '"<strong>Version:</strong> " + jiraMetadata.version + "<br>" +' +
+                                    '"<strong>Analysis Mode:</strong> <span class=\\"badge mode-badge\\">" + modeText + "</span>" +' +
+                                    '" <span class=\\"badge confidence\\">Confidence: " + (data.confidence || "N/A") + "%</span>" +' +
+                                '"</div>" +' +
+                                '"<h2>Root Cause</h2>" +' +
+                                '"<p>" + (data.root_cause || "Unknown") + "</p>" +' +
+                                '"<h2>Component</h2>" +' +
+                                '"<p>" + (data.component || "Unknown") + "</p>" +' +
+                                '"<h2>Evidence</h2>" +' +
+                                '"<div class=\\"evidence\\">" + (data.evidence || "No evidence available") + "</div>" +' +
+                                '"<h2>Suggested Action</h2>" +' +
+                                '"<p>" + (data.suggested_action || "No suggestion available") + "</p>" +' +
+                                '"<h2>Issue Template</h2>" +' +
+                                '"<button onclick=\\"navigator.clipboard.writeText(document.getElementById(\'template\').textContent); alert(\'Copied to clipboard!\')\\">Copy to Clipboard</button>" +' +
+                                '"<pre id=\\"template\\">" + (data.issue_description || "No template available") + "</pre>" +' +
+                                '"</div></body></html>"' +
+                            ');' +
+                            'analysisWindow.document.close();' +
+                        '} catch (error) {' +
+                            'if (analysisWindow && !analysisWindow.closed) {' +
+                                'analysisWindow.close();' +
+                            '}' +
+                            'alert("Analysis failed: " + error.message);' +
+                            'button.disabled = false;' +
+                            'button.innerHTML = originalContent;' +
+                        '}' +
+                    '}' +
+                    '<\/script>';
+            }
+
+            newWindow.document.write(
+                '<!DOCTYPE html>' +
+                '<html>' +
+                '<head>' +
+                    '<title>' + escapedTitle + '</title>' +
+                    '<style>' +
+                        'body {' +
+                            'font-family: \'Segoe UI\', Tahoma, Geneva, Verdana, sans-serif;' +
+                            'margin: 0;' +
+                            'padding: 20px;' +
+                            'background: #f8fafc;' +
+                        '}' +
+                        '.container {' +
+                            'max-width: 1200px;' +
+                            'margin: 0 auto;' +
+                            'background: white;' +
+                            'border-radius: 8px;' +
+                            'box-shadow: 0 2px 4px rgba(0,0,0,0.1);' +
+                            'overflow: hidden;' +
+                        '}' +
+                        '.header {' +
+                            'background: #1e40af;' +
+                            'color: white;' +
+                            'padding: 20px;' +
+                            'font-size: 18px;' +
+                            'font-weight: 600;' +
+                        '}' +
+                        '.metadata {' +
+                            'background: #f1f5f9;' +
+                            'padding: 15px 20px;' +
+                            'border-bottom: 1px solid #e2e8f0;' +
+                        '}' +
+                        '.meta-row {' +
+                            'padding: 6px 0;' +
+                            'font-size: 14px;' +
+                        '}' +
+                        '.meta-label {' +
+                            'font-weight: 600;' +
+                            'color: #475569;' +
+                            'display: inline-block;' +
+                            'width: 100px;' +
+                        '}' +
+                        '.meta-value {' +
+                            'color: #1e293b;' +
+                        '}' +
+                        '.platform-badge {' +
+                            'display: inline-block;' +
+                            'background: #3b82f6;' +
+                            'color: white;' +
+                            'padding: 2px 8px;' +
+                            'border-radius: 4px;' +
+                            'font-size: 12px;' +
+                            'font-weight: 600;' +
+                            'text-transform: uppercase;' +
+                        '}' +
+                        '.content {' +
+                            'padding: 20px;' +
+                        '}' +
+                        'pre {' +
+                            'background: #1e293b;' +
+                            'color: #e2e8f0;' +
+                            'padding: 20px;' +
+                            'border-radius: 6px;' +
+                            'overflow-x: auto;' +
+                            'font-family: \'Consolas\', \'Monaco\', \'Courier New\', monospace;' +
+                            'font-size: 13px;' +
+                            'line-height: 1.6;' +
+                            'white-space: pre-wrap;' +
+                            'word-wrap: break-word;' +
+                        '}' +
+                    '</style>' +
+                '</head>' +
+                '<body>' +
+                    '<div class="container">' +
+                        '<div class="header">' + escapedTitle + '</div>' +
+                        metadataHtml +
+                        '<div class="content">' +
+                            '<pre>' + escapedContent + '</pre>' +
+                        '</div>' +
+                    '</div>' +
+                    scriptSection +
+                '</body>' +
+                '</html>'
+            );
+            newWindow.document.close();
+        }
+
         async function openPlatformLog(testName, testDescription, platform, version, days) {
             const title = testDescription ? `${testName} - ${testDescription}` : testName;
 
