@@ -921,6 +921,12 @@
                     'async function analyzeFailureInWindow() {' +
                         'const button = document.getElementById("analyzeButton");' +
                         'const originalContent = button.innerHTML;' +
+                        'const analysisWindow = window.open("", "_blank");' +
+                        'if (!analysisWindow) {' +
+                            'alert("Please allow popups for this site to view AI analysis results");' +
+                            'return;' +
+                        '}' +
+                        'analysisWindow.document.write("<html><body><h2>Analyzing...</h2><p>Please wait while AI analyzes the failure...</p></body></html>");' +
                         'try {' +
                             'button.disabled = true;' +
                             'button.innerHTML = "<span>Analyzing...</span>";' +
@@ -936,10 +942,12 @@
                                 '})' +
                             '});' +
                             'const data = await response.json();' +
-                            'if (!response.ok) throw new Error(data.error || "Analysis failed");' +
+                            'if (!response.ok) {' +
+                                'analysisWindow.close();' +
+                                'throw new Error(data.error || "Analysis failed");' +
+                            '}' +
                             'button.innerHTML = "<span>View Analysis</span>";' +
                             'button.style.background = "#10b981";' +
-                            'const analysisWindow = window.open("", "_blank");' +
                             'const modeText = data.analysis_mode === "local-claude-code" ? "FREE (Local)" : ' +
                                 'data.analysis_mode === "anthropic-api" ? "API (~$0.02)" : "Cached";' +
                             'const costColor = data.analysis_mode === "local-claude-code" ? "#10b981" : ' +
@@ -983,6 +991,9 @@
                             ');' +
                             'analysisWindow.document.close();' +
                         '} catch (error) {' +
+                            'if (analysisWindow && !analysisWindow.closed) {' +
+                                'analysisWindow.close();' +
+                            '}' +
                             'alert("Analysis failed: " + error.message);' +
                             'button.disabled = false;' +
                             'button.innerHTML = originalContent;' +
