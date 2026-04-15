@@ -158,8 +158,8 @@ class ProwGCSCollector(BaseCollector):
                     after_id = raw_name.split(test_id, 1)[-1]
                     description = after_id.strip(':- \t')
 
-            # Remove Windows_Containers prefix (always)
-            description = re.sub(r'^Windows_Containers[-\s]+', '', description)
+            # Remove Windows_Containers prefix (always) - handle : - or space separators
+            description = re.sub(r'^Windows_Containers[:\-\s]+', '', description)
 
             # Remove Smokerun prefix
             description = re.sub(r'^Smokerun-[^\s]+\s+', '', description)
@@ -169,6 +169,9 @@ class ProwGCSCollector(BaseCollector):
 
             # Remove all bracketed tags like [Slow], [Disruptive], [Serial]
             description = re.sub(r'\s*\[[\w-]+\]', '', description)
+
+            # Remove any remaining leading separators (: - or spaces)
+            description = re.sub(r'^[:\-\s]+', '', description)
 
             return test_id, description.strip() if description else test_id
         else:

@@ -744,9 +744,15 @@
             <div class="modal-header">
                 <div style="display: flex; align-items: center; gap: 15px;">
                     <h2 id="logModalTitle">Test Log</h2>
-                    <span style="background: {% if enable_ai %}#8b5cf6{% else %}#6b7280{% endif %}; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">BUILD 68{% if enable_ai %} + AI{% endif %}</span>
+                    <span style="background: {% if enable_ai %}#8b5cf6{% else %}#6b7280{% endif %}; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">BUILD 69{% if enable_ai %} + AI{% endif %}</span>
                 </div>
-                <span class="close" onclick="closeLogModal()">&times;</span>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button id="jiraBtn" onclick="createJiraFromModal()" style="background: #0052CC; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M11.53 2c0 2.4 1.97 4.35 4.35 4.35h1.78v1.7c0 2.4 1.94 4.34 4.34 4.34V2.84A.84.84 0 0 0 21.16 2h-9.63zM2.84 11.53c2.4 0 4.35-1.97 4.35-4.35V5.4h1.7c2.4 0 4.34-1.94 4.34-4.34H2.84A.84.84 0 0 0 2 1.9v9.63zM11.53 21.16c0-2.4 1.97-4.35 4.35-4.35h1.78v-1.7c0-2.4 1.94-4.34 4.34-4.34v9.55a.84.84 0 0 1-.84.84h-9.63z"/></svg>
+                        Jira
+                    </button>
+                    <span class="close" onclick="closeLogModal()">&times;</span>
+                </div>
             </div>
             <div class="modal-body">
                 <!-- Metadata -->
@@ -780,9 +786,7 @@
 
     <script>
         let trendChart, versionChart;
-        {% if enable_ai %}
-        let currentLogData = {}; // Store current log data for AI analysis
-        {% endif %}
+        let currentLogData = {}; // Store current log data for AI analysis and Jira creation
 
         function showTab(tabName) {
             // Hide all tabs
@@ -837,16 +841,14 @@
 
         // Simple modal-based log viewer (NO popup windows!)
         function openLogWindow(logContent, testTitle, metadata) {
-            console.log('=== BUILD 68 - LOG VIEWER (AI: {{ "enabled" if enable_ai else "disabled" }}) ===');
+            console.log('=== BUILD 69 - LOG VIEWER (AI: {{ "enabled" if enable_ai else "disabled" }}) ===');
 
-            {% if enable_ai %}
-            // Store data globally for AI analysis
+            // Store data globally for AI analysis and Jira creation
             currentLogData = {
                 logContent: logContent,
                 testTitle: testTitle,
                 metadata: metadata
             };
-            {% endif %}
 
             // Set modal title
             document.getElementById('logModalTitle').textContent = testTitle;
@@ -905,6 +907,66 @@
 
         function closeLogModal() {
             document.getElementById('logModal').style.display = 'none';
+        }
+
+        async function createJiraFromModal() {
+            const btn = document.getElementById('jiraBtn');
+            const originalContent = btn.innerHTML;
+
+            if (!currentLogData || !currentLogData.metadata) {
+                alert('No test data available');
+                return;
+            }
+
+            try {
+                btn.disabled = true;
+                btn.innerHTML = '<span style="font-size:12px;">Creating...</span>';
+
+                const metadata = currentLogData.metadata;
+
+                const response = await fetch('/api/jira/create', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        test_name: metadata.testName,
+                        test_description: metadata.testDescription || '',
+                        version: metadata.version,
+                        platform: metadata.platform,
+                        error_message: currentLogData.logContent,
+                        job_url: metadata.jobUrl,
+                        failure_rate: 0,
+                        runs: 1,
+                        failures: 1
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to create Jira issue');
+                }
+
+                if (data.status === 'existing') {
+                    window.open(data.issue_url, '_blank');
+                    alert(`Existing Jira found: ${data.issue_key}\n\nOpened in new tab.`);
+                    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M10 15.586L6.707 12.293a1 1 0 0 0-1.414 1.414l4 4a1 1 0 0 0 1.414 0l8-8a1 1 0 0 0-1.414-1.414L10 15.586z"/></svg> ${data.issue_key}`;
+                    btn.style.background = '#10b981';
+                } else if (data.status === 'created') {
+                    window.open(data.issue_url, '_blank');
+                    alert(`Jira created: ${data.issue_key}\n\nOpened in new tab.`);
+                    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M10 15.586L6.707 12.293a1 1 0 0 0-1.414 1.414l4 4a1 1 0 0 0 1.414 0l8-8a1 1 0 0 0-1.414-1.414L10 15.586z"/></svg> ${data.issue_key}`;
+                    btn.style.background = '#10b981';
+                } else if (data.status === 'disabled') {
+                    alert('Jira integration is not enabled.\n\nPlease configure JIRA_API_TOKEN environment variable.');
+                    btn.innerHTML = originalContent;
+                }
+            } catch (error) {
+                console.error('Error creating Jira:', error);
+                alert(`Failed to create Jira:\n${error.message}`);
+                btn.innerHTML = originalContent;
+            } finally {
+                btn.disabled = false;
+            }
         }
 
         {% if enable_ai %}
