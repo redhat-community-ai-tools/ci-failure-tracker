@@ -56,12 +56,17 @@ spec:
                   key: region
             - name: LOCAL_AI_SERVICE_URL
               value: "http://claude-ai:5002"
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "/var/secrets/vertex-ai/credentials.json"
           volumeMounts:
             - name: data
               mountPath: /data
             - name: config
               mountPath: /app/config.yaml
               subPath: config.yaml
+            - name: vertex-ai-sa
+              mountPath: /var/secrets/vertex-ai
+              readOnly: true
           resources:
             requests:
               memory: "512Mi"
@@ -90,6 +95,9 @@ spec:
         - name: config
           configMap:
             name: dashboard-config-poc
+        - name: vertex-ai-sa
+          secret:
+            secretName: vertex-ai-service-account
   triggers:
     - type: ConfigChange
     - type: ImageChange
