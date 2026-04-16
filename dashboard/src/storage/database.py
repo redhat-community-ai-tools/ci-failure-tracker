@@ -164,6 +164,13 @@ class DashboardDatabase:
             # Column already exists
             pass
 
+        # Add jira_issue_key column if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE test_results ADD COLUMN jira_issue_key TEXT")
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
+
         self.conn.commit()
 
     def insert_job_runs(self, job_runs: List[JobRun]) -> int:
@@ -620,6 +627,44 @@ class DashboardDatabase:
 
         except Exception as e:
             print(f"Error saving manual classification: {e}")
+            return 0
+
+    def save_jira_issue(
+        self,
+        test_name: str,
+        version: str,
+        platform: str,
+        jira_issue_key: str
+    ) -> int:
+        """
+        Save Jira issue key for a test failure
+
+        Args:
+            test_name: Test name
+            version: OpenShift version
+            platform: Platform name
+            jira_issue_key: Jira issue key (e.g., WINC-1866)
+
+        Returns:
+            Number of rows updated
+        """
+        cursor = self.conn.cursor()
+
+        try:
+            cursor.execute("""
+                UPDATE test_results
+                SET jira_issue_key = ?
+                WHERE test_name = ?
+                AND version = ?
+                AND platform = ?
+                AND status = 'failed'
+            """, (jira_issue_key, test_name, version, platform))
+
+            self.conn.commit()
+            return cursor.rowcount
+
+        except Exception as e:
+            print(f"Error saving Jira issue key: {e}")
             return 0
 
     def get_analysis_stats(self) -> Dict[str, Any]:

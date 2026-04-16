@@ -744,7 +744,7 @@
             <div class="modal-header">
                 <div style="display: flex; align-items: center; gap: 15px;">
                     <h2 id="logModalTitle">Test Log</h2>
-                    <span style="background: {% if enable_ai %}#8b5cf6{% else %}#6b7280{% endif %}; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">BUILD 80{% if enable_ai %} + AI{% endif %}</span>
+                    <span style="background: {% if enable_ai %}#8b5cf6{% else %}#6b7280{% endif %}; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">BUILD 81{% if enable_ai %} + AI{% endif %}</span>
                 </div>
                 <span class="close" onclick="closeLogModal()">&times;</span>
             </div>
@@ -869,7 +869,7 @@
 
         // Simple modal-based log viewer (NO popup windows!)
         function openLogWindow(logContent, testTitle, metadata) {
-            console.log('=== BUILD 80 - FIX: Reset Jira button and classification when opening different tests (AI: {{ "enabled" if enable_ai else "disabled" }}) ===');
+            console.log('=== BUILD 81 - PERSIST: Save and load Jira key, classification, AI analysis from DB (AI: {{ "enabled" if enable_ai else "disabled" }}) ===');
 
             // Store data globally for AI analysis and Jira creation
             currentLogData = {
@@ -951,6 +951,11 @@
                 jiraBtn.innerHTML = 'Create Jira';
                 jiraBtn.style.background = '#3b82f6';
                 jiraBtn.disabled = false;
+            }
+
+            // Load existing data (classification, Jira key, AI analysis)
+            if (metadata && metadata.testName && metadata.version && metadata.platform) {
+                loadExistingTestData(metadata.testName, metadata.version, metadata.platform);
             }
 
             // Show modal
@@ -1079,6 +1084,118 @@
                 status.innerHTML = `<span style="color: #dc2626;">Error: ${error.message}</span>`;
             } finally {
                 btn.disabled = false;
+            }
+        }
+
+        async function loadExistingTestData(testName, version, platform) {
+            try {
+                const response = await fetch('/api/get-test-data', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        test_name: testName,
+                        version: version,
+                        platform: platform
+                    })
+                });
+
+                if (!response.ok) {
+                    console.log('Failed to load existing test data');
+                    return;
+                }
+
+                const data = await response.json();
+
+                // Populate manual classification if exists
+                if (data.manual_classification) {
+                    const classSelect = document.getElementById('classificationSelect');
+                    const classStatus = document.getElementById('classificationStatus');
+                    const classNames = {
+                        'product_bug': 'Product Bug',
+                        'automation_bug': 'Automation Bug',
+                        'system_issue': 'System Issue',
+                        'transient': 'Transient',
+                        'to_investigate': 'To Investigate'
+                    };
+                    if (classSelect) {
+                        classSelect.value = data.manual_classification;
+                    }
+                    if (classStatus) {
+                        classStatus.innerHTML = `<span style="color: #10b981; font-weight: 600;">Saved as ${classNames[data.manual_classification]}</span>`;
+                    }
+                }
+
+                // Show existing Jira issue if exists
+                if (data.jira_issue_key) {
+                    const jiraBtn = document.getElementById('jiraBtn');
+                    if (jiraBtn) {
+                        const jiraUrl = `https://redhat.atlassian.net/browse/${data.jira_issue_key}`;
+                        jiraBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M10 15.586L6.707 12.293a1 1 0 0 0-1.414 1.414l4 4a1 1 0 0 0 1.414 0l8-8a1 1 0 0 0-1.414-1.414L10 15.586z"/></svg> ${data.jira_issue_key}`;
+                        jiraBtn.style.background = '#10b981';
+                        jiraBtn.onclick = function() {
+                            window.open(jiraUrl, '_blank');
+                        };
+                    }
+                }
+
+                // Show existing AI analysis if exists
+                {% if enable_ai %}
+                if (data.ai_analysis) {
+                    const section = document.getElementById('aiAnalysisSection');
+                    const content = document.getElementById('aiAnalysisContent');
+                    if (section && content) {
+                        const analysis = data.ai_analysis;
+                        const classNames = {
+                            'product_bug': 'Product Bug',
+                            'automation_bug': 'Automation Bug',
+                            'system_issue': 'System Issue',
+                            'transient': 'Transient',
+                            'to_investigate': 'To Investigate'
+                        };
+                        const classColors = {
+                            'product_bug': '#dc2626',
+                            'automation_bug': '#f59e0b',
+                            'system_issue': '#3b82f6',
+                            'transient': '#10b981',
+                            'to_investigate': '#8b5cf6'
+                        };
+                        const className = classNames[analysis.classification] || analysis.classification || 'Unknown';
+                        const classColor = classColors[analysis.classification] || '#6b7280';
+
+                        content.innerHTML = `
+                            <div style="background: #f9fafb; padding: 15px; border-radius: 6px; margin-bottom: 12px;">
+                                <div style="font-weight: 600; color: #374151; margin-bottom: 8px;">Root Cause:</div>
+                                <div style="color: #1f2937;">${analysis.root_cause || 'N/A'}</div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                                <div style="background: #f9fafb; padding: 12px; border-radius: 6px;">
+                                    <div style="font-weight: 600; color: #374151; margin-bottom: 6px; font-size: 13px;">Component:</div>
+                                    <div style="color: #1f2937; font-size: 14px;">${analysis.component || 'Unknown'}</div>
+                                </div>
+                                <div style="background: #f9fafb; padding: 12px; border-radius: 6px;">
+                                    <div style="font-weight: 600; color: #374151; margin-bottom: 6px; font-size: 13px;">Confidence:</div>
+                                    <div style="color: #1f2937; font-size: 14px;">${analysis.confidence || 0}%</div>
+                                </div>
+                            </div>
+                            ${analysis.evidence ? `
+                                <div style="background: #f9fafb; padding: 15px; border-radius: 6px; margin-bottom: 12px;">
+                                    <div style="font-weight: 600; color: #374151; margin-bottom: 8px;">Evidence:</div>
+                                    <div style="color: #1f2937; font-size: 14px; white-space: pre-wrap;">${analysis.evidence}</div>
+                                </div>
+                            ` : ''}
+                            ${analysis.suggested_action ? `
+                                <div style="background: #fef3c7; padding: 15px; border-radius: 6px;">
+                                    <div style="font-weight: 600; color: #92400e; margin-bottom: 8px;">Suggested Action:</div>
+                                    <div style="color: #78350f; font-size: 14px;">${analysis.suggested_action}</div>
+                                </div>
+                            ` : ''}
+                        `;
+                        section.style.display = 'block';
+                    }
+                }
+                {% endif %}
+            } catch (error) {
+                console.error('Error loading existing test data:', error);
             }
         }
 

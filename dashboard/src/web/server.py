@@ -602,6 +602,8 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         if existing_issue:
             issue_key = existing_issue.get('key')
             issue_url = jira.get_issue_url(issue_key)
+            # Save to database
+            db.save_jira_issue(test_name, version, platform, issue_key)
             return jsonify({
                 'status': 'existing',
                 'issue_key': issue_key,
@@ -624,6 +626,8 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
 
         if issue_key:
             issue_url = jira.get_issue_url(issue_key)
+            # Save to database
+            db.save_jira_issue(test_name, version, platform, issue_key)
             return jsonify({
                 'status': 'created',
                 'issue_key': issue_key,
@@ -759,6 +763,53 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             })
         else:
             return jsonify({'error': 'No matching test result found to update'}), 404
+
+    @app.route('/api/get-test-data', methods=['POST'])
+    def api_get_test_data():
+        """
+        Get existing data for a test (classification, Jira key, AI analysis)
+        """
+        data = request.json
+        if not data:
+            return jsonify({'error': 'Missing request data'}), 400
+
+        test_name = data.get('test_name')
+        version = data.get('version')
+        platform = data.get('platform')
+
+        if not all([test_name, version, platform]):
+            return jsonify({'error': 'Missing required fields: test_name, version, platform'}), 400
+
+        result = {
+            'manual_classification': None,
+            'jira_issue_key': None,
+            'ai_analysis': None
+        }
+
+        # Get manual classification and Jira issue from test_results
+        cursor = db.conn.cursor()
+        cursor.execute("""
+            SELECT manual_classification, jira_issue_key
+            FROM test_results
+            WHERE test_name = ?
+            AND version = ?
+            AND platform = ?
+            AND status = 'failed'
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """, (test_name, version, platform))
+
+        row = cursor.fetchone()
+        if row:
+            result['manual_classification'] = row[0]
+            result['jira_issue_key'] = row[1]
+
+        # Get AI analysis
+        ai_analysis = db.get_latest_analysis(test_name, version, platform)
+        if ai_analysis:
+            result['ai_analysis'] = ai_analysis
+
+        return jsonify(result)
 
     @app.teardown_appcontext
     def close_db(error):
