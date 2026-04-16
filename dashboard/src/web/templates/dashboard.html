@@ -744,7 +744,7 @@
             <div class="modal-header">
                 <div style="display: flex; align-items: center; gap: 15px;">
                     <h2 id="logModalTitle">Test Log</h2>
-                    <span style="background: #6b7280; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">BUILD 73</span>
+                    <span style="background: {% if enable_ai %}#8b5cf6{% else %}#6b7280{% endif %}; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">BUILD 71{% if enable_ai %} + AI{% endif %}</span>
                 </div>
                 <span class="close" onclick="closeLogModal()">&times;</span>
             </div>
@@ -780,15 +780,31 @@
                     </div>
                 </div>
 
+                {% if enable_ai %}
+                <!-- AI Analysis Section (Hidden Initially) -->
+                <div id="aiAnalysisSection" style="display: none; margin-bottom: 20px;">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 8px; color: white;">
+                        <h3 style="margin: 0 0 15px 0; font-size: 16px;">AI Analysis</h3>
+                        <div id="aiAnalysisContent" style="background: rgba(255,255,255,0.95); color: #1e293b; padding: 15px; border-radius: 6px; font-size: 14px;"></div>
+                    </div>
+                </div>
+                {% endif %}
 
                 <!-- Error Log with AI Button -->
                 <div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                         <h3 style="margin: 0;">Error Log</h3>
-                        <button id="jiraBtn" onclick="createJiraFromModal()" style="background: #0052CC; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px;">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M11.53 2c0 2.4 1.97 4.35 4.35 4.35h1.78v1.7c0 2.4 1.94 4.34 4.34 4.34V2.84A.84.84 0 0 0 21.16 2h-9.63zM2.84 11.53c2.4 0 4.35-1.97 4.35-4.35V5.4h1.7c2.4 0 4.34-1.94 4.34-4.34H2.84A.84.84 0 0 0 2 1.9v9.63zM11.53 21.16c0-2.4 1.97-4.35 4.35-4.35h1.78v-1.7c0-2.4 1.94-4.34 4.34-4.34v9.55a.84.84 0 0 1-.84.84h-9.63z"/></svg>
-                            Jira
-                        </button>
+                        <div style="display: flex; gap: 10px;">
+                            <button id="jiraBtn" onclick="createJiraFromModal()" style="background: #0052CC; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px;">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M11.53 2c0 2.4 1.97 4.35 4.35 4.35h1.78v1.7c0 2.4 1.94 4.34 4.34 4.34V2.84A.84.84 0 0 0 21.16 2h-9.63zM2.84 11.53c2.4 0 4.35-1.97 4.35-4.35V5.4h1.7c2.4 0 4.34-1.94 4.34-4.34H2.84A.84.84 0 0 0 2 1.9v9.63zM11.53 21.16c0-2.4 1.97-4.35 4.35-4.35h1.78v-1.7c0-2.4 1.94-4.34 4.34-4.34v9.55a.84.84 0 0 1-.84.84h-9.63z"/></svg>
+                                Jira
+                            </button>
+                            {% if enable_ai %}
+                            <button id="analyzeBtn" onclick="runAIAnalysis()" style="background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;">
+                                Analyze with AI
+                            </button>
+                            {% endif %}
+                        </div>
                     </div>
                     <pre id="logContent" style="background: #1e293b; color: #e2e8f0; padding: 20px; border-radius: 6px; overflow-x: auto; max-height: 500px; overflow-y: auto; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word;"></pre>
                 </div>
@@ -853,7 +869,7 @@
 
         // Simple modal-based log viewer (NO popup windows!)
         function openLogWindow(logContent, testTitle, metadata) {
-            console.log('=== BUILD 73 - AI FEATURE REMOVED (Manual Classification Only) ===');
+            console.log('=== BUILD 71 - JIRA BUTTON MOVED + DB CLEANER (AI: {{ "enabled" if enable_ai else "disabled" }}) ===');
 
             // Store data globally for AI analysis and Jira creation
             currentLogData = {
@@ -1042,6 +1058,76 @@
             }
         }
 
+        {% if enable_ai %}
+        async function runAIAnalysis() {
+            const btn = document.getElementById('analyzeBtn');
+            const section = document.getElementById('aiAnalysisSection');
+            const content = document.getElementById('aiAnalysisContent');
+
+            if (!currentLogData || !currentLogData.metadata) {
+                alert('No log data available');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Analyzing...';
+            section.style.display = 'block';
+            content.innerHTML = '<div style="text-align: center; padding: 20px;">Analyzing failure... (~5 seconds)</div>';
+
+            try {
+                const response = await fetch('/api/analyze-failure', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        test_name: currentLogData.metadata.testName,
+                        version: currentLogData.metadata.version,
+                        platform: currentLogData.metadata.platform,
+                        error_message: currentLogData.logContent,
+                        use_cached: true
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.root_cause) {
+                    const classColors = {
+                        'product_bug': '#dc2626',
+                        'automation_bug': '#f59e0b',
+                        'system_issue': '#3b82f6',
+                        'transient': '#10b981',
+                        'to_investigate': '#8b5cf6'
+                    };
+                    const classColor = classColors[data.classification] || '#6b7280';
+
+                    content.innerHTML = `
+                        <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 2px solid #e2e8f0;">
+                            <span style="display: inline-block; background: ${classColor}; color: white; padding: 6px 14px; border-radius: 6px; font-weight: 700; text-transform: uppercase;">
+                                ${data.classification || 'Unknown'}
+                            </span>
+                        </div>
+                        <div style="margin-bottom: 10px;"><strong>Root Cause:</strong> ${data.root_cause}</div>
+                        <div style="margin-bottom: 10px;"><strong>Component:</strong> ${data.component || 'Unknown'}</div>
+                        <div style="margin-bottom: 10px;"><strong>Confidence:</strong> ${data.confidence || 'N/A'}%</div>
+                        ${data.evidence ? `<div style="margin-bottom: 10px;"><strong>Evidence:</strong> ${data.evidence}</div>` : ''}
+                        ${data.suggested_action ? `<div><strong>Suggested Action:</strong> ${data.suggested_action}</div>` : ''}
+                    `;
+
+                    // Auto-select classification in dropdown
+                    if (data.classification) {
+                        document.getElementById('classificationSelect').value = data.classification;
+                        document.getElementById('classificationStatus').innerHTML = '<span style="color: #3b82f6;">AI suggests: ' + data.classification.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) + '</span>';
+                    }
+                } else {
+                    content.innerHTML = `<div style="color: #dc2626; padding: 10px; background: #fee2e2; border-radius: 6px;">Error: ${data.error || 'Failed to analyze'}</div>`;
+                }
+            } catch (error) {
+                content.innerHTML = `<div style="color: #dc2626; padding: 10px; background: #fee2e2; border-radius: 6px;">Error: ${error.message}</div>`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Analyze with AI';
+            }
+        }
+        {% endif %}
 
         async function openPlatformLog(testName, testDescription, platform, version, days) {
             const title = testDescription ? `${testName} - ${testDescription}` : testName;
