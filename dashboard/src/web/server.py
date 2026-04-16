@@ -805,7 +805,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             result['jira_issue_key'] = row[1]
 
         # Get AI analysis
-        ai_analysis = db.get_latest_analysis(test_name, version, platform)
+        ai_analysis = db.get_ai_analysis(test_name, version, platform, days=90)
         if ai_analysis:
             result['ai_analysis'] = ai_analysis
 
