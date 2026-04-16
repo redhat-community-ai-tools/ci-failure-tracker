@@ -744,7 +744,7 @@
             <div class="modal-header">
                 <div style="display: flex; align-items: center; gap: 15px;">
                     <h2 id="logModalTitle">Test Log</h2>
-                    <span style="background: {% if enable_ai %}#8b5cf6{% else %}#6b7280{% endif %}; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">BUILD 79{% if enable_ai %} + AI{% endif %}</span>
+                    <span style="background: {% if enable_ai %}#8b5cf6{% else %}#6b7280{% endif %}; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">BUILD 80{% if enable_ai %} + AI{% endif %}</span>
                 </div>
                 <span class="close" onclick="closeLogModal()">&times;</span>
             </div>
@@ -869,7 +869,7 @@
 
         // Simple modal-based log viewer (NO popup windows!)
         function openLogWindow(logContent, testTitle, metadata) {
-            console.log('=== BUILD 79 - JIRA FIX: Minimal description to avoid CONTENT_LIMIT_EXCEEDED (AI: {{ "enabled" if enable_ai else "disabled" }}) ===');
+            console.log('=== BUILD 80 - FIX: Reset Jira button and classification when opening different tests (AI: {{ "enabled" if enable_ai else "disabled" }}) ===');
 
             // Store data globally for AI analysis and Jira creation
             currentLogData = {
@@ -928,6 +928,30 @@
             document.getElementById('aiAnalysisSection').style.display = 'none';
             document.getElementById('aiAnalysisContent').innerHTML = '';
             {% endif %}
+
+            // Reset manual classification section
+            const classSelect = document.getElementById('classificationSelect');
+            const classStatus = document.getElementById('classificationStatus');
+            const classSaveBtn = document.getElementById('saveClassificationBtn');
+            if (classSelect) {
+                classSelect.value = '';
+            }
+            if (classStatus) {
+                classStatus.innerHTML = 'Select a classification and click Save';
+            }
+            if (classSaveBtn) {
+                classSaveBtn.textContent = 'Save';
+                classSaveBtn.style.background = '#10b981';
+                classSaveBtn.disabled = false;
+            }
+
+            // Reset Jira button
+            const jiraBtn = document.getElementById('jiraBtn');
+            if (jiraBtn) {
+                jiraBtn.innerHTML = 'Create Jira';
+                jiraBtn.style.background = '#3b82f6';
+                jiraBtn.disabled = false;
+            }
 
             // Show modal
             document.getElementById('logModal').style.display = 'block';
