@@ -178,120 +178,37 @@ class JiraIntegration:
         # Create issue summary and description
         summary = f"{test_name}: Test failure on {platform} {version}"
 
-        # Build links section
-        links_content = []
-
-        # Add job URL link if available
-        if job_url:
-            links_content.append({
-                "type": "paragraph",
-                "content": [
-                    {"type": "text", "text": "Failed Job: ", "marks": [{"type": "strong"}]},
-                    {"type": "text", "text": job_url, "marks": [{"type": "link", "attrs": {"href": job_url}}]}
-                ]
-            })
-
-        # Add dashboard link
+        # Dashboard link
         dashboard_url = os.environ.get('DASHBOARD_URL', 'https://winc-dashboard-poc-winc-dashboard-poc.apps.build10.ci.devcluster.openshift.com')
-        links_content.append({
-            "type": "paragraph",
-            "content": [
-                {"type": "text", "text": "CI Dashboard: ", "marks": [{"type": "strong"}]},
-                {"type": "text", "text": dashboard_url, "marks": [{"type": "link", "attrs": {"href": dashboard_url}}]}
-            ]
-        })
 
-        # Atlassian Document Format (ADF) for description
+        # Minimal Atlassian Document Format (ADF) - avoid CONTENT_LIMIT_EXCEEDED
+        # Truncate error message to first 500 chars
+        error_msg_short = (error_message[:500] + "...") if error_message and len(error_message) > 500 else (error_message or "No error message")
+
         description = {
             "version": 1,
             "type": "doc",
             "content": [
                 {
-                    "type": "heading",
-                    "attrs": {"level": 2},
-                    "content": [{"type": "text", "text": "Test Failure Report"}]
-                },
-                {
                     "type": "paragraph",
                     "content": [
-                        {"type": "text", "text": "Test: ", "marks": [{"type": "strong"}]},
-                        {"type": "text", "text": test_name}
+                        {"type": "text", "text": f"Test: {test_name}\n"},
+                        {"type": "text", "text": f"Version: {version} | Platform: {platform}\n"},
+                        {"type": "text", "text": f"Failure Rate: {failure_rate:.1f}% ({failures}/{runs} runs)"}
                     ]
                 },
                 {
                     "type": "paragraph",
                     "content": [
-                        {"type": "text", "text": "Description: ", "marks": [{"type": "strong"}]},
-                        {"type": "text", "text": test_description or "N/A"}
+                        {"type": "text", "text": "Error: ", "marks": [{"type": "strong"}]},
+                        {"type": "text", "text": error_msg_short}
                     ]
                 },
                 {
                     "type": "paragraph",
                     "content": [
-                        {"type": "text", "text": "Version: ", "marks": [{"type": "strong"}]},
-                        {"type": "text", "text": version}
-                    ]
-                },
-                {
-                    "type": "paragraph",
-                    "content": [
-                        {"type": "text", "text": "Platform: ", "marks": [{"type": "strong"}]},
-                        {"type": "text", "text": platform}
-                    ]
-                },
-                {
-                    "type": "heading",
-                    "attrs": {"level": 3},
-                    "content": [{"type": "text", "text": "Failure Statistics"}]
-                },
-                {
-                    "type": "bulletList",
-                    "content": [
-                        {
-                            "type": "listItem",
-                            "content": [{
-                                "type": "paragraph",
-                                "content": [{"type": "text", "text": f"Failure Rate: {failure_rate:.1f}%"}]
-                            }]
-                        },
-                        {
-                            "type": "listItem",
-                            "content": [{
-                                "type": "paragraph",
-                                "content": [{"type": "text", "text": f"Total Runs: {runs}"}]
-                            }]
-                        },
-                        {
-                            "type": "listItem",
-                            "content": [{
-                                "type": "paragraph",
-                                "content": [{"type": "text", "text": f"Failures: {failures}"}]
-                            }]
-                        }
-                    ]
-                },
-                {
-                    "type": "heading",
-                    "attrs": {"level": 3},
-                    "content": [{"type": "text", "text": "Error Message"}]
-                },
-                {
-                    "type": "codeBlock",
-                    "content": [{"type": "text", "text": error_message if error_message else "No error message available"}]
-                },
-                {
-                    "type": "heading",
-                    "attrs": {"level": 3},
-                    "content": [{"type": "text", "text": "Links"}]
-                },
-                *links_content,
-                {
-                    "type": "rule"
-                },
-                {
-                    "type": "paragraph",
-                    "content": [
-                        {"type": "text", "text": "This issue was automatically created by CI Failure Tracker", "marks": [{"type": "em"}]}
+                        {"type": "text", "text": "Dashboard: "},
+                        {"type": "text", "text": dashboard_url, "marks": [{"type": "link", "attrs": {"href": dashboard_url}}]}
                     ]
                 }
             ]
