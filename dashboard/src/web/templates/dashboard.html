@@ -744,7 +744,7 @@
             <div class="modal-header">
                 <div style="display: flex; align-items: center; gap: 15px;">
                     <h2 id="logModalTitle">Test Log</h2>
-                    <span style="background: {% if enable_ai %}#8b5cf6{% else %}#6b7280{% endif %}; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">BUILD 85{% if enable_ai %} + AI{% endif %}</span>
+                    <span style="background: {% if enable_ai %}#8b5cf6{% else %}#6b7280{% endif %}; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">BUILD 136{% if enable_ai %} + AI{% endif %}</span>
                 </div>
                 <span class="close" onclick="closeLogModal()">&times;</span>
             </div>
@@ -864,7 +864,7 @@
 
         // Simple modal-based log viewer (NO popup windows!)
         function openLogWindow(logContent, testTitle, metadata) {
-            console.log('=== BUILD 85 - No popup for existing Jira, just show clickable link (AI: {{ "enabled" if enable_ai else "disabled" }}) ===');
+            console.log('=== BUILD 136 - AI auto-load with Run AI Analysis button (AI: {{ "enabled" if enable_ai else "disabled" }}) ===');
 
             // Store data globally for AI analysis and Jira creation
             currentLogData = {
