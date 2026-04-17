@@ -1195,18 +1195,8 @@
                         section.style.display = 'block';
                     }
                 } else {
-                    // No cached analysis - show option to run analysis
-                    if (section && content) {
-                        content.innerHTML = `
-                            <div style="text-align: center; padding: 20px;">
-                                <div style="color: #64748b; margin-bottom: 15px;">No AI analysis available for this test</div>
-                                <button onclick="runAIAnalysis()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;">
-                                    Run AI Analysis
-                                </button>
-                            </div>
-                        `;
-                        section.style.display = 'block';
-                    }
+                    // No cached analysis - automatically run analysis
+                    runAIAnalysis();
                 }
                 {% endif %}
             } catch (error) {
