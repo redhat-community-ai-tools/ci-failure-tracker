@@ -1883,10 +1883,11 @@
                         authMessage.innerHTML = `
                             <strong>Prow API Token Expired or Invalid</strong><br>
                             Data collection is failing. To fix this:<br>
-                            1. Login to CI cluster: <code style="background:#fef2f2; padding:2px 6px; border-radius:3px; font-size:13px;">oc login https://api.ci.l2s4.p1.openshiftapps.com</code><br>
-                            2. Get new token: <code style="background:#fef2f2; padding:2px 6px; border-radius:3px; font-size:13px;">oc whoami -t</code><br>
-                            3. Update secret: <code style="background:#fef2f2; padding:2px 6px; border-radius:3px; font-size:13px;">oc create secret generic prow-api-token --from-literal=token=YOUR_TOKEN --dry-run=client -o yaml | oc apply -f -</code><br>
-                            4. Restart: <code style="background:#fef2f2; padding:2px 6px; border-radius:3px; font-size:13px;">oc rollout restart deployment/winc-dashboard-poc -n winc-dashboard-poc</code>
+                            1. Open <a href="https://oauth-openshift.apps.ci.l2s4.p1.openshiftapps.com/oauth/token/request" target="_blank" style="color:#dc2626; text-decoration:underline;">Token Request Page</a> and click "Display Token"<br>
+                            2. Copy the token<br>
+                            3. Login to build10: <code style="background:#fef2f2; padding:2px 6px; border-radius:3px; font-size:13px;">oc login https://api.build10.ci.devcluster.openshift.com</code><br>
+                            4. Update secret: <code style="background:#fef2f2; padding:2px 6px; border-radius:3px; font-size:13px;">oc create secret generic prow-api-token --from-literal=token=YOUR_TOKEN --dry-run=client -o yaml -n winc-dashboard-poc | oc apply -f -</code><br>
+                            5. Restart: <code style="background:#fef2f2; padding:2px 6px; border-radius:3px; font-size:13px;">oc rollout restart deployment/winc-dashboard-poc -n winc-dashboard-poc</code>
                         `;
                     }
 
