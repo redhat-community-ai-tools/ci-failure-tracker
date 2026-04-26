@@ -22,7 +22,7 @@ collector:
   # Type of collector: "reportportal", "prow_mcp", "prow_gcs", "gcsweb"
   # Production uses ReportPortal
   # POC uses prow_gcs (direct GCS access via QE Private Prow)
-  type: "reportportal"
+  type: "gcsweb"
 
   # ReportPortal configuration
   reportportal:
@@ -117,6 +117,15 @@ collector:
 
     # WINC job names from ../release repo (exact names from Prow)
     job_names:
+      # 4.19 WINC jobs
+      - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-aws-ipi-ovn-winc-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-azure-ipi-ovn-winc-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-gcp-ipi-ovn-winc-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-nutanix-ipi-ovn-winc-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-vsphere-ipi-ovn-winc-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-vsphere-ipi-proxy-ovn-winc-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-vsphere-ipi-disconnected-ovn-winc-f28"
+
       # 4.21 WINC jobs
       - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-aws-ipi-ovn-winc-f7"
       - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-azure-ipi-ovn-winc-f7"
@@ -133,6 +142,7 @@ collector:
       - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-nutanix-ipi-ovn-winc-f7"
       - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-vsphere-ipi-ovn-winc-f7"
       - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-vsphere-ipi-proxy-ovn-winc-f28"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-vsphere-ipi-disconnected-ovn-winc-f28"
       - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-4.22-upgrade-from-stable-4.21-aws-ipi-ovn-winc-f7"
 
     # How many recent builds to fetch per job (reduced for initial testing)
@@ -174,6 +184,7 @@ tracking:
   # CUSTOMIZE: OpenShift versions to monitor for your team
   # ========================================================================
   versions:
+    - "4.19"
     - "4.21"
     - "4.22"
 
