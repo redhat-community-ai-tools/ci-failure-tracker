@@ -906,12 +906,23 @@
             const days = document.getElementById('timeRange').value;
             const version = document.getElementById('versionFilter').value;
 
+            // Debug log
+            console.log('Export filters:', { days, version, format });
+
+            // Validate that we have a version selected
+            if (!version || version === '') {
+                alert('Please select a version before exporting');
+                return;
+            }
+
             // Build export URL
             const params = new URLSearchParams({
                 format: format,
                 days: days,
                 version: version
             });
+
+            console.log('Export URL:', `/api/export?${params.toString()}`);
 
             // Trigger download
             window.location.href = `/api/export?${params.toString()}`;
