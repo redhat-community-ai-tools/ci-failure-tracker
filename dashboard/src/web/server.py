@@ -945,6 +945,106 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         summary_sheet.column_dimensions['E'].width = 15
         summary_sheet.column_dimensions['F'].width = 15
 
+        # Create Variants sheet
+        variants_sheet = wb.create_sheet('Variants')
+
+        # Headers
+        variants_sheet['A1'] = 'Platform'
+        variants_sheet['B1'] = 'Variant'
+        variants_sheet['C1'] = 'Job URL'
+        variants_sheet['D1'] = 'Build Date'
+
+        # Style header
+        for col in ['A', 'B', 'C', 'D']:
+            cell = variants_sheet[f'{col}1']
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center')
+
+        # Query for latest job runs per platform variant
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=int(days))
+
+        # Get all unique job runs for this version within time range
+        variant_query = """
+            SELECT DISTINCT job_name, platform, job_url, timestamp, build_id
+            FROM job_runs
+            WHERE version = ? AND timestamp >= ? AND timestamp <= ?
+            ORDER BY platform, job_name, timestamp DESC
+        """
+        variant_results = db.execute_query(variant_query, [version, start_date, end_date])
+
+        # Extract variant info from job names
+        def extract_variant(job_name, platform):
+            """Extract variant name from job name"""
+            job_lower = job_name.lower()
+
+            # Check for known variants
+            if 'proxy' in job_lower and platform.lower() == 'vsphere':
+                return 'proxy'
+            elif 'disconnected' in job_lower and platform.lower() == 'vsphere':
+                return 'disconnected'
+            elif 'upi' in job_lower:
+                return 'upi'
+            elif 'ipi' in job_lower:
+                # Default IPI (not proxy, not disconnected)
+                if 'proxy' not in job_lower and 'disconnected' not in job_lower:
+                    return 'ipi-connected'
+
+            # Default fallback
+            return 'ipi-connected'
+
+        # Group by platform and variant, keep only the latest run for each
+        variant_data = {}
+        for row in variant_results:
+            platform = row['platform']
+            job_name = row['job_name']
+            variant = extract_variant(job_name, platform)
+            key = (platform, variant)
+
+            # Keep only the latest run for each platform-variant combination
+            if key not in variant_data:
+                variant_data[key] = {
+                    'job_url': row['job_url'],
+                    'timestamp': row['timestamp'],
+                    'job_name': job_name
+                }
+
+        # Write variant data to sheet
+        row_num = 2
+        for (platform, variant), data in sorted(variant_data.items()):
+            variants_sheet.cell(row=row_num, column=1, value=platform)
+            variants_sheet.cell(row=row_num, column=2, value=variant)
+
+            job_url = data['job_url'] or ''
+            variants_sheet.cell(row=row_num, column=3, value=job_url)
+
+            # Make URL clickable
+            if job_url:
+                cell = variants_sheet.cell(row=row_num, column=3)
+                cell.hyperlink = job_url
+                cell.font = Font(color='0563C1', underline='single')
+
+            # Format timestamp
+            timestamp_str = data['timestamp']
+            try:
+                if isinstance(timestamp_str, str):
+                    ts = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                else:
+                    ts = timestamp_str
+                build_date = ts.strftime('%Y-%m-%d %H:%M')
+            except:
+                build_date = str(timestamp_str)
+
+            variants_sheet.cell(row=row_num, column=4, value=build_date)
+            row_num += 1
+
+        # Adjust column widths
+        variants_sheet.column_dimensions['A'].width = 20
+        variants_sheet.column_dimensions['B'].width = 20
+        variants_sheet.column_dimensions['C'].width = 80
+        variants_sheet.column_dimensions['D'].width = 20
+
         # Create a sheet for each platform
         for platform, tests in all_data.items():
             if not tests:
