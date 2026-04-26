@@ -968,14 +968,25 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 # Determine status based on pass rate
                 status = 'Passed' if test['pass_rate'] >= 100 else 'Failed'
 
-                # Get the job URL (use the latest run URL if available)
+                # Get the job URL
+                # If failed, show URL to the actual failure (most recent failed run)
+                # If passed, show URL to the most recent run
                 job_url = ''
-                # Query for most recent job URL (filtered by version)
-                query = """
-                    SELECT job_url FROM test_results
-                    WHERE test_name = ? AND platform = ? AND version = ?
-                    ORDER BY timestamp DESC LIMIT 1
-                """
+                if status == 'Failed':
+                    # Query for most recent FAILED run
+                    query = """
+                        SELECT job_url FROM test_results
+                        WHERE test_name = ? AND platform = ? AND version = ?
+                        AND status = 'failed'
+                        ORDER BY timestamp DESC LIMIT 1
+                    """
+                else:
+                    # Query for most recent run (any status)
+                    query = """
+                        SELECT job_url FROM test_results
+                        WHERE test_name = ? AND platform = ? AND version = ?
+                        ORDER BY timestamp DESC LIMIT 1
+                    """
                 result = db.execute_query(query, [test['test_name'], platform, version])
                 if result and result[0]['job_url']:
                     job_url = result[0]['job_url']
@@ -1032,13 +1043,21 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 title = test.get('test_description', '')
                 status = 'Passed' if test['pass_rate'] >= 100 else 'Failed'
 
-                # Get job URL (filtered by version)
+                # Get job URL - if failed, show URL to actual failure
                 job_url = ''
-                query = """
-                    SELECT job_url FROM test_results
-                    WHERE test_name = ? AND platform = ? AND version = ?
-                    ORDER BY timestamp DESC LIMIT 1
-                """
+                if status == 'Failed':
+                    query = """
+                        SELECT job_url FROM test_results
+                        WHERE test_name = ? AND platform = ? AND version = ?
+                        AND status = 'failed'
+                        ORDER BY timestamp DESC LIMIT 1
+                    """
+                else:
+                    query = """
+                        SELECT job_url FROM test_results
+                        WHERE test_name = ? AND platform = ? AND version = ?
+                        ORDER BY timestamp DESC LIMIT 1
+                    """
                 result = db.execute_query(query, [test['test_name'], platform, version])
                 if result and result[0]['job_url']:
                     job_url = result[0]['job_url']
@@ -1077,13 +1096,21 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 title = test.get('test_description', '')
                 status = 'Passed' if test['pass_rate'] >= 100 else 'Failed'
 
-                # Get job URL (filtered by version)
+                # Get job URL - if failed, show URL to actual failure
                 job_url = ''
-                query = """
-                    SELECT job_url FROM test_results
-                    WHERE test_name = ? AND platform = ? AND version = ?
-                    ORDER BY timestamp DESC LIMIT 1
-                """
+                if status == 'Failed':
+                    query = """
+                        SELECT job_url FROM test_results
+                        WHERE test_name = ? AND platform = ? AND version = ?
+                        AND status = 'failed'
+                        ORDER BY timestamp DESC LIMIT 1
+                    """
+                else:
+                    query = """
+                        SELECT job_url FROM test_results
+                        WHERE test_name = ? AND platform = ? AND version = ?
+                        ORDER BY timestamp DESC LIMIT 1
+                    """
                 result = db.execute_query(query, [test['test_name'], platform, version])
                 if result and result[0]['job_url']:
                     job_url = result[0]['job_url']
