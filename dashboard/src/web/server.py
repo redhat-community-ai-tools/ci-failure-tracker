@@ -965,29 +965,29 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 # Extract test ID from test_name (e.g., "OCP-12345" or just use the name)
                 test_id = test['test_name'].split('-')[0] if '-' in test['test_name'] else test['test_name']
 
-                # Determine status based on pass rate
-                status = 'Passed' if test['pass_rate'] >= 100 else 'Failed'
-
-                # Get the job URL
-                # If failed, show URL to the actual failure (most recent failed run)
-                # If passed, show URL to the most recent run
-                job_url = ''
-                if status == 'Failed':
-                    # Query for most recent FAILED run
-                    query = """
-                        SELECT job_url FROM test_results
-                        WHERE test_name = ? AND platform = ? AND version = ?
-                        AND status = 'failed'
-                        ORDER BY timestamp DESC LIMIT 1
-                    """
-                else:
-                    # Query for most recent run (any status)
-                    query = """
-                        SELECT job_url FROM test_results
-                        WHERE test_name = ? AND platform = ? AND version = ?
-                        ORDER BY timestamp DESC LIMIT 1
-                    """
+                # Get the most recent run to determine current status
+                query = """
+                    SELECT status, job_url FROM test_results
+                    WHERE test_name = ? AND platform = ? AND version = ?
+                    ORDER BY timestamp DESC LIMIT 1
+                """
                 result = db.execute_query(query, [test['test_name'], platform, version])
+
+                # Determine status and URL from the latest run
+                job_url = ''
+                status = 'Unknown'
+                if result and len(result) > 0:
+                    latest_status = result[0]['status']
+                    job_url = result[0]['job_url'] or ''
+                    # Map database status to export status
+                    if latest_status == 'passed':
+                        status = 'Passed'
+                    elif latest_status == 'failed':
+                        status = 'Failed'
+                    elif latest_status == 'skipped':
+                        status = 'Skipped'
+                    else:
+                        status = latest_status.capitalize() if latest_status else 'Unknown'
                 if result and result[0]['job_url']:
                     job_url = result[0]['job_url']
 
@@ -1041,26 +1041,29 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             for test in tests:
                 test_id = test['test_name']
                 title = test.get('test_description', '')
-                status = 'Passed' if test['pass_rate'] >= 100 else 'Failed'
 
-                # Get job URL - if failed, show URL to actual failure
-                job_url = ''
-                if status == 'Failed':
-                    query = """
-                        SELECT job_url FROM test_results
-                        WHERE test_name = ? AND platform = ? AND version = ?
-                        AND status = 'failed'
-                        ORDER BY timestamp DESC LIMIT 1
-                    """
-                else:
-                    query = """
-                        SELECT job_url FROM test_results
-                        WHERE test_name = ? AND platform = ? AND version = ?
-                        ORDER BY timestamp DESC LIMIT 1
-                    """
+                # Get the most recent run to determine current status
+                query = """
+                    SELECT status, job_url FROM test_results
+                    WHERE test_name = ? AND platform = ? AND version = ?
+                    ORDER BY timestamp DESC LIMIT 1
+                """
                 result = db.execute_query(query, [test['test_name'], platform, version])
-                if result and result[0]['job_url']:
-                    job_url = result[0]['job_url']
+
+                # Determine status and URL from the latest run
+                job_url = ''
+                status = 'Unknown'
+                if result and len(result) > 0:
+                    latest_status = result[0]['status']
+                    job_url = result[0]['job_url'] or ''
+                    if latest_status == 'passed':
+                        status = 'Passed'
+                    elif latest_status == 'failed':
+                        status = 'Failed'
+                    elif latest_status == 'skipped':
+                        status = 'Skipped'
+                    else:
+                        status = latest_status.capitalize() if latest_status else 'Unknown'
 
                 writer.writerow([platform, test_id, title, status, job_url, ''])
 
@@ -1094,26 +1097,29 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             for test in tests:
                 test_id = test['test_name']
                 title = test.get('test_description', '')
-                status = 'Passed' if test['pass_rate'] >= 100 else 'Failed'
 
-                # Get job URL - if failed, show URL to actual failure
-                job_url = ''
-                if status == 'Failed':
-                    query = """
-                        SELECT job_url FROM test_results
-                        WHERE test_name = ? AND platform = ? AND version = ?
-                        AND status = 'failed'
-                        ORDER BY timestamp DESC LIMIT 1
-                    """
-                else:
-                    query = """
-                        SELECT job_url FROM test_results
-                        WHERE test_name = ? AND platform = ? AND version = ?
-                        ORDER BY timestamp DESC LIMIT 1
-                    """
+                # Get the most recent run to determine current status
+                query = """
+                    SELECT status, job_url FROM test_results
+                    WHERE test_name = ? AND platform = ? AND version = ?
+                    ORDER BY timestamp DESC LIMIT 1
+                """
                 result = db.execute_query(query, [test['test_name'], platform, version])
-                if result and result[0]['job_url']:
-                    job_url = result[0]['job_url']
+
+                # Determine status and URL from the latest run
+                job_url = ''
+                status = 'Unknown'
+                if result and len(result) > 0:
+                    latest_status = result[0]['status']
+                    job_url = result[0]['job_url'] or ''
+                    if latest_status == 'passed':
+                        status = 'Passed'
+                    elif latest_status == 'failed':
+                        status = 'Failed'
+                    elif latest_status == 'skipped':
+                        status = 'Skipped'
+                    else:
+                        status = latest_status.capitalize() if latest_status else 'Unknown'
 
                 # Escape pipe characters in title
                 title = title.replace('|', '\\|')
