@@ -1074,9 +1074,25 @@
 
             try {
                 btn.disabled = true;
-                btn.innerHTML = '<span style="font-size:12px;">Creating...</span>';
+                btn.innerHTML = '<span style="font-size:12px;">Loading...</span>';
 
                 const metadata = currentLogData.metadata;
+
+                // Get all affected platforms
+                const platformsResponse = await fetch('/api/get-affected-platforms', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        test_name: metadata.testName,
+                        version: metadata.version,
+                        days: metadata.days || 7
+                    })
+                });
+
+                const platformsData = await platformsResponse.json();
+                const platforms = platformsData.platforms || [metadata.platform];
+
+                btn.innerHTML = '<span style="font-size:12px;">Creating...</span>';
 
                 const response = await fetch('/api/jira/create', {
                     method: 'POST',
@@ -1085,7 +1101,7 @@
                         test_name: metadata.testName,
                         test_description: metadata.testDescription || '',
                         version: metadata.version,
-                        platform: metadata.platform,
+                        platforms: platforms,
                         error_message: currentLogData.logContent,
                         job_url: metadata.jobUrl,
                         failure_rate: 0,

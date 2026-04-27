@@ -64,14 +64,14 @@ class JiraIntegration:
             'Accept': 'application/json'
         }
 
-    def search_existing_issue(self, test_name: str, version: str, platform: str) -> Optional[Dict]:
+    def search_existing_issue(self, test_name: str, version: str, platform: str = None) -> Optional[Dict]:
         """
         Search for existing Jira issue for this test failure.
 
         Args:
             test_name: Test ID (e.g., OCP-12345)
             version: OCP version (e.g., 4.22)
-            platform: Platform (e.g., aws)
+            platform: Platform (ignored - issues are searched by test name only)
 
         Returns:
             Jira issue dict if found, None otherwise
@@ -141,12 +141,13 @@ class JiraIntegration:
         test_name: str,
         test_description: str,
         version: str,
-        platform: str,
-        error_message: str,
-        job_url: str,
-        failure_rate: float,
-        runs: int,
-        failures: int
+        platforms: list = None,
+        platform: str = None,
+        error_message: str = None,
+        job_url: str = None,
+        failure_rate: float = 0.0,
+        runs: int = 0,
+        failures: int = 0
     ) -> Optional[str]:
         """
         Create a new Jira issue for test failure.
@@ -155,7 +156,8 @@ class JiraIntegration:
             test_name: Test ID (e.g., OCP-12345)
             test_description: Human-readable test description
             version: OCP version
-            platform: Platform
+            platforms: List of affected platforms (e.g., ['aws', 'azure', 'gcp'])
+            platform: Single platform (deprecated - use platforms instead)
             error_message: Error message from test failure
             job_url: Link to job
             failure_rate: Failure rate percentage
@@ -169,14 +171,21 @@ class JiraIntegration:
             logger.warning("Cannot create Jira: Integration not enabled")
             return None
 
+        # Handle backwards compatibility
+        if not platforms and platform:
+            platforms = [platform]
+        elif not platforms:
+            platforms = []
+
         # Check for existing issue first
-        existing = self.search_existing_issue(test_name, version, platform)
+        existing = self.search_existing_issue(test_name, version)
         if existing:
             logger.info(f"Existing Jira found: {existing.get('key')}")
             return existing.get('key')
 
         # Create issue summary and description
-        summary = f"{test_name}: Test failure on {platform} {version}"
+        platforms_str = ', '.join(platforms) if platforms else 'multiple platforms'
+        summary = f"{test_name}: Test failure on {platforms_str} {version}"
 
         # Dashboard link
         dashboard_url = os.environ.get('DASHBOARD_URL', 'https://winc-dashboard-poc-winc-dashboard-poc.apps.build10.ci.devcluster.openshift.com')
@@ -193,7 +202,8 @@ class JiraIntegration:
                     "type": "paragraph",
                     "content": [
                         {"type": "text", "text": f"Test: {test_name}\n"},
-                        {"type": "text", "text": f"Version: {version} | Platform: {platform}\n"},
+                        {"type": "text", "text": f"Version: {version}\n"},
+                        {"type": "text", "text": f"Affected Platforms: {platforms_str}\n"},
                         {"type": "text", "text": f"Failure Rate: {failure_rate:.1f}% ({failures}/{runs} runs)"}
                     ]
                 },

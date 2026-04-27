@@ -571,6 +571,23 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         else:
             return jsonify({'error': 'No error found for this test/platform combination'}), 404
 
+    @app.route('/api/get-affected-platforms', methods=['POST'])
+    def api_get_affected_platforms():
+        """Get all platforms affected by a test failure"""
+        data = request.json
+        if not data:
+            return jsonify({'error': 'Missing request data'}), 400
+
+        test_name = data.get('test_name')
+        version = data.get('version')
+        days = data.get('days', 7)
+
+        if not all([test_name, version]):
+            return jsonify({'error': 'Missing required fields: test_name, version'}), 400
+
+        platforms = db.get_affected_platforms(test_name, version, days)
+        return jsonify({'platforms': platforms})
+
     @app.route('/api/jira/create', methods=['POST'])
     def api_create_jira():
         """Create or find existing Jira issue for a test failure"""
@@ -590,10 +607,16 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         # Required fields
         test_name = data.get('test_name')
         version = data.get('version')
-        platform = data.get('platform')
+        platforms = data.get('platforms', [])
 
-        if not all([test_name, version, platform]):
-            return jsonify({'error': 'Missing required fields: test_name, version, platform'}), 400
+        if not all([test_name, version]):
+            return jsonify({'error': 'Missing required fields: test_name, version'}), 400
+
+        # If no platforms provided, use single platform from old API
+        if not platforms:
+            platform = data.get('platform')
+            if platform:
+                platforms = [platform]
 
         # Optional fields
         test_description = data.get('test_description', '')
@@ -603,13 +626,13 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         runs = data.get('runs', 0)
         failures = data.get('failures', 0)
 
-        # Check for existing issue first
-        existing_issue = jira.search_existing_issue(test_name, version, platform)
+        # Check for existing issue first (search by test_name + version only)
+        existing_issue = jira.search_existing_issue(test_name, version)
         if existing_issue:
             issue_key = existing_issue.get('key')
             issue_url = jira.get_issue_url(issue_key)
-            # Save to database
-            db.save_jira_issue(test_name, version, platform, issue_key)
+            # Save to database (applies to all platforms)
+            db.save_jira_issue(test_name, version, jira_issue_key=issue_key)
             return jsonify({
                 'status': 'existing',
                 'issue_key': issue_key,
@@ -622,7 +645,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             test_name=test_name,
             test_description=test_description,
             version=version,
-            platform=platform,
+            platforms=platforms,
             error_message=error_message,
             job_url=job_url,
             failure_rate=failure_rate,
@@ -632,8 +655,8 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
 
         if issue_key:
             issue_url = jira.get_issue_url(issue_key)
-            # Save to database
-            db.save_jira_issue(test_name, version, platform, issue_key)
+            # Save to database (applies to all platforms)
+            db.save_jira_issue(test_name, version, jira_issue_key=issue_key)
             return jsonify({
                 'status': 'created',
                 'issue_key': issue_key,

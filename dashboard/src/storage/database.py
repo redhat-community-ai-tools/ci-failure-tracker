@@ -700,6 +700,37 @@ class DashboardDatabase:
             'savings': 0
         }
 
+    def get_affected_platforms(
+        self,
+        test_name: str,
+        version: str,
+        days: int = 7
+    ) -> List[str]:
+        """
+        Get all platforms where a test has failed
+
+        Args:
+            test_name: Test name
+            version: OpenShift version
+            days: How many days back to look
+
+        Returns:
+            List of platform names
+        """
+        cursor = self.conn.cursor()
+
+        cursor.execute("""
+            SELECT DISTINCT platform
+            FROM test_results
+            WHERE test_name = ?
+            AND version = ?
+            AND status = 'failed'
+            AND timestamp >= datetime('now', ? || ' days')
+            ORDER BY platform
+        """, (test_name, version, f'-{days}'))
+
+        return [row[0] for row in cursor.fetchall()]
+
     def close(self):
         """Close database connection"""
         self.conn.close()
