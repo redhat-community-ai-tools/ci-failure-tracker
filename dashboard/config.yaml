@@ -145,6 +145,20 @@ collector:
       - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-vsphere-ipi-disconnected-ovn-winc-f28"
       - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-4.22-upgrade-from-stable-4.21-aws-ipi-ovn-winc-f7"
 
+      # 4.23 WINC jobs
+      - "periodic-ci-openshift-openshift-tests-private-release-4.23-amd64-nightly-aws-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.23-amd64-nightly-azure-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.23-amd64-nightly-gcp-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.23-amd64-nightly-nutanix-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.23-amd64-nightly-vsphere-ipi-ovn-winc-f7"
+
+      # 5.0 WINC jobs
+      - "periodic-ci-openshift-openshift-tests-private-release-5.0-amd64-nightly-aws-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-5.0-amd64-nightly-azure-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-5.0-amd64-nightly-gcp-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-5.0-amd64-nightly-nutanix-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-5.0-amd64-nightly-vsphere-ipi-ovn-winc-f7"
+
     # How many recent builds to fetch per job (reduced for initial testing)
     max_builds_per_job: 20
 
@@ -187,6 +201,8 @@ tracking:
     - "4.19"
     - "4.21"
     - "4.22"
+    - "4.23"
+    - "5.0"
 
   # ========================================================================
   # CUSTOMIZE: Cloud platforms to track for your team
