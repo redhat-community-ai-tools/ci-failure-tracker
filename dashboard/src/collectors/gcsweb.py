@@ -68,8 +68,8 @@ class GCSWebCollector(BaseCollector):
         """Check if gcsweb is accessible. Sets self.health_error with details on failure."""
         self.health_error = None
         try:
-            url = f"{self.GCSWEB_BASE_URL}/gcs/{self.BUCKET}/logs/"
-            response = self.session.get(url, timeout=10)
+            url = f"{self.GCSWEB_BASE_URL}/gcs/{self.BUCKET}/"
+            response = self.session.get(url, timeout=30)
             if response.status_code != 200:
                 self.health_error = f"GCSWeb returned HTTP {response.status_code} - check URL: {self.GCSWEB_BASE_URL}"
                 return False
@@ -122,7 +122,7 @@ class GCSWebCollector(BaseCollector):
         url = f"{self.GCSWEB_BASE_URL}{path}"
 
         try:
-            response = self.session.get(url, timeout=30)
+            response = self.session.get(url, timeout=120)
             response.raise_for_status()
 
             # Parse HTML to extract links
