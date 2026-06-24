@@ -249,7 +249,11 @@ class GCSWebCollector(BaseCollector):
         """Parse JUnit XML and extract test results"""
         results = []
 
-        for testsuite in junit_root.findall('.//testsuite'):
+        testsuites = junit_root.findall('.//testsuite')
+        if junit_root.tag == 'testsuite' and junit_root not in testsuites:
+            testsuites.insert(0, junit_root)
+
+        for testsuite in testsuites:
             for testcase in testsuite.findall('testcase'):
                 name = testcase.get('name', 'unknown')
 
