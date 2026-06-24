@@ -42,7 +42,11 @@ def _fetch_logs(log_url: str) -> str:
     if not log_url:
         return ''
     try:
-        response = requests.get(log_url, timeout=10)
+        headers = {}
+        api_token = os.environ.get('API_KEY')
+        if api_token and 'qe-private-deck' in log_url:
+            headers['Authorization'] = f'Bearer {api_token}'
+        response = requests.get(log_url, headers=headers, timeout=30)
         if response.status_code == 200:
             return response.text
     except Exception:
@@ -214,14 +218,7 @@ class HybridFailureAnalyzer:
                 return None
 
             # Fetch logs (truncated for cost optimization)
-            logs = ""
-            if log_url:
-                try:
-                    response = requests.get(log_url, timeout=10)
-                    if response.status_code == 200:
-                        logs = response.text
-                except Exception as e:
-                    logger.warning(f"Failed to fetch logs from {log_url}: {e}")
+            logs = _fetch_logs(log_url)
 
             logs_excerpt = logs[-3000:] if len(logs) > 3000 else logs
 

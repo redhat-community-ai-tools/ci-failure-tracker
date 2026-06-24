@@ -218,14 +218,28 @@ class GCSWebCollector(BaseCollector):
                 return None
         return None
 
-    def _fetch_junit_xml_files(self, run_path: str) -> List[ET.Element]:
-        """Fetch and parse JUnit XML files for a job run (recursive search)"""
+    def _fetch_junit_xml_files(self, run_path: str) -> List[tuple]:
+        """Fetch and parse JUnit XML files for a job run (recursive search).
+        Returns list of (ET.Element, xml_file_path) tuples."""
         junit_files = []
         self._find_xml_recursive(f"{run_path}/artifacts/", junit_files, depth=0, max_depth=6)
         return junit_files
 
-    def _find_xml_recursive(self, path: str, results: List[ET.Element], depth: int, max_depth: int):
-        """Recursively search for XML test result files in artifacts"""
+    def _derive_log_url(self, xml_path: str) -> str:
+        """Derive the step-level build-log.txt URL from the JUnit XML path.
+        XML at: /gcs/bucket/logs/job/build/artifacts/{step}/.../junit/file.xml
+        Log at: {GCSWEB_BASE_URL}/gcs/bucket/logs/job/build/artifacts/{step}/build-log.txt"""
+        artifacts_idx = xml_path.find('/artifacts/')
+        if artifacts_idx == -1:
+            return ''
+        after_artifacts = xml_path[artifacts_idx + len('/artifacts/'):]
+        step_name = after_artifacts.split('/')[0]
+        step_dir = xml_path[:artifacts_idx] + '/artifacts/' + step_name
+        return f"{self.GCSWEB_BASE_URL}{step_dir}/build-log.txt"
+
+    def _find_xml_recursive(self, path: str, results: list, depth: int, max_depth: int):
+        """Recursively search for XML test result files in artifacts.
+        Appends (ET.Element, file_path) tuples to results."""
         if depth >= max_depth:
             return
 
@@ -238,14 +252,14 @@ class GCSWebCollector(BaseCollector):
                     try:
                         root = ET.fromstring(content)
                         if root.tag in ('testsuites', 'testsuite'):
-                            results.append(root)
+                            results.append((root, link_path))
                             logger.info(f"[gcsweb] Found JUnit XML: {link_text} at depth {depth}")
                     except ET.ParseError:
                         continue
             elif link_text.endswith('/') and link_text not in ('../', './'):
                 self._find_xml_recursive(link_path, results, depth + 1, max_depth)
 
-    def _parse_junit_xml(self, junit_root: ET.Element, job_name: str, build_id: str, metadata: Dict[str, str]) -> List[TestResult]:
+    def _parse_junit_xml(self, junit_root: ET.Element, job_name: str, build_id: str, metadata: Dict[str, str], log_url: str = '') -> List[TestResult]:
         """Parse JUnit XML and extract test results"""
         results = []
 
@@ -257,14 +271,12 @@ class GCSWebCollector(BaseCollector):
             for testcase in testsuite.findall('testcase'):
                 name = testcase.get('name', 'unknown')
 
-                # Only include tests matching test_suite_filter (check raw name before extraction)
                 test_filter = self.config.get('test_suite_filter', '')
                 if test_filter and test_filter not in name:
                     continue
 
                 time = float(testcase.get('time', 0))
 
-                # Determine status
                 failure = testcase.find('failure')
                 error = testcase.find('error')
                 skipped = testcase.find('skipped')
@@ -274,15 +286,14 @@ class GCSWebCollector(BaseCollector):
                     error_msg = skipped.get('message')
                 elif failure is not None:
                     status = TestStatus.FAILED
-                    error_msg = failure.get('message') or failure.text
+                    error_msg = self._build_error_message(failure, testcase)
                 elif error is not None:
                     status = TestStatus.ERROR
-                    error_msg = error.get('message') or error.text
+                    error_msg = self._build_error_message(error, testcase)
                 else:
                     status = TestStatus.PASSED
                     error_msg = None
 
-                # Extract test name and description (look for OCP-XXXXX)
                 test_name, test_description = self._extract_test_name(name)
 
                 result = TestResult(
@@ -296,12 +307,27 @@ class GCSWebCollector(BaseCollector):
                     version=metadata['version'],
                     platform=metadata['platform'],
                     test_description=test_description,
-                    job_url=f"https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com/view/gs/{self.BUCKET}/{job_name.replace('/gcs/' + self.BUCKET + '/logs/', '')}/{build_id}",
-                    log_url=None
+                    job_url=f"https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com/view/gs/{self.BUCKET}/logs/{job_name}/{build_id}",
+                    log_url=log_url or None
                 )
                 results.append(result)
 
         return results
+
+    def _build_error_message(self, element: ET.Element, testcase: ET.Element) -> str:
+        """Build full error message from JUnit failure/error element and testcase output."""
+        parts = []
+        msg = element.get('message')
+        if msg:
+            parts.append(msg)
+        if element.text and element.text.strip():
+            text = element.text.strip()
+            if text != msg:
+                parts.append(text)
+        system_out = testcase.find('system-out')
+        if system_out is not None and system_out.text and system_out.text.strip():
+            parts.append('\nTest Output:\n' + system_out.text.strip())
+        return '\n'.join(parts) if parts else 'Unknown error'
 
     def _extract_test_name(self, raw_name: str) -> tuple[str, str]:
         """
@@ -451,7 +477,7 @@ class GCSWebCollector(BaseCollector):
         failed_tests = 0
         skipped_tests = 0
 
-        for junit_root in junit_files:
+        for junit_root, _xml_path in junit_files:
             for testsuite in junit_root.findall('.//testsuite'):
                 total_tests += int(testsuite.get('tests', 0))
                 failed_tests += int(testsuite.get('failures', 0))
@@ -546,8 +572,9 @@ class GCSWebCollector(BaseCollector):
         junit_files = self._fetch_junit_xml_files(run['path'])
 
         all_results = []
-        for junit_root in junit_files:
-            results = self._parse_junit_xml(junit_root, run['job_name'], run['build_id'], metadata)
+        for junit_root, xml_path in junit_files:
+            log_url = self._derive_log_url(xml_path)
+            results = self._parse_junit_xml(junit_root, run['job_name'], run['build_id'], metadata, log_url=log_url)
 
             # Update timestamps
             for result in results:

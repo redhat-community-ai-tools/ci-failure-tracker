@@ -576,7 +576,8 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 job_name,
                 build_id,
                 job_url,
-                platform
+                platform,
+                log_url
             FROM test_results
             WHERE test_name = ?
             AND platform = ?
