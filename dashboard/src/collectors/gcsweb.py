@@ -263,54 +263,51 @@ class GCSWebCollector(BaseCollector):
         """Parse JUnit XML and extract test results"""
         results = []
 
-        testsuites = junit_root.findall('.//testsuite')
-        if junit_root.tag == 'testsuite' and junit_root not in testsuites:
-            testsuites.insert(0, junit_root)
+        # Find all testcase elements directly to avoid visiting the same
+        # testcase multiple times when testsuites are nested.
+        for testcase in junit_root.findall('.//testcase'):
+            name = testcase.get('name', 'unknown')
 
-        for testsuite in testsuites:
-            for testcase in testsuite.findall('testcase'):
-                name = testcase.get('name', 'unknown')
+            test_filter = self.config.get('test_suite_filter', '')
+            if test_filter and test_filter not in name:
+                continue
 
-                test_filter = self.config.get('test_suite_filter', '')
-                if test_filter and test_filter not in name:
-                    continue
+            time = float(testcase.get('time', 0))
 
-                time = float(testcase.get('time', 0))
+            failure = testcase.find('failure')
+            error = testcase.find('error')
+            skipped = testcase.find('skipped')
 
-                failure = testcase.find('failure')
-                error = testcase.find('error')
-                skipped = testcase.find('skipped')
+            if skipped is not None:
+                status = TestStatus.SKIPPED
+                error_msg = skipped.get('message')
+            elif failure is not None:
+                status = TestStatus.FAILED
+                error_msg = self._build_error_message(failure, testcase)
+            elif error is not None:
+                status = TestStatus.ERROR
+                error_msg = self._build_error_message(error, testcase)
+            else:
+                status = TestStatus.PASSED
+                error_msg = None
 
-                if skipped is not None:
-                    status = TestStatus.SKIPPED
-                    error_msg = skipped.get('message')
-                elif failure is not None:
-                    status = TestStatus.FAILED
-                    error_msg = self._build_error_message(failure, testcase)
-                elif error is not None:
-                    status = TestStatus.ERROR
-                    error_msg = self._build_error_message(error, testcase)
-                else:
-                    status = TestStatus.PASSED
-                    error_msg = None
+            test_name, test_description = self._extract_test_name(name)
 
-                test_name, test_description = self._extract_test_name(name)
-
-                result = TestResult(
-                    test_name=test_name,
-                    status=status,
-                    timestamp=datetime.now(),
-                    duration_seconds=time,
-                    error_message=error_msg,
-                    job_name=job_name,
-                    build_id=build_id,
-                    version=metadata['version'],
-                    platform=metadata['platform'],
-                    test_description=test_description,
-                    job_url=f"https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com/view/gs/{self.BUCKET}/logs/{job_name}/{build_id}",
-                    log_url=log_url or None
-                )
-                results.append(result)
+            result = TestResult(
+                test_name=test_name,
+                status=status,
+                timestamp=datetime.now(),
+                duration_seconds=time,
+                error_message=error_msg,
+                job_name=job_name,
+                build_id=build_id,
+                version=metadata['version'],
+                platform=metadata['platform'],
+                test_description=test_description,
+                job_url=f"https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com/view/gs/{self.BUCKET}/logs/{job_name}/{build_id}",
+                log_url=log_url or None
+            )
+            results.append(result)
 
         return results
 
@@ -478,7 +475,17 @@ class GCSWebCollector(BaseCollector):
         skipped_tests = 0
 
         for junit_root, _xml_path in junit_files:
-            for testsuite in junit_root.findall('.//testsuite'):
+            # Collect all testsuite elements, including the root if it is one.
+            all_suites = []
+            if junit_root.tag == 'testsuite':
+                all_suites.append(junit_root)
+            all_suites.extend(junit_root.findall('.//testsuite'))
+
+            for testsuite in all_suites:
+                # Skip parent testsuites that contain child testsuites to
+                # avoid double-counting aggregated counts with children.
+                if testsuite.findall('testsuite'):
+                    continue
                 total_tests += int(testsuite.get('tests', 0))
                 failed_tests += int(testsuite.get('failures', 0))
                 failed_tests += int(testsuite.get('errors', 0))
