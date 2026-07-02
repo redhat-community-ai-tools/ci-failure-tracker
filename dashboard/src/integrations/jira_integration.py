@@ -291,8 +291,18 @@ class JiraIntegration:
         """Get URL for a Jira issue"""
         return f"{self.config.url}/browse/{issue_key}"
 
-    def create_report(self, summary: str, description: str) -> Optional[str]:
-        """Create a Jira issue for a dashboard problem report."""
+    def create_report(self, summary: str, description: str, issue_type: str = "Task") -> Optional[str]:
+        """Create a Jira issue for a dashboard problem report.
+
+        Args:
+            summary: Short summary of the problem
+            description: Detailed description
+            issue_type: Jira issue type (default: Task to distinguish from
+                        automated Bug filings)
+
+        Returns:
+            Jira issue key if created, None otherwise
+        """
         if not self.enabled:
             logger.warning("Cannot create Jira: Integration not enabled")
             return None
@@ -329,7 +339,7 @@ class JiraIntegration:
                     'project': {'key': self.config.project_key},
                     'summary': f"[Dashboard] {summary}",
                     'description': adf_description,
-                    'issuetype': {'name': self.config.issue_type},
+                    'issuetype': {'name': issue_type},
                     'priority': {'name': self.config.priority}
                 }
             }

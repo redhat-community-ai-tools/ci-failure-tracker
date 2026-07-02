@@ -963,7 +963,7 @@
                 const data = await response.json();
 
                 if (data.status === 'disabled') {
-                    alert('GitHub integration not configured. Set GITHUB_TOKEN and GITHUB_REPO environment variables.');
+                    alert('Jira integration not configured. Set JIRA_API_TOKEN environment variable.');
                     btn.textContent = 'Submit';
                     btn.disabled = false;
                     btn.style.background = '#dc2626';

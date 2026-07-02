@@ -698,14 +698,14 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
 
     @app.route('/api/github/report-problem', methods=['POST'])
     def api_report_problem():
-        """Create a GitHub issue for a dashboard problem report."""
-        from integrations import get_github_integration
+        """Create a Jira issue for a dashboard problem report."""
+        from integrations import get_jira_integration
 
-        github = get_github_integration()
-        if not github:
+        jira = get_jira_integration()
+        if not jira:
             return jsonify({
                 'status': 'disabled',
-                'message': 'GitHub integration not configured. Set GITHUB_TOKEN and GITHUB_REPO environment variables.'
+                'message': 'Jira integration not configured. Set JIRA_API_TOKEN environment variable.'
             })
 
         data = request.json
@@ -718,17 +718,18 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         if not summary or not description:
             return jsonify({'error': 'Both summary and description are required'}), 400
 
-        result = github.create_report(summary=summary, description=description)
+        issue_key = jira.create_report(summary=summary, description=description)
 
-        if result:
+        if issue_key:
+            issue_url = jira.get_issue_url(issue_key)
             return jsonify({
                 'status': 'created',
-                'issue_key': f'#{result["number"]}',
-                'issue_url': result['html_url'],
-                'message': f'Created GitHub issue #{result["number"]}'
+                'issue_key': issue_key,
+                'issue_url': issue_url,
+                'message': f'Created Jira issue {issue_key}'
             })
         else:
-            return jsonify({'error': 'Failed to create GitHub issue'}), 500
+            return jsonify({'error': 'Failed to create Jira issue'}), 500
 
     @app.route('/api/analyze-failure', methods=['POST'])
     def api_analyze_failure():
