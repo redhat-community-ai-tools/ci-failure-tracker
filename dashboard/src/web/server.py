@@ -696,16 +696,16 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         else:
             return jsonify({'error': 'Failed to create Jira issue'}), 500
 
-    @app.route('/api/jira/report-problem', methods=['POST'])
+    @app.route('/api/github/report-problem', methods=['POST'])
     def api_report_problem():
-        """Create a Jira issue for a dashboard problem report."""
-        from integrations import get_jira_integration
+        """Create a GitHub issue for a dashboard problem report."""
+        from integrations import get_github_integration
 
-        jira = get_jira_integration()
-        if not jira:
+        github = get_github_integration()
+        if not github:
             return jsonify({
                 'status': 'disabled',
-                'message': 'Jira integration not configured. Set JIRA_API_TOKEN environment variable.'
+                'message': 'GitHub integration not configured. Set GITHUB_TOKEN and GITHUB_REPO environment variables.'
             })
 
         data = request.json
@@ -718,17 +718,17 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         if not summary or not description:
             return jsonify({'error': 'Both summary and description are required'}), 400
 
-        issue_key = jira.create_report(summary=summary, description=description)
+        result = github.create_report(summary=summary, description=description)
 
-        if issue_key:
+        if result:
             return jsonify({
                 'status': 'created',
-                'issue_key': issue_key,
-                'issue_url': jira.get_issue_url(issue_key),
-                'message': f'Created report: {issue_key}'
+                'issue_key': f'#{result["number"]}',
+                'issue_url': result['html_url'],
+                'message': f'Created GitHub issue #{result["number"]}'
             })
         else:
-            return jsonify({'error': 'Failed to create Jira issue'}), 500
+            return jsonify({'error': 'Failed to create GitHub issue'}), 500
 
     @app.route('/api/analyze-failure', methods=['POST'])
     def api_analyze_failure():

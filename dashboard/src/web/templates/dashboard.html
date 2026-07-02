@@ -954,7 +954,7 @@
             btn.style.background = '#9ca3af';
 
             try {
-                const response = await fetch('/api/jira/report-problem', {
+                const response = await fetch('/api/github/report-problem', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ summary, description })
@@ -963,7 +963,7 @@
                 const data = await response.json();
 
                 if (data.status === 'disabled') {
-                    alert('Jira integration not enabled. Set JIRA_API_TOKEN environment variable.');
+                    alert('GitHub integration not configured. Set GITHUB_TOKEN and GITHUB_REPO environment variables.');
                     btn.textContent = 'Submit';
                     btn.disabled = false;
                     btn.style.background = '#dc2626';
