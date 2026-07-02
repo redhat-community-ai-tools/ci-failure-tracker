@@ -198,7 +198,7 @@ REST APIs for custom integrations:
 - `POST /api/trigger-collection` - Start data collection
 - `GET /api/collection-status` - Check collection progress
 - `GET /logs?content=<log>&test=<name>` - View logs page
-- `POST /api/jira/report-problem` - Create a Jira bug from the dashboard
+- `POST /api/github/report-problem` - Create a GitHub issue from the dashboard
 
 ### Test Suite Filtering
 
