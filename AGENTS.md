@@ -37,11 +37,17 @@ Most agent work targets the dashboard.
 7. **Testing.** Run `cd dashboard && python -m pytest -v` after changes. If no
    tests exist for the changed module, create a test file.
 
-8. **Config safety.** Changes to `config.yaml` must be backwards-compatible.
+8. **False-positive testing.** When writing pattern-matching logic (regex,
+   string matching, classifiers), always include negative test cases that
+   verify similar-but-incorrect inputs are NOT matched. For pre-classifiers
+   that skip AI analysis, test that non-matching failure messages still fall
+   through to AI.
+
+9. **Config safety.** Changes to `config.yaml` must be backwards-compatible.
    New keys must have defaults. Never rename or remove existing keys.
 
-9. **Collector interface.** New collectors must implement the full `BaseCollector`
+10. **Collector interface.** New collectors must implement the full `BaseCollector`
    ABC from `dashboard/src/collectors/base.py`.
 
-10. **Security.** No hardcoded credentials. Use environment variables for secrets.
+11. **Security.** No hardcoded credentials. Use environment variables for secrets.
     Use parameterized SQLite queries.
