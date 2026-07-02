@@ -46,6 +46,11 @@ fullsend-check-output "$FULLSEND_OUTPUT_DIR/agent-result.json"
 ```
 If validation fails, read the error output, fix the JSON file, and re-validate.
 
+## Git Workflow
+
+The default branch of this repository is **master** (not main).
+Always branch from and target **master**. Never use `main`.
+
 ## Conventions
 
 - Follow PEP 8 and match existing code style
