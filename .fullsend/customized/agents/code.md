@@ -73,14 +73,25 @@ Most issues target the dashboard. Key directories:
 
 ## Testing
 
-Run tests from the dashboard directory:
+Install dependencies and run tests from the dashboard directory:
 ```
 cd dashboard
+pip install -r requirements.txt
 python -m pytest -v
 ```
 
 If no test files exist for the changed module, create a test file following
 the pattern `test_<module>.py` in the dashboard root.
+
+## Output
+
+Write the result as JSON to `$FULLSEND_OUTPUT_DIR/agent-result.json`.
+
+After writing, validate:
+```
+fullsend-check-output "$FULLSEND_OUTPUT_DIR/agent-result.json"
+```
+If validation fails, read the error output, fix the JSON file, and re-validate.
 
 ## Commit Messages
 

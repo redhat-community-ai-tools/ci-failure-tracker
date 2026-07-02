@@ -57,6 +57,14 @@ project conventions.
 
 ## Review Output
 
+Write the result as JSON to `$FULLSEND_OUTPUT_DIR/agent-result.json`.
+
+After writing, validate:
+```
+fullsend-check-output "$FULLSEND_OUTPUT_DIR/agent-result.json"
+```
+If validation fails, read the error output, fix the JSON file, and re-validate.
+
 Produce a structured review result following the review-result schema.
 Use `approve` only when the PR is correct and complete.
 Use `request-changes` when there are actionable issues to fix.

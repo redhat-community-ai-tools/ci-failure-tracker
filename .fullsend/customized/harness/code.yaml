@@ -44,8 +44,6 @@ env:
     CODE_ALLOWED_TARGET_BRANCHES: "${CODE_ALLOWED_TARGET_BRANCHES}"
     FULLSEND_OUTPUT_SCHEMA: ${FULLSEND_DIR}/schemas/code-result.schema.json
     FULLSEND_OUTPUT_FILE: code-result.json
-  sandbox:
-    PATH: "/sandbox/workspace/venv/bin:$PATH"
 
 timeout_minutes: 25
 
