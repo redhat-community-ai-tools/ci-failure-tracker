@@ -10,6 +10,7 @@ import pytest
 from src.ai.analyzer import (
     detect_ssh_flake,
     detect_infra_flake,
+    detect_timeout_flake,
     _apply_confidence_review,
     _derive_is_product_bug,
     LOW_CONFIDENCE_THRESHOLD,
@@ -60,6 +61,145 @@ class TestDetectSshFlake:
         """Assertion in error but SSH only in logs should skip."""
         msg = "Expected pod to be running\no.Expect(status)"
         result = detect_ssh_flake(msg, pass_rate=90.0)
+        assert result is None
+
+    def test_ssh_exit_status_1(self):
+        """SSH with non-255 exit status should still match."""
+        result = detect_ssh_flake(
+            "ssh command failed: exit status 1", pass_rate=90.0
+        )
+        assert result is not None
+        assert result['classification'] == 'transient'
+
+    def test_ssh_command_timed_out(self):
+        """SSH command timeout should match."""
+        result = detect_ssh_flake(
+            "ssh command timed out after 49 minutes", pass_rate=85.0
+        )
+        assert result is not None
+        assert result['failure_type'] == 'transient'
+
+    def test_ssh_connection_closed(self):
+        """SSH connection closed should match."""
+        result = detect_ssh_flake(
+            "ssh: connection closed by remote host", pass_rate=90.0
+        )
+        assert result is not None
+
+    def test_dial_tcp_22_io_timeout(self):
+        """TCP dial to port 22 with i/o timeout should match."""
+        result = detect_ssh_flake(
+            "dial tcp 192.0.2.1:22: i/o timeout", pass_rate=88.0
+        )
+        assert result is not None
+        assert result['classification'] == 'transient'
+
+    def test_ssh_exit_status_no_false_positive(self):
+        """Non-SSH exit status should not match SSH patterns."""
+        result = detect_ssh_flake(
+            "command failed: exit status 1", pass_rate=90.0
+        )
+        assert result is None
+
+
+class TestDetectTimeoutFlake:
+    """Tests for timeout/precondition flake pre-classifier."""
+
+    def test_provisioning_phase_timeout(self):
+        """Precondition timeout waiting for Provisioning phase."""
+        msg = (
+            "Failed to check Windows machine should be in "
+            "Provisioning phase and not reconciled after waiting "
+            "up to 5 minutes"
+        )
+        result = detect_timeout_flake(msg, pass_rate=90.0)
+        assert result is not None
+        assert result['classification'] == 'transient'
+        assert result['is_product_bug'] is False
+        assert result['pre_classifier'] == 'timeout_flake_detector'
+
+    def test_waiting_up_to_n_minutes(self):
+        """Generic 'waiting up to N minutes' with high pass rate."""
+        result = detect_timeout_flake(
+            "condition not met after waiting up to 10 minutes",
+            pass_rate=85.0,
+        )
+        assert result is not None
+        assert result['failure_type'] == 'transient'
+
+    def test_timed_out_waiting_for_node(self):
+        """Timeout waiting for node readiness."""
+        result = detect_timeout_flake(
+            "timed out waiting for node to become ready",
+            pass_rate=80.0,
+        )
+        assert result is not None
+        assert result['classification'] == 'transient'
+
+    def test_context_deadline_exceeded(self):
+        """Context deadline exceeded pattern."""
+        result = detect_timeout_flake(
+            "context deadline exceeded", pass_rate=75.0
+        )
+        assert result is not None
+        assert result['pre_classifier'] == 'timeout_flake_detector'
+
+    def test_did_not_become_ready(self):
+        """Did not become ready within timeout."""
+        result = detect_timeout_flake(
+            "pod did not become ready within 5m0s", pass_rate=92.0
+        )
+        assert result is not None
+
+    def test_low_pass_rate_skips(self):
+        """Low pass rate should not pre-classify as transient."""
+        result = detect_timeout_flake(
+            "timed out waiting for machine to become ready",
+            pass_rate=50.0,
+        )
+        assert result is None
+
+    def test_no_pass_rate_skips(self):
+        """Missing pass rate should not pre-classify."""
+        result = detect_timeout_flake(
+            "timed out waiting for node to become ready",
+            pass_rate=None,
+        )
+        assert result is None
+
+    def test_assertion_with_timeout_skips(self):
+        """Timeout with assertion failure should fall through to AI."""
+        msg = (
+            "timed out waiting for condition\n"
+            "Expected pod to be running\n"
+            "o.Expect(status)"
+        )
+        result = detect_timeout_flake(msg, pass_rate=90.0)
+        assert result is None
+
+    def test_no_timeout_pattern(self):
+        """Non-timeout error should not match."""
+        result = detect_timeout_flake(
+            "pod crashed with OOMKilled", pass_rate=90.0
+        )
+        assert result is None
+
+    def test_empty_message(self):
+        result = detect_timeout_flake("", pass_rate=90.0)
+        assert result is None
+
+    def test_none_message(self):
+        result = detect_timeout_flake(None, pass_rate=90.0)
+        assert result is None
+
+    def test_product_assertion_not_matched(self):
+        """Real product assertion with timeout wording should not match
+        when assertion patterns are present."""
+        msg = (
+            "Expected \"Running\"\nGot: \"Stopped\\r\\n\"\n"
+            "Unexpected error: unexpected output"
+        )
+        result = detect_timeout_flake(msg, pass_rate=90.0)
         assert result is None
 
 
@@ -339,6 +479,40 @@ class TestAnalyzeFailureIntegration:
         assert result['pre_classified'] is True
         assert result['classification'] == 'system_issue'
         assert result['pre_classifier'] == 'quota_detector'
+
+    def test_timeout_flake_skips_vertex_ai(self):
+        """Timeout flake should be pre-classified without Vertex AI."""
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            test_name='OCP-55555',
+            error_message=(
+                'Failed to check Windows machine should be in '
+                'Provisioning phase and not reconciled after '
+                'waiting up to 5 minutes'
+            ),
+            log_url='',
+            platform='gcp',
+            version='X.Y',
+            pass_rate=90.0,
+        )
+        assert result['pre_classified'] is True
+        assert result['classification'] == 'transient'
+        assert result['cost'] == 0.0
+        assert result['pre_classifier'] == 'timeout_flake_detector'
+
+    def test_timeout_low_pass_rate_falls_through(self):
+        """Timeout with low pass rate should NOT be pre-classified."""
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            test_name='OCP-77777',
+            error_message='timed out waiting for machine to become ready',
+            log_url='',
+            platform='azure',
+            version='4.18',
+            pass_rate=40.0,
+        )
+        # Should fall through to Vertex AI (which fails without client)
+        assert result.get('pre_classified') is not True
 
     def test_no_client_returns_failed(self):
         """Without Vertex AI client, non-infra failures return error."""
