@@ -89,7 +89,7 @@ class TestDetectSshFlake:
     def test_dial_tcp_22_io_timeout(self):
         """TCP dial to port 22 with i/o timeout should match."""
         result = detect_ssh_flake(
-            "dial tcp 10.0.0.5:22: i/o timeout", pass_rate=88.0
+            "dial tcp 192.0.2.1:22: i/o timeout", pass_rate=88.0
         )
         assert result is not None
         assert result['classification'] == 'transient'
@@ -504,11 +504,11 @@ class TestAnalyzeFailureIntegration:
         """Timeout with low pass rate should NOT be pre-classified."""
         analyzer = HybridFailureAnalyzer()
         result = analyzer.analyze_failure(
-            test_name='OCP-39030',
+            test_name='OCP-00000',
             error_message='timed out waiting for machine to become ready',
             log_url='',
             platform='aws',
-            version='4.22',
+            version='4.x',
             pass_rate=40.0,
         )
         # Should fall through to Vertex AI (which fails without client)
