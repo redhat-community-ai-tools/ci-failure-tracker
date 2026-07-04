@@ -492,7 +492,7 @@ class TestAnalyzeFailureIntegration:
             ),
             log_url='',
             platform='gcp',
-            version='5.0',
+            version='X.Y',
             pass_rate=90.0,
         )
         assert result['pre_classified'] is True
