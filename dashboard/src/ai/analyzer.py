@@ -32,6 +32,36 @@ SSH_PATTERNS = [
     re.compile(r'dial tcp.*:22.*connection refused', re.IGNORECASE),
     re.compile(r'kex_exchange_identification', re.IGNORECASE),
     re.compile(r'connection reset by.*port 22', re.IGNORECASE),
+    # Expanded patterns: hung SSH connections and non-255 exit codes
+    re.compile(r'ssh.*exit status [1-9]\d*', re.IGNORECASE),
+    re.compile(r'ssh command.*timed? out', re.IGNORECASE),
+    re.compile(r'ssh.*connection.*closed', re.IGNORECASE),
+    re.compile(r'Process exited with status \d+.*ssh', re.IGNORECASE),
+    re.compile(r'dial tcp.*:22.*i/o timeout', re.IGNORECASE),
+    re.compile(r'dial tcp.*:22.*connection timed out', re.IGNORECASE),
+]
+
+TIMEOUT_FLAKE_PATTERNS = [
+    re.compile(
+        r'Failed to check Windows machine should be in Provisioning phase',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'waiting up to \d+ (?:minutes?|seconds?)',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'timed? ?out waiting for (?:machine|node|pod|condition)',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'(?:context deadline exceeded|deadline exceeded)',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'did not become (?:ready|available|running) within',
+        re.IGNORECASE,
+    ),
 ]
 
 DNS_PATTERNS = [
@@ -226,6 +256,80 @@ def detect_infra_flake(error_message: str, log_url: str = None, log_text: str = 
     return None
 
 
+def detect_timeout_flake(
+    error_message: str,
+    pass_rate: Optional[float] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Pre-classify known timeout/precondition flakes.
+
+    Catches precondition timeouts (e.g. waiting for machine to reach
+    Provisioning phase) and generic condition timeouts that are known
+    transient failures when the pass rate is high.
+
+    Returns a pre-built analysis dict if a timeout flake is detected,
+    None otherwise.
+    """
+    if not error_message:
+        return None
+
+    # Only pre-classify as transient if pass rate is known and high
+    if pass_rate is None or pass_rate < 70.0:
+        return None
+
+    timeout_matches = [
+        p.pattern for p in TIMEOUT_FLAKE_PATTERNS if p.search(error_message)
+    ]
+    if not timeout_matches:
+        return None
+
+    # Do not pre-classify if there is a real assertion failure alongside
+    # the timeout — the timeout may be incidental
+    assertion_in_error = any(
+        p.search(error_message) for p in ASSERTION_PATTERNS
+    )
+    if assertion_in_error:
+        return None
+
+    logger.info(
+        "Pre-classified as timeout/precondition flake "
+        f"(pass_rate={pass_rate}, patterns={len(timeout_matches)})"
+    )
+
+    return {
+        'root_cause': (
+            'Precondition or condition timeout in CI environment. '
+            'The test waited for an expected state that did not '
+            'arrive in time. With a high pass rate this is a '
+            'transient timing issue, not a product bug.'
+        ),
+        'component': 'test-infrastructure (timeout)',
+        'confidence': 85,
+        'failure_type': 'transient',
+        'classification': 'transient',
+        'platform_specific': False,
+        'affected_platforms': [],
+        'evidence': '; '.join(timeout_matches[:3]),
+        'suggested_action': (
+            'Retry. This is a known transient timeout pattern. '
+            'If failures persist at a high rate, investigate '
+            'whether the timeout value is too aggressive for the '
+            'target environment.'
+        ),
+        'issue_title': 'Transient: Precondition/condition timeout flake',
+        'issue_description': (
+            'Test timed out waiting for a precondition or expected '
+            'state. High pass rate indicates this is a transient '
+            'timing issue in CI, not a product defect.'
+        ),
+        'is_product_bug': False,
+        'pre_classified': True,
+        'pre_classifier': 'timeout_flake_detector',
+        'cost': 0.0,
+        'analysis_mode': 'pre-classifier',
+    }
+
+
 def _apply_confidence_review(analysis: Dict[str, Any]) -> Dict[str, Any]:
     """
     Flag low-confidence results for human review.
@@ -349,6 +453,12 @@ class HybridFailureAnalyzer:
         if infra_result:
             logger.info(f"Pre-classified {test_name} as infrastructure issue (skipping Vertex AI)")
             return infra_result
+
+        # Step 1c: Check timeout/precondition flake patterns
+        timeout_result = detect_timeout_flake(error_message, pass_rate)
+        if timeout_result:
+            logger.info(f"Pre-classified {test_name} as timeout flake (skipping Vertex AI)")
+            return timeout_result
 
         # Step 2: Use Vertex AI for analysis
         logger.info(f"Analyzing {test_name} with Vertex AI")
@@ -513,11 +623,33 @@ description carefully before deciding:
   error message and logs to classify. Use this only as a last resort.
   Set confidence below 50 when using this category.
 
+## WMCO Domain Knowledge
+
+Use this domain context to distinguish preconditions from product assertions:
+
+- **Provisioning phase checks** (e.g. "should be in Provisioning phase",
+  "waiting for machine") are **preconditions**, not product assertions.
+  Timeouts here are flakes caused by cloud provider provisioning speed.
+- WMCO reconciliation only starts **after** a machine reaches Running
+  phase. A timeout waiting for Provisioning does not indicate a WMCO bug.
+- Secret existence checks (cloud-private-key, windows-user-data) are
+  **setup validations**. Failures indicate missing test prerequisites.
+- **SSH connectivity issues** are tracked under WINC-1931 (SSH
+  elimination). Always reference this tracker. SSH failures are
+  infrastructure issues, not product bugs.
+- **hybrid-overlay-node certificate rotation** is a known flaky area.
+  Service stop/restart during cert rotation is often a timing issue.
+- **Suggested actions must be specific and actionable.** Never suggest
+  "investigate the logs" or just "retry" without context. Instead:
+  - Reference the specific Jira tracker if one exists (e.g. WINC-1931)
+  - Identify whether the failure is a precondition vs product assertion
+  - State whether this is a known flake pattern or a new regression
+
 ## Key Distinctions
 
 - SSH/bastion failures (exit status 255, connection refused on port 22)
   with no test assertion reached → **transient**, component
-  "test-infrastructure (SSH connectivity)"
+  "test-infrastructure (SSH connectivity)". Reference WINC-1931.
 - DNS resolution failures → **system_issue**
 - Cloud quota/capacity exceeded → **system_issue**
 - Test assertion comparing wrong expected value → **automation_bug**
@@ -526,6 +658,8 @@ description carefully before deciding:
 - Timeout waiting for a condition that intermittently takes too long →
   **transient** (if pass rate is high) or **product_bug** (if pass rate
   is low and timeout is generous)
+- Precondition timeout (waiting for Provisioning phase, waiting for
+  machine/node readiness before test logic) → **transient**
 
 ## Required Output
 
