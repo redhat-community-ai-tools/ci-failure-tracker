@@ -484,15 +484,15 @@ class TestAnalyzeFailureIntegration:
         """Timeout flake should be pre-classified without Vertex AI."""
         analyzer = HybridFailureAnalyzer()
         result = analyzer.analyze_failure(
-            test_name='OCP-39030',
+            test_name='OCP-55555',
             error_message=(
                 'Failed to check Windows machine should be in '
                 'Provisioning phase and not reconciled after '
                 'waiting up to 5 minutes'
             ),
             log_url='',
-            platform='aws',
-            version='4.22',
+            platform='gcp',
+            version='5.0',
             pass_rate=90.0,
         )
         assert result['pre_classified'] is True
@@ -504,11 +504,11 @@ class TestAnalyzeFailureIntegration:
         """Timeout with low pass rate should NOT be pre-classified."""
         analyzer = HybridFailureAnalyzer()
         result = analyzer.analyze_failure(
-            test_name='OCP-00000',
+            test_name='OCP-77777',
             error_message='timed out waiting for machine to become ready',
             log_url='',
-            platform='aws',
-            version='4.x',
+            platform='azure',
+            version='4.18',
             pass_rate=40.0,
         )
         # Should fall through to Vertex AI (which fails without client)
