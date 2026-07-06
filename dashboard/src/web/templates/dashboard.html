@@ -1818,13 +1818,13 @@
                 `Overall: ${data.summary.total_tests} tests (${data.summary.passed_tests} passed, ${data.summary.failed_tests} failed) — ${data.summary.avg_pass_rate}% | Trend: ${data.summary.trend}`;
 
             // Render platform comparison
-            renderPlatformComparison(data.comparison.platforms);
+            renderPlatformComparison(data.comparison.platforms, data.comparison.current_period, data.comparison.previous_period);
 
             // Render top failing tests
             renderTopFailingTests(data.top_tests);
         }
 
-        function renderPlatformComparison(platforms) {
+        function renderPlatformComparison(platforms, currentPeriod, previousPeriod) {
             const container = document.getElementById('platformComparison');
 
             if (!platforms || Object.keys(platforms).length === 0) {
@@ -1867,6 +1867,7 @@
                         <div style="display: flex; align-items: center; gap: 15px;">
                             <span class="status-badge ${statusClass}">${statusText}</span>
                             <span class="platform-name">${platform.charAt(0).toUpperCase() + platform.slice(1)}</span>
+                            <span style="font-size: 12px; color: #888; margin-left: auto;">${currentPeriod || ''}</span>
                         </div>
                         <div class="platform-stats">
                             <div class="stat-item">
