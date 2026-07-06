@@ -11,6 +11,7 @@ from src.ai.analyzer import (
     detect_ssh_flake,
     detect_infra_flake,
     detect_timeout_flake,
+    detect_known_flaky_test,
     _apply_confidence_review,
     _derive_is_product_bug,
     LOW_CONFIDENCE_THRESHOLD,
@@ -155,9 +156,71 @@ class TestDetectTimeoutFlake:
         """Low pass rate should not pre-classify as transient."""
         result = detect_timeout_flake(
             "timed out waiting for machine to become ready",
-            pass_rate=50.0,
+            pass_rate=40.0,
         )
         assert result is None
+
+    def test_borderline_pass_rate_classifies(self):
+        """66.7% pass rate (2/3 passing) should still pre-classify."""
+        result = detect_timeout_flake(
+            "Failed to check Windows machine should be in "
+            "Provisioning phase and not reconciled after waiting "
+            "up to 5 minutes",
+            pass_rate=66.7,
+        )
+        assert result is not None
+        assert result['classification'] == 'transient'
+        assert 'WINC-1931' in result['suggested_action']
+
+    def test_cert_rotation_timeout(self):
+        """Kubelet CA rotation timeout should match."""
+        result = detect_timeout_flake(
+            "Windows nodes remained not ready after 10-minute "
+            "timeout following kubelet CA certificate rotation",
+            pass_rate=75.0,
+        )
+        assert result is not None
+        assert result['classification'] == 'transient'
+        assert 'WINC-1931' in result['suggested_action']
+
+    def test_not_ready_after_minutes(self):
+        """Node not ready after N minutes should match."""
+        result = detect_timeout_flake(
+            "node was not ready after 10-minute timeout",
+            pass_rate=80.0,
+        )
+        assert result is not None
+
+    def test_service_expected_running_got_stopped(self):
+        """OCP-84267: service Expected Running Got Stopped during cert rotation."""
+        result = detect_timeout_flake(
+            'Expected: "Running"\n    Got: "Stopped\\r\\n"',
+            pass_rate=75.0,
+        )
+        assert result is not None
+        assert result['classification'] == 'transient'
+        assert 'WINC-1931' in result['suggested_action']
+
+    def test_timed_out_waiting_for_the_condition(self):
+        """OCP-84267: 'timed out waiting for the condition' with article."""
+        result = detect_timeout_flake(
+            "timed out waiting for the condition",
+            pass_rate=87.0,
+        )
+        assert result is not None
+        assert result['classification'] == 'transient'
+        assert 'WINC-1931' in result['suggested_action']
+
+    def test_csi_daemonset_not_ready_5m0s(self):
+        """OCP-66352: CSI daemonset 'not ready after waiting up to 5m0s'."""
+        result = detect_timeout_flake(
+            "Windows CSI Driver vmware-vsphere-csi-driver-node-windows "
+            "daemonset is not ready after waiting up to 5m0s minutes",
+            pass_rate=50.0,
+        )
+        assert result is not None
+        assert result['classification'] == 'transient'
+        assert 'WINC-1931' in result['suggested_action']
 
     def test_no_pass_rate_skips(self):
         """Missing pass rate should not pre-classify."""
@@ -514,6 +577,23 @@ class TestAnalyzeFailureIntegration:
         # Should fall through to Vertex AI (which fails without client)
         assert result.get('pre_classified') is not True
 
+    def test_known_flaky_test_skips_vertex_ai(self):
+        """Cert rotation test with corrupted output caught by test name."""
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            test_name='OCP-50924',
+            error_message='CharChunk corrupted output garbage',
+            log_url='',
+            platform='vsphere',
+            version='5.0',
+            pass_rate=60.0,
+            test_description='Windows instances react to kubelet CA rotation',
+        )
+        assert result['pre_classified'] is True
+        assert result['pre_classifier'] == 'known_flaky_test_detector'
+        assert 'WINC-1931' in result['suggested_action']
+        assert result['cost'] == 0.0
+
     def test_no_client_returns_failed(self):
         """Without Vertex AI client, non-infra failures return error."""
         analyzer = HybridFailureAnalyzer()
@@ -526,3 +606,66 @@ class TestAnalyzeFailureIntegration:
         )
         assert result['analysis_mode'] == 'failed'
         assert result['needs_human_review'] is True
+
+
+class TestDetectKnownFlakyTest:
+    """Tests for test-name-based pre-classifier."""
+
+    def test_kubelet_ca_rotation(self):
+        result = detect_known_flaky_test(
+            'OCP-50924',
+            'Windows instances react to kubelet CA rotation',
+            pass_rate=60.0,
+        )
+        assert result is not None
+        assert result['pre_classifier'] == 'known_flaky_test_detector'
+        assert 'WINC-1931' in result['suggested_action']
+
+    def test_cert_rotation(self):
+        result = detect_known_flaky_test(
+            'OCP-84267',
+            'Certificate rotation test for hybrid overlay',
+            pass_rate=75.0,
+        )
+        assert result is not None
+        assert result['pre_classifier'] == 'known_flaky_test_detector'
+
+    def test_ca_rotation(self):
+        result = detect_known_flaky_test(
+            'OCP-99999',
+            'Windows nodes handle CA rotation gracefully',
+            pass_rate=80.0,
+        )
+        assert result is not None
+
+    def test_no_match_normal_test(self):
+        result = detect_known_flaky_test(
+            'OCP-11111',
+            'Windows pod networking basic connectivity',
+            pass_rate=90.0,
+        )
+        assert result is None
+
+    def test_low_pass_rate_not_classified(self):
+        result = detect_known_flaky_test(
+            'OCP-50924',
+            'Windows instances react to kubelet CA rotation',
+            pass_rate=30.0,
+        )
+        assert result is None
+
+    def test_no_pass_rate_not_classified(self):
+        result = detect_known_flaky_test(
+            'OCP-50924',
+            'Windows instances react to kubelet CA rotation',
+            pass_rate=None,
+        )
+        assert result is None
+
+    def test_name_contains_rotation_keyword(self):
+        result = detect_known_flaky_test(
+            'cert rotation during upgrade',
+            '',
+            pass_rate=70.0,
+        )
+        assert result is not None

@@ -47,11 +47,11 @@ TIMEOUT_FLAKE_PATTERNS = [
         re.IGNORECASE,
     ),
     re.compile(
-        r'waiting up to \d+ (?:minutes?|seconds?)',
+        r'waiting up to \d+\S* (?:minutes?|seconds?)',
         re.IGNORECASE,
     ),
     re.compile(
-        r'timed? ?out waiting for (?:machine|node|pod|condition)',
+        r'timed? ?out waiting for (?:the )?(?:machine|node|pod|condition)',
         re.IGNORECASE,
     ),
     re.compile(
@@ -61,6 +61,22 @@ TIMEOUT_FLAKE_PATTERNS = [
     re.compile(
         r'did not become (?:ready|available|running) within',
         re.IGNORECASE,
+    ),
+    re.compile(
+        r'(?:remained|still) not ready',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'not (?:ready|running) after (?:waiting up to )?\d+\S*.(?:minute|second)',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'(?:certificate|CA|cert)\s+rotation',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'Expected:.*"Running".*Got:.*"Stopped',
+        re.IGNORECASE | re.DOTALL,
     ),
 ]
 
@@ -82,11 +98,13 @@ QUOTA_PATTERNS = [
 ]
 
 ASSERTION_PATTERNS = [
-    re.compile(r'Expected\s*$|o\.Expect\(', re.MULTILINE),
+    re.compile(r'o\.Expect\(', re.MULTILINE),
     re.compile(r'e2e\.Failf\('),
     re.compile(r'gomega.*to.*equal|gomega.*to.*contain', re.IGNORECASE),
-    re.compile(r'FAIL!.*Expected'),
-    re.compile(r'Unexpected error:'),
+]
+
+KNOWN_FLAKY_TEST_PATTERNS = [
+    re.compile(r'(?:certificate|CA|cert|kubelet)\s+(?:CA\s+)?rotation', re.IGNORECASE),
 ]
 
 
@@ -273,8 +291,9 @@ def detect_timeout_flake(
     if not error_message:
         return None
 
-    # Only pre-classify as transient if pass rate is known and high
-    if pass_rate is None or pass_rate < 70.0:
+    # Only pre-classify as transient if pass rate is known and above 50%
+    # (66.7% = 2/3 passing is still clearly intermittent, not persistent)
+    if pass_rate is None or pass_rate < 50.0:
         return None
 
     timeout_matches = [
@@ -311,20 +330,78 @@ def detect_timeout_flake(
         'affected_platforms': [],
         'evidence': '; '.join(timeout_matches[:3]),
         'suggested_action': (
-            'Retry. This is a known transient timeout pattern. '
-            'If failures persist at a high rate, investigate '
-            'whether the timeout value is too aggressive for the '
-            'target environment.'
+            'Known transient flake -- not a product bug. '
+            'Track under WINC-1931 (SSH/infrastructure elimination). '
+            'No action needed unless pass rate drops below 50%.'
         ),
         'issue_title': 'Transient: Precondition/condition timeout flake',
         'issue_description': (
             'Test timed out waiting for a precondition or expected '
-            'state. High pass rate indicates this is a transient '
-            'timing issue in CI, not a product defect.'
+            'state. This is a known transient CI timing issue, '
+            'not a product defect. Tracked under WINC-1931.'
         ),
         'is_product_bug': False,
         'pre_classified': True,
         'pre_classifier': 'timeout_flake_detector',
+        'cost': 0.0,
+        'analysis_mode': 'pre-classifier',
+    }
+
+
+def detect_known_flaky_test(
+    test_name: str,
+    test_description: str,
+    pass_rate: Optional[float] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Pre-classify by TEST NAME when the error text is garbage or missing.
+
+    Some tests (cert rotation, CA rotation) produce corrupted output but
+    are known transient flakes. Match against the test name/description
+    instead of the error message.
+    """
+    if pass_rate is None or pass_rate < 50.0:
+        return None
+
+    combined = f"{test_name} {test_description}"
+    matches = [
+        p.pattern for p in KNOWN_FLAKY_TEST_PATTERNS if p.search(combined)
+    ]
+    if not matches:
+        return None
+
+    logger.info(
+        "Pre-classified by test name as known flaky "
+        f"(pass_rate={pass_rate}, patterns={len(matches)})"
+    )
+
+    return {
+        'root_cause': (
+            'Known transient flake identified by test name. '
+            'This test category (certificate/CA rotation) has '
+            'intermittent failures due to timing-sensitive operations '
+            'in CI environments. Not a product bug.'
+        ),
+        'component': 'test-infrastructure (known-flaky)',
+        'confidence': 85,
+        'failure_type': 'transient',
+        'classification': 'transient',
+        'platform_specific': False,
+        'affected_platforms': [],
+        'evidence': '; '.join(matches[:3]),
+        'suggested_action': (
+            'Known transient flake -- not a product bug. '
+            'Track under WINC-1931 (SSH/infrastructure elimination). '
+            'No action needed unless pass rate drops below 50%.'
+        ),
+        'issue_title': 'Transient: Known flaky test pattern',
+        'issue_description': (
+            'Test matches a known transient failure category '
+            '(cert/CA rotation). Tracked under WINC-1931.'
+        ),
+        'is_product_bug': False,
+        'pre_classified': True,
+        'pre_classifier': 'known_flaky_test_detector',
         'cost': 0.0,
         'analysis_mode': 'pre-classifier',
     }
@@ -419,7 +496,8 @@ class HybridFailureAnalyzer:
         log_url: str,
         platform: str,
         version: str,
-        pass_rate: Optional[float] = None
+        pass_rate: Optional[float] = None,
+        test_description: str = ''
     ) -> Dict[str, Any]:
         """
         Analyze failure using pre-classifier + Vertex AI (Claude via Google Cloud).
@@ -459,6 +537,13 @@ class HybridFailureAnalyzer:
         if timeout_result:
             logger.info(f"Pre-classified {test_name} as timeout flake (skipping Vertex AI)")
             return timeout_result
+
+        # Step 1d: Check test name for known flaky test categories
+        # (catches cert rotation tests even when error text is corrupted)
+        flaky_result = detect_known_flaky_test(test_name, test_description, pass_rate)
+        if flaky_result:
+            logger.info(f"Pre-classified {test_name} by test name as known flaky (skipping Vertex AI)")
+            return flaky_result
 
         # Step 2: Use Vertex AI for analysis
         logger.info(f"Analyzing {test_name} with Vertex AI")
@@ -639,11 +724,26 @@ Use this domain context to distinguish preconditions from product assertions:
   infrastructure issues, not product bugs.
 - **hybrid-overlay-node certificate rotation** is a known flaky area.
   Service stop/restart during cert rotation is often a timing issue.
+- **CSI driver daemonset readiness** (e.g. "csi-driver-node-windows
+  daemonset is not ready after waiting") is a persistent issue across
+  multiple platforms (Azure, vSphere). Low pass rates across platforms
+  indicate a systemic test or product issue, not a platform-specific
+  bug. Classify as **automation_bug** if the test setup/install logic
+  is flawed, or **product_bug** if the CSI driver itself fails.
+- **When pass rate is low (<50%), the failure is persistent, not
+  transient.** Do NOT suggest "retry" or "monitor." Instead identify
+  the specific component bug and recommend filing or updating a Jira
+  issue for the responsible team (WMCO team for Windows CSI driver
+  issues, storage team for CSI driver itself).
 - **Suggested actions must be specific and actionable.** Never suggest
-  "investigate the logs" or just "retry" without context. Instead:
+  generic phrases like "investigate the logs", "investigate why X
+  happens", "check pod logs and node conditions", or just "retry."
+  These are useless to the team. Instead:
   - Reference the specific Jira tracker if one exists (e.g. WINC-1931)
   - Identify whether the failure is a precondition vs product assertion
   - State whether this is a known flake pattern or a new regression
+  - For persistent failures: name the specific component owner and
+    suggest filing/updating a specific Jira issue
 
 ## Key Distinctions
 
@@ -660,6 +760,11 @@ Use this domain context to distinguish preconditions from product assertions:
   is low and timeout is generous)
 - Precondition timeout (waiting for Provisioning phase, waiting for
   machine/node readiness before test logic) → **transient**
+- CSI driver daemonset not ready on Windows nodes across multiple
+  platforms with low pass rate → **automation_bug** or **product_bug**,
+  persistent systemic issue needing a Jira ticket
+- Any failure with pass rate <50%: this is persistent, NOT transient.
+  Classify as product_bug or automation_bug, never transient.
 
 ## Required Output
 
@@ -672,7 +777,7 @@ Return ONLY a JSON object (no markdown fencing, no extra text):
   "platform_specific": <true or false>,
   "affected_platforms": ["<platform names if platform_specific>"],
   "evidence": "Key log lines or error patterns that support your classification",
-  "suggested_action": "Concrete next step for the team",
+  "suggested_action": "Specific, actionable next step. NEVER use generic phrases like 'investigate why X happens', 'check logs', 'investigate the issue'. Instead: name the bug owner, the Jira ticket, or the specific code path.",
   "issue_title": "<Type>: <brief description>",
   "issue_description": "Detailed description for a tracking issue"
 }}

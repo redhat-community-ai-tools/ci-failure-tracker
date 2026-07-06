@@ -758,6 +758,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         # Use provided error_message or get from database
         error_message = data.get('error_message')
         log_url = data.get('log_url', '')
+        test_description = data.get('test_description', '')
 
         if not error_message:
             # Get test error details from database
@@ -765,7 +766,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             start_date = end_date - timedelta(days=7)
 
             query = """
-                SELECT error_message, log_url
+                SELECT error_message, log_url, test_description
                 FROM test_results
                 WHERE test_name = ?
                 AND version = ?
@@ -786,6 +787,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
 
             error_message = test_data[0] or 'No error message'
             log_url = test_data[1] or ''
+            test_description = test_data[2] or ''
 
         # Get pass rate for pre-classifier
         pass_rate = None
@@ -795,9 +797,10 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             cursor = db.conn.cursor()
             cursor.execute("""
                 SELECT CAST(SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) AS REAL)
-                       / COUNT(*) * 100
+                       / NULLIF(SUM(CASE WHEN status IN ('passed', 'failed') THEN 1 ELSE 0 END), 0) * 100
                 FROM test_results
                 WHERE test_name = ? AND version = ?
+                AND status != 'skipped'
                 AND timestamp >= ? AND timestamp <= ?
             """, (test_name, version, start_date.isoformat(), end_date.isoformat()))
             row = cursor.fetchone()
@@ -815,7 +818,8 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 log_url=log_url,
                 platform=platform,
                 version=version,
-                pass_rate=pass_rate
+                pass_rate=pass_rate,
+                test_description=test_description
             )
 
             # Save analysis to database
