@@ -659,7 +659,7 @@
                 <div style="margin-top:10px; font-size:14px; color:#666;">
                     <span id="testBreakdown">-- executions: -- passed, -- failed</span>
                     <br>
-                    <span id="uniqueTests">-- unique tests</span>
+                    <span id="uniqueTests" title="Number of distinct test case names with recorded results in the selected time range. Each test is counted once regardless of how many times it ran. Blocklisted tests and active version/platform filters may reduce this number." style="cursor: help; border-bottom: 1px dotted #999;">-- unique tests</span>
                 </div>
                 <div class="trend" id="trendIndicator">Loading...</div>
             </div>
@@ -1975,12 +1975,15 @@
                 </div>
             `;
 
-            tbody.innerHTML = data.tests.map((test, index) => `
+            tbody.innerHTML = data.tests.map((test, index) => {
+                const lastRun = formatLastRun(test.last_run_timestamp);
+                return `
                 <tr style="border-bottom: 1px solid #f3f4f6;">
                     <td style="padding: 12px;"><strong>${index + 1}</strong></td>
                     <td style="padding: 12px;">
                         <strong>${test.test_name}</strong>
                         ${test.test_description ? `<br><span style="font-size:12px; color:#666;">${test.test_description}</span>` : ''}
+                        ${lastRun ? `<br><span style="font-size:12px; color:#999;">Last run: ${lastRun}</span>` : ''}
                     </td>
                     <td style="padding: 12px;">${test.version}</td>
                     <td style="padding: 12px;"><strong style="color: ${test.pass_rate < 50 ? '#dc2626' : test.pass_rate < 70 ? '#f59e0b' : '#666'}">${test.pass_rate.toFixed(1)}%</strong></td>
@@ -1992,7 +1995,7 @@
                         </div>
                     </td>
                 </tr>
-            `).join('');
+            `}).join('');
         }
 
         function closePlatformModal() {
@@ -2016,12 +2019,14 @@
             }
 
             tbody.innerHTML = tests.map((test, index) => {
+                const lastRun = formatLastRun(test.last_run_timestamp);
                 return `
                 <tr style="border-bottom: 1px solid #f3f4f6;">
                     <td style="padding: 12px;"><strong>${index + 1}</strong></td>
                     <td style="padding: 12px;">
                         <strong>${test.test_name}</strong>
                         ${test.test_description ? `<br><span style="font-size:12px; color:#666;">${test.test_description}</span>` : ''}
+                        ${lastRun ? `<br><span style="font-size:12px; color:#999;">Last run: ${lastRun}</span>` : ''}
                     </td>
                     <td style="padding: 12px;">${test.version}</td>
                     <td style="padding: 12px;"><strong style="color: ${test.pass_rate < 50 ? '#dc2626' : test.pass_rate < 70 ? '#f59e0b' : '#666'}">${test.pass_rate.toFixed(1)}%</strong></td>
