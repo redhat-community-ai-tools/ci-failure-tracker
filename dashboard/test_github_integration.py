@@ -77,6 +77,94 @@ class TestCreateReport:
         result = github.create_report(summary="Test", description="Desc")
         assert result is None
 
+    @patch('src.integrations.github_integration.requests.post')
+    def test_includes_github_username_mention(self, mock_post, github):
+        mock_post.return_value = MagicMock(
+            status_code=201,
+            json=lambda: {'number': 10, 'html_url': 'https://github.com/owner/repo/issues/10'},
+        )
+
+        result = github.create_report(
+            summary="Bug", description="Details",
+            reporter_github="dholler"
+        )
+
+        assert result is not None
+        call_kwargs = mock_post.call_args
+        body = call_kwargs.kwargs['json'] if 'json' in call_kwargs.kwargs else call_kwargs[1]['json']
+        assert 'Reported by: @dholler' in body['body']
+        assert 'Reported via CI Dashboard' in body['body']
+
+    @patch('src.integrations.github_integration.requests.post')
+    def test_includes_reporter_name_when_no_github(self, mock_post, github):
+        mock_post.return_value = MagicMock(
+            status_code=201,
+            json=lambda: {'number': 11, 'html_url': 'https://github.com/owner/repo/issues/11'},
+        )
+
+        result = github.create_report(
+            summary="Bug", description="Details",
+            reporter_name="Dominik Holler"
+        )
+
+        assert result is not None
+        call_kwargs = mock_post.call_args
+        body = call_kwargs.kwargs['json'] if 'json' in call_kwargs.kwargs else call_kwargs[1]['json']
+        assert 'Reported by: Dominik Holler' in body['body']
+        assert 'Reported via CI Dashboard' in body['body']
+
+    @patch('src.integrations.github_integration.requests.post')
+    def test_github_username_takes_precedence_over_name(self, mock_post, github):
+        mock_post.return_value = MagicMock(
+            status_code=201,
+            json=lambda: {'number': 12, 'html_url': 'https://github.com/owner/repo/issues/12'},
+        )
+
+        result = github.create_report(
+            summary="Bug", description="Details",
+            reporter_name="Dominik Holler",
+            reporter_github="dholler"
+        )
+
+        assert result is not None
+        call_kwargs = mock_post.call_args
+        body = call_kwargs.kwargs['json'] if 'json' in call_kwargs.kwargs else call_kwargs[1]['json']
+        assert 'Reported by: @dholler' in body['body']
+        assert 'Dominik Holler' not in body['body']
+
+    @patch('src.integrations.github_integration.requests.post')
+    def test_strips_at_sign_from_github_username(self, mock_post, github):
+        mock_post.return_value = MagicMock(
+            status_code=201,
+            json=lambda: {'number': 13, 'html_url': 'https://github.com/owner/repo/issues/13'},
+        )
+
+        result = github.create_report(
+            summary="Bug", description="Details",
+            reporter_github="@dholler"
+        )
+
+        assert result is not None
+        call_kwargs = mock_post.call_args
+        body = call_kwargs.kwargs['json'] if 'json' in call_kwargs.kwargs else call_kwargs[1]['json']
+        assert 'Reported by: @dholler' in body['body']
+        assert '@@' not in body['body']
+
+    @patch('src.integrations.github_integration.requests.post')
+    def test_no_reporter_fields_preserves_original_footer(self, mock_post, github):
+        mock_post.return_value = MagicMock(
+            status_code=201,
+            json=lambda: {'number': 14, 'html_url': 'https://github.com/owner/repo/issues/14'},
+        )
+
+        result = github.create_report(summary="Bug", description="Details")
+
+        assert result is not None
+        call_kwargs = mock_post.call_args
+        body = call_kwargs.kwargs['json'] if 'json' in call_kwargs.kwargs else call_kwargs[1]['json']
+        assert 'Reported by:' not in body['body']
+        assert 'Reported via CI Dashboard' in body['body']
+
 
 class TestGetGithubIntegration:
     """Tests for get_github_integration factory function."""
