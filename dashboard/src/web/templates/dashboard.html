@@ -968,6 +968,11 @@
                 return;
             }
 
+            if (reporter_github && !/^@?[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(reporter_github)) {
+                alert('GitHub username may only contain letters, numbers, and hyphens, and cannot start or end with a hyphen.');
+                return;
+            }
+
             const btn = document.getElementById('reportSubmitBtn');
             btn.textContent = 'Creating...';
             btn.disabled = true;
