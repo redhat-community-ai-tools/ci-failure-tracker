@@ -12,6 +12,7 @@ import os
 import logging
 import io
 import csv
+import re
 from openpyxl import Workbook
 from openpyxl.chart import PieChart, Reference
 from openpyxl.styles import Font, Alignment, PatternFill
@@ -714,11 +715,23 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
 
         summary = data.get('summary', '').strip()
         description = data.get('description', '').strip()
+        reporter_name = data.get('reporter_name', '').strip()
+        reporter_github = data.get('reporter_github', '').strip()
 
         if not summary or not description:
             return jsonify({'error': 'Both summary and description are required'}), 400
 
-        result = github.create_report(summary=summary, description=description)
+        if reporter_github and not re.match(
+            r'^@?[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$', reporter_github
+        ):
+            return jsonify({'error': 'Invalid GitHub username format'}), 400
+
+        result = github.create_report(
+            summary=summary,
+            description=description,
+            reporter_name=reporter_name,
+            reporter_github=reporter_github
+        )
 
         if result:
             return jsonify({

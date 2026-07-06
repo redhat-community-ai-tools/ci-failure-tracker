@@ -898,12 +898,28 @@
                         font-size: 14px; box-sizing: border-box;
                     ">
                 </div>
-                <div style="margin-bottom: 20px;">
+                <div style="margin-bottom: 16px;">
                     <label for="reportDescription" style="display: block; font-weight: 600; margin-bottom: 6px;">Description</label>
                     <textarea id="reportDescription" rows="6" placeholder="Steps to reproduce, expected vs actual behavior" style="
                         width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px;
                         font-size: 14px; font-family: inherit; resize: vertical; box-sizing: border-box;
                     "></textarea>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
+                    <div>
+                        <label for="reporterName" style="display: block; font-weight: 600; margin-bottom: 6px;">Your name or email <span style="font-weight: 400; color: #6b7280;">(optional)</span></label>
+                        <input type="text" id="reporterName" placeholder="e.g. Jane Doe or jane@redhat.com" style="
+                            width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px;
+                            font-size: 14px; box-sizing: border-box;
+                        ">
+                    </div>
+                    <div>
+                        <label for="reporterGithub" style="display: block; font-weight: 600; margin-bottom: 6px;">GitHub username <span style="font-weight: 400; color: #6b7280;">(optional)</span></label>
+                        <input type="text" id="reporterGithub" placeholder="e.g. janedoe" style="
+                            width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px;
+                            font-size: 14px; box-sizing: border-box;
+                        ">
+                    </div>
                 </div>
                 <div style="display: flex; justify-content: flex-end; gap: 10px;">
                     <button onclick="closeReportModal()" style="
@@ -927,6 +943,8 @@
             document.getElementById('reportModal').style.display = 'block';
             document.getElementById('reportSummary').value = '';
             document.getElementById('reportDescription').value = '';
+            document.getElementById('reporterName').value = '';
+            document.getElementById('reporterGithub').value = '';
             const btn = document.getElementById('reportSubmitBtn');
             btn.textContent = 'Submit';
             btn.disabled = false;
@@ -942,9 +960,16 @@
         async function submitReport() {
             const summary = document.getElementById('reportSummary').value.trim();
             const description = document.getElementById('reportDescription').value.trim();
+            const reporter_name = document.getElementById('reporterName').value.trim();
+            const reporter_github = document.getElementById('reporterGithub').value.trim();
 
             if (!summary || !description) {
                 alert('Please fill in both summary and description.');
+                return;
+            }
+
+            if (reporter_github && !/^@?[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(reporter_github)) {
+                alert('GitHub username may only contain letters, numbers, and hyphens, and cannot start or end with a hyphen.');
                 return;
             }
 
@@ -957,7 +982,7 @@
                 const response = await fetch('/api/github/report-problem', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ summary, description })
+                    body: JSON.stringify({ summary, description, reporter_name, reporter_github })
                 });
 
                 const data = await response.json();
