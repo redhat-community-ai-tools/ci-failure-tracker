@@ -90,13 +90,13 @@ class TestCreateReport:
 
         result = github.create_report(
             summary="Bug", description="Details",
-            reporter_github="dholler"
+            reporter_github="testuser"
         )
 
         assert result is not None
         call_kwargs = mock_post.call_args
         body = call_kwargs.kwargs['json'] if 'json' in call_kwargs.kwargs else call_kwargs[1]['json']
-        assert 'Reported by: @dholler' in body['body']
+        assert 'Reported by: @testuser' in body['body']
         assert 'Reported via CI Dashboard' in body['body']
 
     @patch('src.integrations.github_integration.requests.post')
@@ -108,13 +108,13 @@ class TestCreateReport:
 
         result = github.create_report(
             summary="Bug", description="Details",
-            reporter_name="Dominik Holler"
+            reporter_name="Test User"
         )
 
         assert result is not None
         call_kwargs = mock_post.call_args
         body = call_kwargs.kwargs['json'] if 'json' in call_kwargs.kwargs else call_kwargs[1]['json']
-        assert 'Reported by: Dominik Holler' in body['body']
+        assert 'Reported by: Test User' in body['body']
         assert 'Reported via CI Dashboard' in body['body']
 
     @patch('src.integrations.github_integration.requests.post')
@@ -126,15 +126,15 @@ class TestCreateReport:
 
         result = github.create_report(
             summary="Bug", description="Details",
-            reporter_name="Dominik Holler",
-            reporter_github="dholler"
+            reporter_name="Test User",
+            reporter_github="testuser"
         )
 
         assert result is not None
         call_kwargs = mock_post.call_args
         body = call_kwargs.kwargs['json'] if 'json' in call_kwargs.kwargs else call_kwargs[1]['json']
-        assert 'Reported by: @dholler' in body['body']
-        assert 'Dominik Holler' not in body['body']
+        assert 'Reported by: @testuser' in body['body']
+        assert 'Test User' not in body['body']
 
     @patch('src.integrations.github_integration.requests.post')
     def test_strips_at_sign_from_github_username(self, mock_post, github):
@@ -145,13 +145,13 @@ class TestCreateReport:
 
         result = github.create_report(
             summary="Bug", description="Details",
-            reporter_github="@dholler"
+            reporter_github="@testuser"
         )
 
         assert result is not None
         call_kwargs = mock_post.call_args
         body = call_kwargs.kwargs['json'] if 'json' in call_kwargs.kwargs else call_kwargs[1]['json']
-        assert 'Reported by: @dholler' in body['body']
+        assert 'Reported by: @testuser' in body['body']
         assert '@@' not in body['body']
 
     @patch('src.integrations.github_integration.requests.post')
@@ -174,8 +174,8 @@ class TestGithubUsernameValidation:
     """Tests for GitHub username validation pattern."""
 
     @pytest.mark.parametrize("username", [
-        "dholler",
-        "@dholler",
+        "testuser",
+        "@testuser",
         "jane-doe",
         "user123",
         "a",
