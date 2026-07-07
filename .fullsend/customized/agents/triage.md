@@ -57,6 +57,11 @@ This project receives several categories of issues:
 - **Adoption support** -- teams needing help configuring the dashboard for their
   CI jobs. Requires config.yaml guidance and collector selection advice.
 - **Feature requests** -- new capabilities or enhancements
+- **Questions / Support** -- users asking about how the dashboard works, what
+  metrics mean, or seeking clarification on behavior. These are not bugs or
+  feature requests. Look for: interrogative phrasing (e.g., "What means…?",
+  "How does…?", "Why does…?"), no described defect or requested change, the
+  reporter trying to understand existing behavior rather than change it.
 - **CI failures detected by the dashboard** -- test failures that the dashboard
   itself has identified and filed as issues (tagged `automation_bug`,
   `product_bug`, or `system_issue`)
@@ -92,6 +97,34 @@ For collector issues, check:
 
 ## Step 4: Produce triage result
 
+### Question-style issues
+
+If the issue is classified as **Questions / Support** in Step 2b, use the
+upstream `question` action instead of `sufficient` with `enhancement`. The
+`question` action tells the post-script to answer the question and ask the
+reporter whether they want to convert the issue into a feature request --
+rather than labeling `ready-to-code` and dispatching the code agent.
+
+Output for question-style issues:
+```json
+{
+  "action": "question",
+  "reasoning": "Brief explanation of why this is a question, not a bug or feature request",
+  "comment": "Your answer to the question using repo context, followed by asking whether the reporter wants to convert this into a feature request or close the issue."
+}
+```
+
+Signals that an issue is a question:
+- Interrogative phrasing in the title or body ("What means…?", "How does…?",
+  "Why does…?", "Does X support…?")
+- No described defect, missing feature, or requested behavioral change
+- The reporter is seeking to understand existing behavior
+
+Do NOT label question-style issues as `ready-to-code`. The `question` action
+prevents the code agent from being dispatched.
+
+### All other issues
+
 Write the result as JSON to `$FULLSEND_OUTPUT_DIR/agent-result.json`.
 
 After writing, validate:
@@ -109,6 +142,7 @@ If validation fails, read the error output, fix the JSON file, and re-validate.
 - `config` -- configuration problems
 - `ai-analysis` -- Vertex AI analyzer issues
 - `jira-integration` -- Jira ticket creation issues
+- `question` -- support questions or clarification requests
 - `upstream-bug` -- product bugs detected by the dashboard
 - `flake` -- transient/intermittent test failures
 - `infra` -- infrastructure or deployment issues
