@@ -10,6 +10,7 @@ roles:
     - review
     - fix
     - retro
+    - fullsend
     - prioritize
 allowed_remote_resources:
     - https://raw.githubusercontent.com/fullsend-ai/fullsend/
