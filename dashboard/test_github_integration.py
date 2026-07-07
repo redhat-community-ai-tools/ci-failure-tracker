@@ -4,6 +4,7 @@ Validates issue creation, error handling, and configuration.
 """
 
 import os
+import re
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -12,6 +13,9 @@ from src.integrations.github_integration import (
     GitHubConfig,
     get_github_integration,
 )
+
+# Same pattern used by the server-side validation
+GITHUB_USERNAME_RE = re.compile(r'^@?[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$')
 
 
 @pytest.fixture
@@ -76,6 +80,120 @@ class TestCreateReport:
 
         result = github.create_report(summary="Test", description="Desc")
         assert result is None
+
+    @patch('src.integrations.github_integration.requests.post')
+    def test_includes_github_username_mention(self, mock_post, github):
+        mock_post.return_value = MagicMock(
+            status_code=201,
+            json=lambda: {'number': 10, 'html_url': 'https://github.com/owner/repo/issues/10'},
+        )
+
+        result = github.create_report(
+            summary="Bug", description="Details",
+            reporter_github="testuser"
+        )
+
+        assert result is not None
+        call_kwargs = mock_post.call_args
+        body = call_kwargs.kwargs['json'] if 'json' in call_kwargs.kwargs else call_kwargs[1]['json']
+        assert 'Reported by: @testuser' in body['body']
+        assert 'Reported via CI Dashboard' in body['body']
+
+    @patch('src.integrations.github_integration.requests.post')
+    def test_includes_reporter_name_when_no_github(self, mock_post, github):
+        mock_post.return_value = MagicMock(
+            status_code=201,
+            json=lambda: {'number': 11, 'html_url': 'https://github.com/owner/repo/issues/11'},
+        )
+
+        result = github.create_report(
+            summary="Bug", description="Details",
+            reporter_name="Test User"
+        )
+
+        assert result is not None
+        call_kwargs = mock_post.call_args
+        body = call_kwargs.kwargs['json'] if 'json' in call_kwargs.kwargs else call_kwargs[1]['json']
+        assert 'Reported by: Test User' in body['body']
+        assert 'Reported via CI Dashboard' in body['body']
+
+    @patch('src.integrations.github_integration.requests.post')
+    def test_github_username_takes_precedence_over_name(self, mock_post, github):
+        mock_post.return_value = MagicMock(
+            status_code=201,
+            json=lambda: {'number': 12, 'html_url': 'https://github.com/owner/repo/issues/12'},
+        )
+
+        result = github.create_report(
+            summary="Bug", description="Details",
+            reporter_name="Test User",
+            reporter_github="testuser"
+        )
+
+        assert result is not None
+        call_kwargs = mock_post.call_args
+        body = call_kwargs.kwargs['json'] if 'json' in call_kwargs.kwargs else call_kwargs[1]['json']
+        assert 'Reported by: @testuser' in body['body']
+        assert 'Test User' not in body['body']
+
+    @patch('src.integrations.github_integration.requests.post')
+    def test_strips_at_sign_from_github_username(self, mock_post, github):
+        mock_post.return_value = MagicMock(
+            status_code=201,
+            json=lambda: {'number': 13, 'html_url': 'https://github.com/owner/repo/issues/13'},
+        )
+
+        result = github.create_report(
+            summary="Bug", description="Details",
+            reporter_github="@testuser"
+        )
+
+        assert result is not None
+        call_kwargs = mock_post.call_args
+        body = call_kwargs.kwargs['json'] if 'json' in call_kwargs.kwargs else call_kwargs[1]['json']
+        assert 'Reported by: @testuser' in body['body']
+        assert '@@' not in body['body']
+
+    @patch('src.integrations.github_integration.requests.post')
+    def test_no_reporter_fields_preserves_original_footer(self, mock_post, github):
+        mock_post.return_value = MagicMock(
+            status_code=201,
+            json=lambda: {'number': 14, 'html_url': 'https://github.com/owner/repo/issues/14'},
+        )
+
+        result = github.create_report(summary="Bug", description="Details")
+
+        assert result is not None
+        call_kwargs = mock_post.call_args
+        body = call_kwargs.kwargs['json'] if 'json' in call_kwargs.kwargs else call_kwargs[1]['json']
+        assert 'Reported by:' not in body['body']
+        assert 'Reported via CI Dashboard' in body['body']
+
+
+class TestGithubUsernameValidation:
+    """Tests for GitHub username validation pattern."""
+
+    @pytest.mark.parametrize("username", [
+        "testuser",
+        "@testuser",
+        "jane-doe",
+        "user123",
+        "a",
+        "A-B",
+    ])
+    def test_accepts_valid_github_usernames(self, username):
+        assert GITHUB_USERNAME_RE.match(username)
+
+    @pytest.mark.parametrize("username", [
+        "-leadinghyphen",
+        "trailinghyphen-",
+        "has spaces",
+        "user@name",
+        "user!name",
+        "no--consecutive is fine but -start is not",
+    ])
+    def test_rejects_invalid_github_usernames(self, username):
+        assert not GITHUB_USERNAME_RE.match(username)
 
 
 class TestGetGithubIntegration:
