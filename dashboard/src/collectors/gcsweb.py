@@ -146,7 +146,7 @@ class GCSWebCollector(BaseCollector):
             return [(link, text) for link, text in parser.links if text != '..']
 
         except Exception as e:
-            print(f"Error listing directory {path}: {e}")
+            logger.warning(f"[gcsweb] Error listing directory {path}: {e}")
             return []
 
     def _list_job_runs(
@@ -194,6 +194,10 @@ class GCSWebCollector(BaseCollector):
 
         # Sort by timestamp (most recent first) and limit
         runs = sorted(runs, key=lambda x: x['timestamp'] or datetime.min, reverse=True)
+
+        if not runs:
+            logger.warning(f"[gcsweb] No builds found for job: {job_name}")
+
         return runs[:max_results]
 
     def _fetch_file(self, path: str) -> Optional[bytes]:
@@ -205,7 +209,7 @@ class GCSWebCollector(BaseCollector):
             response.raise_for_status()
             return response.content
         except Exception as e:
-            print(f"Error fetching file {path}: {e}")
+            logger.warning(f"[gcsweb] Error fetching file {path}: {e}")
             return None
 
     def _fetch_finished_json(self, run_path: str) -> Optional[Dict[str, Any]]:
@@ -412,13 +416,18 @@ class GCSWebCollector(BaseCollector):
             raise ValueError("job_patterns is required")
 
         resolved_jobs = self._resolve_patterns(job_patterns)
+        logger.info(f"[gcsweb] Collecting job runs for {len(resolved_jobs)} job(s)")
 
         job_runs = []
         max_workers = self.config.get('max_workers', 5)
+        jobs_with_no_runs = []
 
         # For each job, list recent runs
         for job_name in resolved_jobs:
             runs = self._list_job_runs(job_name, start_date, end_date, max_results=50)
+
+            if not runs:
+                jobs_with_no_runs.append(job_name)
 
             # Process each run in parallel
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -434,7 +443,32 @@ class GCSWebCollector(BaseCollector):
                             job_runs.append(job_run)
                     except Exception as e:
                         run = futures[future]
-                        print(f"Error processing run {run['build_id']}: {e}")
+                        logger.warning(f"[gcsweb] Error processing run {run['build_id']}: {e}")
+
+        # Log summary by version
+        if job_runs:
+            version_counts = {}
+            for run in job_runs:
+                version_counts[run.version] = version_counts.get(run.version, 0) + 1
+            for v, count in sorted(version_counts.items()):
+                logger.info(f"[gcsweb] Version {v}: {count} job run(s) collected")
+        if jobs_with_no_runs:
+            logger.warning(
+                f"[gcsweb] {len(jobs_with_no_runs)} job(s) returned no builds "
+                f"in the lookback window ({start_date.strftime('%Y-%m-%d')} to "
+                f"{end_date.strftime('%Y-%m-%d')}): "
+                + ", ".join(jobs_with_no_runs)
+            )
+            # Log per-version breakdown of empty jobs
+            empty_by_version = {}
+            for job in jobs_with_no_runs:
+                meta = self._extract_metadata(job)
+                ver = meta['version']
+                empty_by_version.setdefault(ver, []).append(job)
+            for ver, jobs in sorted(empty_by_version.items()):
+                logger.warning(
+                    f"[gcsweb] Version {ver}: {len(jobs)} job(s) with no builds"
+                )
 
         return job_runs
 
@@ -529,12 +563,17 @@ class GCSWebCollector(BaseCollector):
             raise ValueError("job_patterns is required")
 
         resolved_jobs = self._resolve_patterns(job_patterns)
+        logger.info(f"[gcsweb] Collecting test results for {len(resolved_jobs)} job(s)")
 
         all_results = []
         max_workers = self.config.get('max_workers', 5)
+        jobs_with_no_results = []
 
         for job_name in resolved_jobs:
             runs = self._list_job_runs(job_name, start_date, end_date, max_results=50)
+
+            if not runs:
+                jobs_with_no_results.append(job_name)
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
@@ -548,7 +587,21 @@ class GCSWebCollector(BaseCollector):
                         all_results.extend(results)
                     except Exception as e:
                         run = futures[future]
-                        print(f"Error processing test results for {run['build_id']}: {e}")
+                        logger.warning(f"[gcsweb] Error processing test results for {run['build_id']}: {e}")
+
+        # Log summary
+        if all_results:
+            version_counts = {}
+            for r in all_results:
+                version_counts[r.version] = version_counts.get(r.version, 0) + 1
+            for v, count in sorted(version_counts.items()):
+                logger.info(f"[gcsweb] Version {v}: {count} test result(s) collected")
+        if jobs_with_no_results:
+            logger.warning(
+                f"[gcsweb] {len(jobs_with_no_results)} job(s) returned no builds "
+                f"for test result collection: "
+                + ", ".join(jobs_with_no_results)
+            )
 
         return all_results
 
