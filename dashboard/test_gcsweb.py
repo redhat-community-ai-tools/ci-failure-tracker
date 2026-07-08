@@ -1,10 +1,14 @@
-"""Tests for GCSWebCollector JUnit XML parsing.
+"""Tests for GCSWebCollector JUnit XML parsing and diagnostic logging.
 
 Validates that nested testsuites are handled correctly without
-double-counting test counts or duplicating test results.
+double-counting test counts or duplicating test results, and that
+the collector logs warnings when jobs return no builds.
 """
 
+import logging
 import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -152,3 +156,133 @@ class TestProcessJobRunCounts:
         assert failed == 1
         assert passed == 3
         assert skipped == 0
+
+
+class TestDiagnosticLogging:
+    """Tests for diagnostic logging when jobs return no builds."""
+
+    def test_list_job_runs_logs_warning_when_no_builds(self, collector, caplog):
+        """Collector should warn when a job directory has no builds."""
+        with patch.object(collector, '_list_directory', return_value=[]):
+            with caplog.at_level(logging.WARNING, logger='src.collectors.gcsweb'):
+                start = datetime.now() - timedelta(days=30)
+                end = datetime.now()
+                runs = collector._list_job_runs('some-nonexistent-job', start, end)
+
+        assert runs == []
+        assert any(
+            'No builds found for job: some-nonexistent-job' in msg
+            for msg in caplog.messages
+        )
+
+    def test_list_job_runs_no_warning_when_builds_exist(self, collector, caplog):
+        """Collector should NOT warn when builds are found."""
+        ts = int((datetime.now() - timedelta(days=1)).timestamp())
+        links = [(f'/gcs/test/logs/job/{ts}/', f'{ts}/')]
+        with patch.object(collector, '_list_directory', return_value=links):
+            with caplog.at_level(logging.WARNING, logger='src.collectors.gcsweb'):
+                start = datetime.now() - timedelta(days=30)
+                end = datetime.now()
+                runs = collector._list_job_runs('some-job', start, end)
+
+        assert len(runs) == 1
+        assert not any(
+            'No builds found' in msg
+            for msg in caplog.messages
+        )
+
+    def test_list_directory_logs_warning_on_error(self, collector, caplog):
+        """_list_directory should log a warning (not print) on HTTP errors."""
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = Exception('404 Not Found')
+        with patch.object(collector.session, 'get', return_value=mock_response):
+            with caplog.at_level(logging.WARNING, logger='src.collectors.gcsweb'):
+                result = collector._list_directory('/gcs/test/logs/missing-job/')
+
+        assert result == []
+        assert any(
+            'Error listing directory' in msg and '404 Not Found' in msg
+            for msg in caplog.messages
+        )
+
+    def test_collect_job_runs_logs_empty_jobs_summary(self, collector, caplog):
+        """collect_job_runs should log a summary of jobs with no builds."""
+        with patch.object(collector, '_resolve_patterns', return_value=[
+            'periodic-ci-release-4.23-aws-winc-f7',
+            'periodic-ci-release-4.23-gcp-winc-f7',
+        ]):
+            with patch.object(collector, '_list_job_runs', return_value=[]):
+                with caplog.at_level(logging.WARNING, logger='src.collectors.gcsweb'):
+                    start = datetime.now() - timedelta(days=30)
+                    end = datetime.now()
+                    runs = collector.collect_job_runs(
+                        start_date=start,
+                        end_date=end,
+                        job_patterns=['periodic-ci-release-4.23-*'],
+                    )
+
+        assert runs == []
+        assert any(
+            '2 job(s) returned no builds' in msg
+            for msg in caplog.messages
+        )
+
+    def test_collect_job_runs_does_not_warn_for_jobs_with_data(self, collector, caplog):
+        """Jobs that return builds should not appear in the empty-jobs warning."""
+        from src.collectors.base import JobRun
+
+        job_run = JobRun(
+            job_name='periodic-ci-release-4.22-aws-winc-f7',
+            build_id='123',
+            status=TestStatus.PASSED,
+            timestamp=datetime.now(),
+            duration_seconds=100,
+            version='4.22',
+            platform='aws',
+            total_tests=10,
+            passed_tests=10,
+            failed_tests=0,
+            skipped_tests=0,
+        )
+
+        def mock_list_job_runs(job_name, start, end, max_results=100):
+            if '4.22' in job_name:
+                return [{'job_name': job_name, 'build_id': '123',
+                         'path': '/gcs/test/logs/job/123', 'timestamp': datetime.now()}]
+            return []
+
+        with patch.object(collector, '_resolve_patterns', return_value=[
+            'periodic-ci-release-4.22-aws-winc-f7',
+            'periodic-ci-release-4.23-aws-winc-f7',
+        ]):
+            with patch.object(collector, '_list_job_runs', side_effect=mock_list_job_runs):
+                with patch.object(collector, '_process_job_run', return_value=job_run):
+                    with caplog.at_level(logging.WARNING, logger='src.collectors.gcsweb'):
+                        start = datetime.now() - timedelta(days=30)
+                        end = datetime.now()
+                        runs = collector.collect_job_runs(
+                            start_date=start,
+                            end_date=end,
+                            job_patterns=['periodic-ci-release-*'],
+                        )
+
+        # Only the 4.23 job should be in the warning
+        assert len(runs) == 1
+        warning_msgs = [m for m in caplog.messages if 'returned no builds' in m]
+        assert len(warning_msgs) == 1
+        assert '4.23' in warning_msgs[0]
+        assert '4.22' not in warning_msgs[0]
+
+    def test_fetch_file_logs_warning_on_error(self, collector, caplog):
+        """_fetch_file should log a warning (not print) on errors."""
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = Exception('Connection timeout')
+        with patch.object(collector.session, 'get', return_value=mock_response):
+            with caplog.at_level(logging.WARNING, logger='src.collectors.gcsweb'):
+                result = collector._fetch_file('/gcs/test/logs/job/123/finished.json')
+
+        assert result is None
+        assert any(
+            'Error fetching file' in msg and 'Connection timeout' in msg
+            for msg in caplog.messages
+        )
