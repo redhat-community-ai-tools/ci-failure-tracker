@@ -402,6 +402,190 @@ class GCSWebCollector(BaseCollector):
         logger.info(f"[gcsweb] Wildcard patterns matched {len(matched)} job(s)")
         return exact + sorted(matched)
 
+    def collect_all(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        job_patterns: Optional[List[str]] = None,
+        versions: Optional[List[str]] = None,
+        platforms: Optional[List[str]] = None,
+        skip_builds: Optional[set] = None,
+        progress_callback=None
+    ) -> tuple:
+        """Single-pass collection: fetch JUnit XMLs once, return both job runs
+        and test results. Skips builds already in the database.
+
+        Args:
+            skip_builds: set of (job_name, build_id) tuples to skip
+            progress_callback: callable(message) for status updates
+
+        Returns:
+            (list[JobRun], list[TestResult])
+        """
+        if not job_patterns:
+            raise ValueError("job_patterns is required")
+
+        skip_builds = skip_builds or set()
+        resolved_jobs = self._resolve_patterns(job_patterns)
+        logger.info(f"[gcsweb] Single-pass collection for {len(resolved_jobs)} job(s), "
+                     f"{len(skip_builds)} builds already in DB")
+
+        all_job_runs = []
+        all_test_results = []
+        max_workers = self.config.get('max_workers', 5)
+        jobs_with_no_runs = []
+        skipped_count = 0
+        fetched_count = 0
+
+        def _process_job(job_name):
+            runs = self._list_job_runs(job_name, start_date, end_date, max_results=50)
+            if not runs:
+                return job_name, [], [], 0, 0
+
+            job_runs = []
+            test_results = []
+            skipped = 0
+            fetched = 0
+
+            for run in runs:
+                if (run['job_name'], run['build_id']) in skip_builds:
+                    skipped += 1
+                    continue
+
+                result = self._process_run_single_pass(run, versions, platforms)
+                if result:
+                    jr, tr = result
+                    job_runs.append(jr)
+                    test_results.extend(tr)
+                    fetched += 1
+
+            return None, job_runs, test_results, skipped, fetched
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_process_job, jn): jn
+                for jn in resolved_jobs
+            }
+
+            completed = 0
+            for future in as_completed(futures):
+                job_name = futures[future]
+                completed += 1
+                try:
+                    empty_job, runs, results, skip_n, fetch_n = future.result()
+                    if empty_job:
+                        jobs_with_no_runs.append(empty_job)
+                    all_job_runs.extend(runs)
+                    all_test_results.extend(results)
+                    skipped_count += skip_n
+                    fetched_count += fetch_n
+
+                    if progress_callback:
+                        progress_callback(
+                            f'Jobs: {completed}/{len(resolved_jobs)}, '
+                            f'{fetched_count} new builds fetched, '
+                            f'{skipped_count} skipped (already in DB)'
+                        )
+                except Exception as e:
+                    logger.warning(f"[gcsweb] Error processing job {job_name}: {e}")
+
+        logger.info(
+            f"[gcsweb] Done: {fetched_count} new builds fetched, "
+            f"{skipped_count} skipped, {len(all_job_runs)} job runs, "
+            f"{len(all_test_results)} test results"
+        )
+
+        if all_job_runs:
+            version_counts = {}
+            for run in all_job_runs:
+                version_counts[run.version] = version_counts.get(run.version, 0) + 1
+            for v, count in sorted(version_counts.items()):
+                logger.info(f"[gcsweb] Version {v}: {count} new job run(s)")
+
+        if jobs_with_no_runs:
+            logger.warning(
+                f"[gcsweb] {len(jobs_with_no_runs)} job(s) had no builds "
+                f"in window {start_date.strftime('%Y-%m-%d')} to "
+                f"{end_date.strftime('%Y-%m-%d')}"
+            )
+
+        return all_job_runs, all_test_results
+
+    def _process_run_single_pass(
+        self,
+        run: Dict[str, Any],
+        versions: Optional[List[str]] = None,
+        platforms: Optional[List[str]] = None
+    ) -> Optional[tuple]:
+        """Process a single run, returning (JobRun, [TestResult]) or None."""
+        metadata = self._extract_metadata(run['job_name'])
+        if versions and metadata['version'] not in versions:
+            return None
+        if platforms and metadata['platform'] not in platforms:
+            return None
+
+        finished = self._fetch_finished_json(run['path'])
+        if not finished:
+            return None
+
+        timestamp = finished.get('timestamp')
+        if timestamp:
+            timestamp = datetime.fromtimestamp(timestamp)
+        else:
+            timestamp = run.get('timestamp') or datetime.now()
+
+        result_status = finished.get('result', 'UNKNOWN')
+        status = self._map_status(result_status)
+
+        junit_files = self._fetch_junit_xml_files(run['path'])
+
+        total_tests = 0
+        passed_tests = 0
+        failed_tests = 0
+        skipped_tests = 0
+        all_results = []
+
+        for junit_root, xml_path in junit_files:
+            all_suites = []
+            if junit_root.tag == 'testsuite':
+                all_suites.append(junit_root)
+            all_suites.extend(junit_root.findall('.//testsuite'))
+
+            for testsuite in all_suites:
+                if testsuite.findall('testsuite'):
+                    continue
+                total_tests += int(testsuite.get('tests', 0))
+                failed_tests += int(testsuite.get('failures', 0))
+                failed_tests += int(testsuite.get('errors', 0))
+                skipped_tests += int(testsuite.get('skipped', 0))
+
+            log_url = self._derive_log_url(xml_path)
+            results = self._parse_junit_xml(
+                junit_root, run['job_name'], run['build_id'], metadata, log_url=log_url
+            )
+            for r in results:
+                r.timestamp = timestamp
+            all_results.extend(results)
+
+        passed_tests = total_tests - failed_tests - skipped_tests
+
+        job_run = JobRun(
+            job_name=run['job_name'],
+            build_id=run['build_id'],
+            status=status,
+            timestamp=timestamp,
+            duration_seconds=finished.get('duration'),
+            version=metadata['version'],
+            platform=metadata['platform'],
+            total_tests=total_tests,
+            passed_tests=passed_tests,
+            failed_tests=failed_tests,
+            skipped_tests=skipped_tests,
+            job_url=f"https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com/view/gs/{self.BUCKET}/logs/{run['job_name']}/{run['build_id']}"
+        )
+
+        return job_run, all_results
+
     def collect_job_runs(
         self,
         start_date: datetime,

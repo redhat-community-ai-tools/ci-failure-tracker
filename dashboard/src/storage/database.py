@@ -293,6 +293,19 @@ class DashboardDatabase:
         self.conn.commit()
         return inserted
 
+    def get_existing_build_ids(self, job_names: List[str] = None) -> set:
+        """Return set of (job_name, build_id) tuples already stored."""
+        cursor = self.conn.cursor()
+        if job_names:
+            placeholders = ','.join('?' * len(job_names))
+            cursor.execute(
+                f"SELECT job_name, build_id FROM job_runs WHERE job_name IN ({placeholders})",
+                job_names
+            )
+        else:
+            cursor.execute("SELECT job_name, build_id FROM job_runs")
+        return {(row['job_name'], row['build_id']) for row in cursor.fetchall()}
+
     def get_daily_pass_rates(
         self,
         start_date: datetime,

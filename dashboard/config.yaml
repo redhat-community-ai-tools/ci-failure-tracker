@@ -121,12 +121,13 @@ collector:
       - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-vsphere-ipi-disconnected-ovn-winc-f28"
 
       # 4.21 WINC jobs
-      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-aws-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-azure-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-gcp-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-nutanix-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-vsphere-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-4.21-upgrade-from-stable-4.20-aws-ipi-ovn-winc-f7"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-aws-ipi-ovn-winc-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-azure-ipi-ovn-winc-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-gcp-ipi-ovn-winc-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-nutanix-ipi-ovn-winc-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-vsphere-ipi-ovn-winc-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-vsphere-ipi-disconnected-ovn-winc-f28"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-4.21-upgrade-from-stable-4.20-aws-ipi-ovn-winc-f14"
 
       # 4.22 WINC jobs
       - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-aws-ipi-ovn-winc-f7"
@@ -163,8 +164,8 @@ collector:
     # How many recent builds to fetch per job (reduced for initial testing)
     max_builds_per_job: 20
 
-    # Parallel processing
-    max_workers: 3
+    # Parallel processing (jobs processed concurrently)
+    max_workers: 5
 
   # prow_mcp configuration (POC - uses prow-mcp-server)
   prow_mcp:

@@ -641,7 +641,7 @@
                             </div>
                         </div>
                     </div>
-                    <button class="refresh-button" onclick="triggerCollection()" title="Collect latest data from ReportPortal" style="display: flex; align-items: center; gap: 6px;">
+                    <button class="refresh-button" onclick="triggerCollection()" title="Collect data for selected time range and version" style="display: flex; align-items: center; gap: 6px;">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M1 4V10H7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             <path d="M23 20V14H17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1095,12 +1095,14 @@
 
         async function triggerCollection() {
             try {
+                const days = parseInt(document.getElementById('timeRange').value) || 30;
+                const version = document.getElementById('versionFilter').value || '';
                 const response = await fetch('/api/trigger-collection', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ days: 30 })
+                    body: JSON.stringify({ days: days, version: version })
                 });
 
                 if (response.ok) {

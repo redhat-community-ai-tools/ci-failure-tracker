@@ -36,12 +36,13 @@ collection_status = {
 }
 
 
-def run_collection_background(db_path: str, config_file: str = 'config.yaml', days: int = 30):
+def run_collection_background(db_path: str, config_file: str = 'config.yaml', days: int = 30, version_filter: str = ''):
     """Run data collection in background thread"""
     global collection_status
 
     try:
-        logger.info(f"Starting data collection for {days} days")
+        logger.info(f"Starting data collection for {days} days" +
+                     (f", version={version_filter}" if version_filter else ""))
         collection_status['progress'] = 'Starting collection...'
 
         # Load config
@@ -115,6 +116,12 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
         versions = config['tracking']['versions']
         platforms = config['tracking']['platforms']
 
+        # Apply version filter from user's selection
+        if version_filter:
+            versions = [v for v in versions if v == version_filter]
+            if not versions:
+                versions = [version_filter]
+
         if collector_type == 'reportportal':
             job_patterns = config['collector']['reportportal']['job_patterns']
             # Expand patterns with version placeholders
@@ -131,38 +138,71 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
             # prow_mcp uses exact job names from config
             expanded_patterns = None  # Will use job_names from collector config
         elif collector_type == 'gcsweb':
-            expanded_patterns = config['collector']['gcsweb']['job_names']
+            all_job_names = config['collector']['gcsweb']['job_names']
+            if version_filter:
+                branch_map = config.get('tracking', {}).get('branch_version_map', {})
+                reverse_map = {v: k for k, v in branch_map.items()}
+                branch = reverse_map.get(version_filter)
+                expanded_patterns = [
+                    j for j in all_job_names
+                    if f'release-{version_filter}' in j or (branch and f'-{branch}-' in j)
+                ]
+                if not expanded_patterns:
+                    expanded_patterns = all_job_names
+            else:
+                expanded_patterns = all_job_names
         else:
             expanded_patterns = []
 
-        # Collect job runs
-        logger.info("Collecting job runs...")
-        collection_status['progress'] = 'Collecting job runs...'
-        job_runs = collector.collect_job_runs(
-            start_date=start_date,
-            end_date=end_date,
-            job_patterns=expanded_patterns,
-            versions=versions,
-            platforms=platforms
-        )
-        logger.info(f"Collected {len(job_runs)} job runs")
+        # Use single-pass incremental collection for gcsweb
+        if collector_type == 'gcsweb' and hasattr(collector, 'collect_all'):
+            db = DashboardDatabase(db_path)
+            skip_builds = db.get_existing_build_ids(expanded_patterns)
+            logger.info(f"Incremental collection: {len(skip_builds)} builds already in DB")
+            collection_status['progress'] = f'Found {len(skip_builds)} existing builds, collecting new...'
 
-        # Collect test results
-        collection_status['progress'] = f'Collected {len(job_runs)} job runs, collecting test results...'
-        logger.info("Collecting test results (fetching logs for failed tests)...")
-        test_results = collector.collect_test_results(
-            start_date=start_date,
-            end_date=end_date,
-            job_patterns=expanded_patterns,
-            versions=versions,
-            platforms=platforms
-        )
-        logger.info(f"Collected {len(test_results)} test results")
+            def _progress(msg):
+                collection_status['progress'] = msg
+
+            job_runs, test_results = collector.collect_all(
+                start_date=start_date,
+                end_date=end_date,
+                job_patterns=expanded_patterns,
+                versions=versions,
+                platforms=platforms,
+                skip_builds=skip_builds,
+                progress_callback=_progress
+            )
+            logger.info(f"Collected {len(job_runs)} job runs, {len(test_results)} test results (single pass)")
+        else:
+            # Legacy two-pass collection for other collector types
+            logger.info("Collecting job runs...")
+            collection_status['progress'] = 'Collecting job runs...'
+            job_runs = collector.collect_job_runs(
+                start_date=start_date,
+                end_date=end_date,
+                job_patterns=expanded_patterns,
+                versions=versions,
+                platforms=platforms
+            )
+            logger.info(f"Collected {len(job_runs)} job runs")
+
+            collection_status['progress'] = f'Collected {len(job_runs)} job runs, collecting test results...'
+            logger.info("Collecting test results...")
+            test_results = collector.collect_test_results(
+                start_date=start_date,
+                end_date=end_date,
+                job_patterns=expanded_patterns,
+                versions=versions,
+                platforms=platforms
+            )
+            logger.info(f"Collected {len(test_results)} test results")
+
+            db = DashboardDatabase(db_path)
 
         # Save to database
-        collection_status['progress'] = f'Collected {len(test_results)} test results, saving to database...'
+        collection_status['progress'] = f'Saving {len(job_runs)} job runs, {len(test_results)} test results...'
         logger.info("Saving to database...")
-        db = DashboardDatabase(db_path)
 
         inserted_jobs = db.insert_job_runs(job_runs)
         inserted_tests = db.insert_test_results(test_results)
@@ -291,37 +331,9 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
 
     @app.route('/')
     def index():
-        """Render main dashboard page"""
-        # Check if database needs data collection
-        global collection_status
-
-        # Check if database is empty or has no recent data
-        try:
-            # Query for recent data (last 7 days)
-            recent_count = db.execute_query(
-                "SELECT COUNT(*) as cnt FROM job_runs WHERE timestamp >= datetime('now', '-7 days')"
-            )
-            needs_collection = recent_count[0]['cnt'] == 0 if recent_count else True
-
-            # Auto-trigger collection if needed and not already running
-            if needs_collection and not collection_status['running']:
-                with collection_status['lock']:
-                    if not collection_status['running']:
-                        collection_status['running'] = True
-                        collection_status['progress'] = 'Initializing...'
-                        collection_status['error'] = None
-
-                        # Start background thread
-                        thread = threading.Thread(
-                            target=run_collection_background,
-                            args=(db_path, config_file, 30),
-                            daemon=True
-                        )
-                        thread.start()
-
-        except Exception as e:
-            print(f"Error checking database status: {e}")
-
+        """Render main dashboard page.
+        Shows whatever data is already in the DB from cron/manual collection.
+        Users trigger collection manually via the refresh button."""
         return render_template('dashboard.html', enable_ai=enable_ai)
 
     @app.route('/logs')
@@ -408,7 +420,9 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         """Manually trigger data collection"""
         global collection_status
 
-        days = request.json.get('days', 30) if request.json else 30
+        data = request.json or {}
+        days = data.get('days', 30)
+        version = data.get('version', '')
 
         with collection_status['lock']:
             if collection_status['running']:
@@ -419,10 +433,9 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             collection_status['error'] = None
             collection_status['completed_at'] = None
 
-            # Start background thread
             thread = threading.Thread(
                 target=run_collection_background,
-                args=(db_path, config_file, days),
+                args=(db_path, config_file, days, version),
                 daemon=True
             )
             thread.start()
