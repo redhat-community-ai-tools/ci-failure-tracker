@@ -101,21 +101,70 @@ class GCSWebCollector(BaseCollector):
         }
         return status_map.get(status, TestStatus.UNKNOWN)
 
+    def _strip_rehearse_prefix(self, job_name: str) -> str:
+        """Strip rehearse-NNNNN- prefix from rehearse job names.
+
+        Rehearse jobs have names like:
+          rehearse-81646-periodic-ci-...-release-4.21-...
+        Stripping the prefix lets the existing version regex work.
+        """
+        match = re.match(r'^rehearse-\d+-(.+)$', job_name)
+        if match:
+            return match.group(1)
+        return job_name
+
+    def _derive_job_type(self, job_name: str) -> str:
+        """Derive job type from job name prefix.
+
+        Returns one of: periodic, postsubmit, presubmit, rehearse.
+        """
+        if job_name.startswith('rehearse-'):
+            return 'rehearse'
+        if job_name.startswith('branch-ci-'):
+            return 'postsubmit'
+        if job_name.startswith('pull-ci-'):
+            return 'presubmit'
+        return 'periodic'
+
     def _extract_metadata(self, job_name: str) -> Dict[str, str]:
         """Extract version and platform from job name"""
         metadata = {'version': 'unknown', 'platform': 'unknown'}
 
+        # Strip rehearse prefix so existing patterns can match
+        effective_name = self._strip_rehearse_prefix(job_name)
+
         # Extract version from release-X.Y pattern
-        version_match = re.search(r'release-(\d+\.\d+)', job_name)
+        version_match = re.search(r'release-(\d+\.\d+)', effective_name)
         if version_match:
             metadata['version'] = version_match.group(1)
         else:
-            # Check branch_version_map for branch-based jobs (e.g., "main" -> "5.0")
-            branch_map = self.config.get('branch_version_map', {})
-            for branch, version in branch_map.items():
-                if f'-{branch}-' in job_name or job_name.endswith(f'-{branch}'):
-                    metadata['version'] = version
-                    break
+            # Try WMCO FBC postsubmit version format: v10-21, v11-0
+            wmco_match = re.search(r'-v(\d+)-(\d+)-', effective_name)
+            if wmco_match:
+                wmco_major = wmco_match.group(1)
+                wmco_minor = wmco_match.group(2)
+                wmco_map = self.config.get('wmco_version_map', {})
+                ocp_major = wmco_map.get(wmco_major)
+                if ocp_major:
+                    metadata['version'] = f'{ocp_major}.{wmco_minor}'
+                else:
+                    # Fallback: WMCO major - 6 = OCP major
+                    ocp_major = str(int(wmco_major) - 6)
+                    metadata['version'] = f'{ocp_major}.{wmco_minor}'
+            else:
+                # FBC postsubmit jobs without a version variant use a
+                # dedicated config key because their target OCP version
+                # may differ from the branch_version_map default.
+                fbc_default = self.config.get('fbc_default_version')
+                if fbc_default and effective_name.startswith('branch-ci-') and '-fbc-' in effective_name:
+                    metadata['version'] = fbc_default
+                else:
+                    # Check branch_version_map for branch-based jobs (e.g., "main" -> "5.0")
+                    branch_map = self.config.get('branch_version_map', {})
+                    for branch, version in branch_map.items():
+                        if f'-{branch}-' in effective_name or effective_name.endswith(f'-{branch}'):
+                            metadata['version'] = version
+                            break
 
         # Extract platform
         platforms = ['aws', 'gcp', 'azure', 'vsphere', 'nutanix', 'metal', 'ovirt', 'openstack']
@@ -263,9 +312,16 @@ class GCSWebCollector(BaseCollector):
             elif link_text.endswith('/') and link_text not in ('../', './'):
                 self._find_xml_recursive(link_path, results, depth + 1, max_depth)
 
-    def _parse_junit_xml(self, junit_root: ET.Element, job_name: str, build_id: str, metadata: Dict[str, str], log_url: str = '') -> List[TestResult]:
+    def _parse_junit_xml(self, junit_root: ET.Element, job_name: str, build_id: str, metadata: Dict[str, str], log_url: str = '', job_url: str = '', job_type: str = None) -> List[TestResult]:
         """Parse JUnit XML and extract test results"""
         results = []
+
+        # Fallback job_url for callers that don't provide one
+        if not job_url:
+            job_url = (
+                f"https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com"
+                f"/view/gs/{self.BUCKET}/logs/{job_name}/{build_id}"
+            )
 
         # Find all testcase elements directly to avoid visiting the same
         # testcase multiple times when testsuites are nested.
@@ -308,8 +364,9 @@ class GCSWebCollector(BaseCollector):
                 version=metadata['version'],
                 platform=metadata['platform'],
                 test_description=test_description,
-                job_url=f"https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com/view/gs/{self.BUCKET}/logs/{job_name}/{build_id}",
-                log_url=log_url or None
+                job_url=job_url,
+                log_url=log_url or None,
+                job_type=job_type
             )
             results.append(result)
 
@@ -402,6 +459,142 @@ class GCSWebCollector(BaseCollector):
         logger.info(f"[gcsweb] Wildcard patterns matched {len(matched)} job(s)")
         return exact + sorted(matched)
 
+    def _list_recent_prs(self, repo: str, max_prs: int = 30) -> List[str]:
+        """List recent PR numbers under pr-logs/pull/{repo}/.
+
+        Returns PR numbers sorted descending (most recent first), limited
+        to *max_prs*.
+        """
+        path = f"/gcs/{self.BUCKET}/pr-logs/pull/{repo}/"
+        links = self._list_directory(path)
+
+        pr_numbers = []
+        for _link_path, link_text in links:
+            pr_num = link_text.rstrip('/')
+            if pr_num.isdigit():
+                pr_numbers.append(pr_num)
+
+        # Sort descending (most recent PRs have higher numbers)
+        pr_numbers.sort(key=int, reverse=True)
+        return pr_numbers[:max_prs]
+
+    def _list_pr_jobs(self, repo: str, pr_number: str, pattern: str) -> List[Dict[str, Any]]:
+        """List jobs under a PR directory that match *pattern* (fnmatch).
+
+        Returns list of dicts with job_name, build_id, and path keys --
+        same shape as ``_list_job_runs`` output so ``_process_run_single_pass``
+        can consume them directly.
+        """
+        pr_path = f"/gcs/{self.BUCKET}/pr-logs/pull/{repo}/{pr_number}/"
+        job_links = self._list_directory(pr_path)
+
+        results = []
+        for job_link_path, job_link_text in job_links:
+            job_dir = job_link_text.rstrip('/')
+            if not fnmatch.fnmatch(job_dir, pattern):
+                continue
+
+            # Each job directory contains build-ID sub-directories
+            build_links = self._list_directory(job_link_path)
+            for build_link_path, build_link_text in build_links:
+                build_id = build_link_text.rstrip('/')
+                results.append({
+                    'job_name': job_dir,
+                    'build_id': build_id,
+                    'path': build_link_path.rstrip('/'),
+                    'timestamp': None,  # will be read from finished.json
+                })
+
+        return results
+
+    def _collect_pr_sources(
+        self,
+        pr_log_sources: List[Dict[str, Any]],
+        start_date: datetime,
+        end_date: datetime,
+        skip_builds: Optional[set] = None,
+        versions: Optional[List[str]] = None,
+        platforms: Optional[List[str]] = None,
+        progress_callback=None
+    ) -> tuple:
+        """Scan pr-logs/ for rehearse and PR jobs.
+
+        Returns (list[JobRun], list[TestResult]) -- same shape as
+        ``collect_all``.
+        """
+        skip_builds = skip_builds or set()
+        all_job_runs = []
+        all_test_results = []
+        max_workers = self.config.get('max_workers', 5)
+
+        for source in pr_log_sources:
+            repo = source.get('repo', '')
+            pattern = source.get('job_pattern', '*')
+            max_prs = source.get('max_prs', 30)
+
+            logger.info(f"[gcsweb] Scanning PR logs for repo={repo}, pattern={pattern}")
+
+            pr_numbers = self._list_recent_prs(repo, max_prs=max_prs)
+            if not pr_numbers:
+                logger.info(f"[gcsweb] No PRs found for repo={repo}")
+                continue
+
+            logger.info(f"[gcsweb] Found {len(pr_numbers)} PR(s) for {repo}")
+
+            # Collect runs from all PRs
+            all_runs = []
+            for pr_num in pr_numbers:
+                runs = self._list_pr_jobs(repo, pr_num, pattern)
+                all_runs.extend(runs)
+
+            # Filter out already-collected builds
+            new_runs = [
+                r for r in all_runs
+                if (r['job_name'], r['build_id']) not in skip_builds
+            ]
+
+            logger.info(f"[gcsweb] {repo}: {len(all_runs)} total builds, "
+                         f"{len(new_runs)} new")
+
+            if not new_runs:
+                continue
+
+            # Process runs in parallel, reusing _process_run_single_pass
+            def _process(run):
+                return self._process_run_single_pass(
+                    run, versions, platforms,
+                    start_date=start_date, end_date=end_date
+                )
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(_process, run): run for run in new_runs
+                }
+                for future in as_completed(futures):
+                    try:
+                        result = future.result()
+                        if result:
+                            jr, tr = result
+                            all_job_runs.append(jr)
+                            all_test_results.extend(tr)
+                    except Exception as e:
+                        run = futures[future]
+                        logger.warning(
+                            f"[gcsweb] Error processing PR build "
+                            f"{run['job_name']}/{run['build_id']}: {e}"
+                        )
+
+            if progress_callback:
+                progress_callback(
+                    f'PR logs ({repo}): {len(all_job_runs)} builds collected'
+                )
+
+        logger.info(
+            f"[gcsweb] PR log scan complete: {len(all_job_runs)} job runs, "
+            f"{len(all_test_results)} test results"
+        )
+        return all_job_runs, all_test_results
+
     def collect_all(
         self,
         start_date: datetime,
@@ -410,7 +603,8 @@ class GCSWebCollector(BaseCollector):
         versions: Optional[List[str]] = None,
         platforms: Optional[List[str]] = None,
         skip_builds: Optional[set] = None,
-        progress_callback=None
+        progress_callback=None,
+        pr_log_sources: Optional[List[Dict[str, Any]]] = None
     ) -> tuple:
         """Single-pass collection: fetch JUnit XMLs once, return both job runs
         and test results. Skips builds already in the database.
@@ -418,6 +612,7 @@ class GCSWebCollector(BaseCollector):
         Args:
             skip_builds: set of (job_name, build_id) tuples to skip
             progress_callback: callable(message) for status updates
+            pr_log_sources: optional list of PR log source configs to scan
 
         Returns:
             (list[JobRun], list[TestResult])
@@ -489,6 +684,23 @@ class GCSWebCollector(BaseCollector):
                 except Exception as e:
                     logger.warning(f"[gcsweb] Error processing job {job_name}: {e}")
 
+        # Scan PR log sources (rehearse, presubmit jobs)
+        if pr_log_sources:
+            if progress_callback:
+                progress_callback('Scanning PR logs...')
+            pr_runs, pr_results = self._collect_pr_sources(
+                pr_log_sources,
+                start_date=start_date,
+                end_date=end_date,
+                skip_builds=skip_builds,
+                versions=versions,
+                platforms=platforms,
+                progress_callback=progress_callback
+            )
+            all_job_runs.extend(pr_runs)
+            all_test_results.extend(pr_results)
+            fetched_count += len(pr_runs)
+
         logger.info(
             f"[gcsweb] Done: {fetched_count} new builds fetched, "
             f"{skipped_count} skipped, {len(all_job_runs)} job runs, "
@@ -511,13 +723,37 @@ class GCSWebCollector(BaseCollector):
 
         return all_job_runs, all_test_results
 
+    def _build_job_url(self, run_path: str) -> str:
+        """Build the Deck job URL from a run's GCS path.
+
+        Works for both ``logs/`` and ``pr-logs/`` paths by stripping the
+        ``/gcs/{bucket}/`` prefix and appending to the Deck base URL.
+        """
+        prefix = f"/gcs/{self.BUCKET}/"
+        if run_path.startswith(prefix):
+            relative = run_path[len(prefix):]
+        else:
+            relative = run_path.lstrip('/')
+        return (
+            f"https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com"
+            f"/view/gs/{self.BUCKET}/{relative}"
+        )
+
     def _process_run_single_pass(
         self,
         run: Dict[str, Any],
         versions: Optional[List[str]] = None,
-        platforms: Optional[List[str]] = None
+        platforms: Optional[List[str]] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
     ) -> Optional[tuple]:
-        """Process a single run, returning (JobRun, [TestResult]) or None."""
+        """Process a single run, returning (JobRun, [TestResult]) or None.
+
+        When *start_date*/*end_date* are supplied the run is skipped if
+        its ``finished.json`` timestamp falls outside the range.  This is
+        used by ``_collect_pr_sources`` where ``_list_pr_jobs`` cannot
+        pre-filter by date.
+        """
         metadata = self._extract_metadata(run['job_name'])
         if versions and metadata['version'] not in versions:
             return None
@@ -534,8 +770,16 @@ class GCSWebCollector(BaseCollector):
         else:
             timestamp = run.get('timestamp') or datetime.now()
 
+        # Date-range filtering for PR-sourced runs
+        if start_date and timestamp < start_date:
+            return None
+        if end_date and timestamp > end_date:
+            return None
+
         result_status = finished.get('result', 'UNKNOWN')
         status = self._map_status(result_status)
+        job_type = self._derive_job_type(run['job_name'])
+        job_url = self._build_job_url(run['path'])
 
         junit_files = self._fetch_junit_xml_files(run['path'])
 
@@ -561,7 +805,8 @@ class GCSWebCollector(BaseCollector):
 
             log_url = self._derive_log_url(xml_path)
             results = self._parse_junit_xml(
-                junit_root, run['job_name'], run['build_id'], metadata, log_url=log_url
+                junit_root, run['job_name'], run['build_id'], metadata,
+                log_url=log_url, job_url=job_url, job_type=job_type
             )
             for r in results:
                 r.timestamp = timestamp
@@ -581,7 +826,8 @@ class GCSWebCollector(BaseCollector):
             passed_tests=passed_tests,
             failed_tests=failed_tests,
             skipped_tests=skipped_tests,
-            job_url=f"https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com/view/gs/{self.BUCKET}/logs/{run['job_name']}/{run['build_id']}"
+            job_url=job_url,
+            job_type=job_type
         )
 
         return job_run, all_results
@@ -727,7 +973,8 @@ class GCSWebCollector(BaseCollector):
             passed_tests=passed_tests,
             failed_tests=failed_tests,
             skipped_tests=skipped_tests,
-            job_url=f"https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com/view/gs/{self.BUCKET}/logs/{run['job_name']}/{run['build_id']}"
+            job_url=self._build_job_url(run['path']),
+            job_type=self._derive_job_type(run['job_name'])
         )
 
         return job_run

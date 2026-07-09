@@ -3,6 +3,9 @@
 Validates that nested testsuites are handled correctly without
 double-counting test counts or duplicating test results, and that
 the collector logs warnings when jobs return no builds.
+
+Also validates version extraction for rehearse, postsubmit FBC, and
+PR job names, job type derivation, and PR log path construction.
 """
 
 import logging
@@ -20,6 +23,18 @@ from src.collectors.base import TestStatus
 def collector():
     """Create a GCSWebCollector with minimal config."""
     return GCSWebCollector({'url': 'https://example.com', 'bucket': 'test'})
+
+
+@pytest.fixture
+def collector_with_wmco_map():
+    """Create a GCSWebCollector with WMCO version mapping config."""
+    return GCSWebCollector({
+        'url': 'https://example.com',
+        'bucket': 'test',
+        'branch_version_map': {'main': '5.0'},
+        'wmco_version_map': {'10': '4', '11': '5'},
+        'fbc_default_version': '4.22',
+    })
 
 
 FLAT_XML = """\
@@ -286,3 +301,399 @@ class TestDiagnosticLogging:
             'Error fetching file' in msg and 'Connection timeout' in msg
             for msg in caplog.messages
         )
+
+
+class TestRehearsePrefixStripping:
+    """Tests for _strip_rehearse_prefix."""
+
+    def test_strips_rehearse_prefix(self, collector):
+        result = collector._strip_rehearse_prefix(
+            'rehearse-81646-periodic-ci-openshift-openshift-tests-private-'
+            'release-4.21-amd64-nightly-aws-ipi-ovn-winc-zstream-f14'
+        )
+        assert result == (
+            'periodic-ci-openshift-openshift-tests-private-'
+            'release-4.21-amd64-nightly-aws-ipi-ovn-winc-zstream-f14'
+        )
+
+    def test_preserves_non_rehearse_name(self, collector):
+        name = 'periodic-ci-openshift-release-4.21-aws-winc-f14'
+        assert collector._strip_rehearse_prefix(name) == name
+
+    def test_does_not_strip_rehearse_without_number(self, collector):
+        """Negative: 'rehearse-' without a numeric PR ID is not a rehearse prefix."""
+        name = 'rehearse-abc-periodic-ci-release-4.21'
+        assert collector._strip_rehearse_prefix(name) == name
+
+
+class TestDeriveJobType:
+    """Tests for _derive_job_type -- includes negative cases (AGENTS.md rule 8)."""
+
+    def test_periodic_job(self, collector):
+        assert collector._derive_job_type(
+            'periodic-ci-openshift-release-4.21-aws-winc-f14'
+        ) == 'periodic'
+
+    def test_postsubmit_job(self, collector):
+        assert collector._derive_job_type(
+            'branch-ci-openshift-windows-machine-config-operator-fbc-main-v10-21-aws-winc'
+        ) == 'postsubmit'
+
+    def test_presubmit_job(self, collector):
+        assert collector._derive_job_type(
+            'pull-ci-openshift-openshift-tests-private-release-4.21-aws-winc'
+        ) == 'presubmit'
+
+    def test_rehearse_job(self, collector):
+        assert collector._derive_job_type(
+            'rehearse-81646-periodic-ci-release-4.21-aws-winc-f14'
+        ) == 'rehearse'
+
+    def test_unknown_prefix_defaults_to_periodic(self, collector):
+        """Negative: unrecognized prefix should fall back to periodic."""
+        assert collector._derive_job_type('custom-job-name-winc') == 'periodic'
+
+
+class TestExtractMetadataNewPatterns:
+    """Tests for _extract_metadata with rehearse, FBC postsubmit, and PR jobs.
+
+    Includes negative test cases for similar-but-incorrect patterns
+    (AGENTS.md rule 8).
+    """
+
+    def test_rehearse_job_extracts_version(self, collector):
+        """Rehearse job: strip prefix, then release-4.21 pattern matches."""
+        meta = collector._extract_metadata(
+            'rehearse-81646-periodic-ci-openshift-openshift-tests-private-'
+            'release-4.21-amd64-nightly-aws-ipi-ovn-winc-zstream-f14'
+        )
+        assert meta['version'] == '4.21'
+        assert meta['platform'] == 'aws'
+
+    def test_rehearse_job_gcp_platform(self, collector):
+        meta = collector._extract_metadata(
+            'rehearse-81646-periodic-ci-openshift-openshift-tests-private-'
+            'release-4.21-amd64-nightly-gcp-ipi-ovn-winc-zstream-f14'
+        )
+        assert meta['version'] == '4.21'
+        assert meta['platform'] == 'gcp'
+
+    def test_rehearse_job_vsphere_platform(self, collector):
+        meta = collector._extract_metadata(
+            'rehearse-81646-periodic-ci-openshift-openshift-tests-private-'
+            'release-4.21-amd64-nightly-vsphere-ipi-ovn-winc-zstream-f14'
+        )
+        assert meta['version'] == '4.21'
+        assert meta['platform'] == 'vsphere'
+
+    def test_fbc_postsubmit_wmco_v10_21(self, collector_with_wmco_map):
+        """FBC postsubmit: v10-21 -> OCP 4.21 (WMCO 10 -> OCP major 4)."""
+        meta = collector_with_wmco_map._extract_metadata(
+            'branch-ci-openshift-windows-machine-config-operator-'
+            'fbc-main-v10-21-aws-winc'
+        )
+        assert meta['version'] == '4.21'
+        assert meta['platform'] == 'aws'
+
+    def test_fbc_postsubmit_wmco_v11_0(self, collector_with_wmco_map):
+        """FBC postsubmit: v11-0 -> OCP 5.0 (WMCO 11 -> OCP major 5)."""
+        meta = collector_with_wmco_map._extract_metadata(
+            'branch-ci-openshift-windows-machine-config-operator-'
+            'fbc-main-v11-0-gcp-winc'
+        )
+        assert meta['version'] == '5.0'
+        assert meta['platform'] == 'gcp'
+
+    def test_fbc_postsubmit_no_wmco_map_uses_fallback(self, collector):
+        """FBC postsubmit without wmco_version_map uses arithmetic fallback."""
+        meta = collector._extract_metadata(
+            'branch-ci-openshift-windows-machine-config-operator-'
+            'fbc-main-v10-21-aws-winc'
+        )
+        # Fallback: 10 - 6 = 4, so OCP 4.21
+        assert meta['version'] == '4.21'
+
+    def test_fbc_postsubmit_no_version_uses_fbc_default(self, collector_with_wmco_map):
+        """FBC postsubmit without version segment uses fbc_default_version."""
+        meta = collector_with_wmco_map._extract_metadata(
+            'branch-ci-openshift-windows-machine-config-operator-'
+            'fbc-main-aws-winc'
+        )
+        # No v\d+-\d+ or release-X.Y; fbc_default_version takes precedence
+        # over branch_version_map for FBC postsubmit jobs.
+        assert meta['version'] == '4.22'
+        assert meta['platform'] == 'aws'
+
+    def test_fbc_default_version_not_applied_to_periodic(self, collector_with_wmco_map):
+        """Negative: fbc_default_version must NOT apply to periodic main jobs."""
+        meta = collector_with_wmco_map._extract_metadata(
+            'periodic-ci-openshift-openshift-tests-private-'
+            'main-amd64-nightly-aws-ipi-ovn-winc-f7'
+        )
+        # Periodic job with 'main' should use branch_version_map, not fbc_default
+        assert meta['version'] == '5.0'
+
+    def test_presubmit_job_extracts_version(self, collector):
+        meta = collector._extract_metadata(
+            'pull-ci-openshift-openshift-tests-private-'
+            'release-4.21-amd64-aws-ipi-ovn-winc'
+        )
+        assert meta['version'] == '4.21'
+        assert meta['platform'] == 'aws'
+
+    def test_negative_no_version_pattern_returns_unknown(self, collector):
+        """Negative: job name with no recognizable version -> 'unknown'."""
+        meta = collector._extract_metadata('some-random-job-aws-winc')
+        assert meta['version'] == 'unknown'
+        assert meta['platform'] == 'aws'
+
+    def test_negative_v_pattern_without_dash_not_matched(self, collector):
+        """Negative: 'v1021' (no dash) should NOT match FBC pattern."""
+        meta = collector._extract_metadata(
+            'branch-ci-openshift-fbc-main-v1021-aws-winc'
+        )
+        # v1021 doesn't match v(\d+)-(\d+), so should fall through
+        assert meta['version'] == 'unknown'
+
+    def test_negative_release_without_version_number(self, collector):
+        """Negative: 'release-main' should NOT match release-X.Y."""
+        meta = collector._extract_metadata(
+            'periodic-ci-openshift-release-main-aws-winc-f14'
+        )
+        assert meta['version'] == 'unknown'
+
+
+class TestBuildJobUrl:
+    """Tests for _build_job_url -- supports both logs/ and pr-logs/ paths."""
+
+    def test_logs_path(self, collector):
+        url = collector._build_job_url('/gcs/test/logs/some-job/12345')
+        assert url == (
+            'https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com'
+            '/view/gs/test/logs/some-job/12345'
+        )
+
+    def test_pr_logs_path(self, collector):
+        url = collector._build_job_url(
+            '/gcs/test/pr-logs/pull/openshift_release/81646/'
+            'rehearse-81646-periodic-ci-release-4.21-aws-winc/2075066861'
+        )
+        assert url == (
+            'https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com'
+            '/view/gs/test/pr-logs/pull/openshift_release/81646/'
+            'rehearse-81646-periodic-ci-release-4.21-aws-winc/2075066861'
+        )
+
+
+class TestListRecentPrs:
+    """Tests for _list_recent_prs."""
+
+    def test_returns_sorted_pr_numbers(self, collector):
+        links = [
+            ('/gcs/test/pr-logs/pull/openshift_release/100/', '100/'),
+            ('/gcs/test/pr-logs/pull/openshift_release/200/', '200/'),
+            ('/gcs/test/pr-logs/pull/openshift_release/150/', '150/'),
+        ]
+        with patch.object(collector, '_list_directory', return_value=links):
+            prs = collector._list_recent_prs('openshift_release', max_prs=10)
+
+        assert prs == ['200', '150', '100']
+
+    def test_respects_max_prs_limit(self, collector):
+        links = [
+            (f'/gcs/test/pr-logs/pull/repo/{i}/', f'{i}/')
+            for i in range(1, 50)
+        ]
+        with patch.object(collector, '_list_directory', return_value=links):
+            prs = collector._list_recent_prs('repo', max_prs=5)
+
+        assert len(prs) == 5
+        # Should be the 5 highest PR numbers
+        assert prs == ['49', '48', '47', '46', '45']
+
+    def test_ignores_non_numeric_entries(self, collector):
+        """Negative: non-numeric directory names should be skipped."""
+        links = [
+            ('/gcs/test/pr-logs/pull/repo/100/', '100/'),
+            ('/gcs/test/pr-logs/pull/repo/latest/', 'latest/'),
+            ('/gcs/test/pr-logs/pull/repo/abc/', 'abc/'),
+        ]
+        with patch.object(collector, '_list_directory', return_value=links):
+            prs = collector._list_recent_prs('repo', max_prs=10)
+
+        assert prs == ['100']
+
+
+class TestListPrJobs:
+    """Tests for _list_pr_jobs -- fnmatch filtering and path construction."""
+
+    def test_filters_by_pattern(self, collector):
+        job_links = [
+            ('/gcs/test/pr-logs/pull/repo/100/rehearse-100-aws-winc-f14/', 'rehearse-100-aws-winc-f14/'),
+            ('/gcs/test/pr-logs/pull/repo/100/unrelated-job/', 'unrelated-job/'),
+        ]
+        build_links = [
+            ('/gcs/test/pr-logs/pull/repo/100/rehearse-100-aws-winc-f14/2075/', '2075/'),
+        ]
+
+        def mock_list(path):
+            if path.endswith('/100/'):
+                return job_links
+            if 'winc' in path:
+                return build_links
+            return []
+
+        with patch.object(collector, '_list_directory', side_effect=mock_list):
+            results = collector._list_pr_jobs('repo', '100', '*winc*')
+
+        assert len(results) == 1
+        assert results[0]['job_name'] == 'rehearse-100-aws-winc-f14'
+        assert results[0]['build_id'] == '2075'
+
+    def test_pattern_no_match_returns_empty(self, collector):
+        """Negative: pattern that matches nothing returns empty list."""
+        job_links = [
+            ('/gcs/test/pr-logs/pull/repo/100/unrelated-job/', 'unrelated-job/'),
+        ]
+        with patch.object(collector, '_list_directory', return_value=job_links):
+            results = collector._list_pr_jobs('repo', '100', '*winc*')
+
+        assert results == []
+
+
+class TestCollectAllWithPrSources:
+    """Tests for collect_all with pr_log_sources integration."""
+
+    def test_collect_all_works_without_pr_log_sources(self, collector):
+        """Config backwards-compatibility: collect_all works when
+        pr_log_sources is absent (empty/None)."""
+        with patch.object(collector, '_resolve_patterns', return_value=[]):
+            job_runs, test_results = collector.collect_all(
+                start_date=datetime.now() - timedelta(days=7),
+                end_date=datetime.now(),
+                job_patterns=['some-pattern'],
+                pr_log_sources=None,
+            )
+
+        assert job_runs == []
+        assert test_results == []
+
+    def test_collect_all_works_with_empty_pr_log_sources(self, collector):
+        """Config backwards-compatibility: empty pr_log_sources list."""
+        with patch.object(collector, '_resolve_patterns', return_value=[]):
+            job_runs, test_results = collector.collect_all(
+                start_date=datetime.now() - timedelta(days=7),
+                end_date=datetime.now(),
+                job_patterns=['some-pattern'],
+                pr_log_sources=[],
+            )
+
+        assert job_runs == []
+        assert test_results == []
+
+    def test_collect_all_calls_pr_sources_when_configured(self, collector):
+        """When pr_log_sources is non-empty, _collect_pr_sources is called."""
+        pr_sources = [{'repo': 'openshift_release', 'job_pattern': '*winc*', 'max_prs': 5}]
+
+        with patch.object(collector, '_resolve_patterns', return_value=[]):
+            with patch.object(
+                collector, '_collect_pr_sources',
+                return_value=([], [])
+            ) as mock_pr:
+                collector.collect_all(
+                    start_date=datetime.now() - timedelta(days=7),
+                    end_date=datetime.now(),
+                    job_patterns=['some-pattern'],
+                    pr_log_sources=pr_sources,
+                )
+
+        mock_pr.assert_called_once()
+        call_args = mock_pr.call_args
+        assert call_args[0][0] == pr_sources
+
+
+class TestProcessRunSinglePassJobType:
+    """Tests for _process_run_single_pass setting job_type and job_url."""
+
+    def test_sets_job_type_and_dynamic_url(self, collector):
+        """Verify job_type is set and job_url is derived from run path."""
+        run = {
+            'job_name': 'rehearse-81646-periodic-ci-release-4.21-aws-winc-f14',
+            'build_id': '2075066861',
+            'path': '/gcs/test/pr-logs/pull/openshift_release/81646/'
+                    'rehearse-81646-periodic-ci-release-4.21-aws-winc-f14/2075066861',
+            'timestamp': None,
+        }
+        finished = {'timestamp': 1720500000, 'result': 'SUCCESS', 'duration': 3600}
+
+        with patch.object(collector, '_fetch_finished_json', return_value=finished):
+            with patch.object(collector, '_fetch_junit_xml_files', return_value=[]):
+                result = collector._process_run_single_pass(run)
+
+        assert result is not None
+        job_run, test_results = result
+        assert job_run.job_type == 'rehearse'
+        assert 'pr-logs/pull' in job_run.job_url
+        assert job_run.version == '4.21'
+
+    def test_date_filtering_skips_old_pr_builds(self, collector):
+        """Runs outside the date range are skipped when dates are supplied."""
+        # finished.json timestamp: 2024-07-09 (old)
+        run = {
+            'job_name': 'rehearse-100-periodic-ci-release-4.21-aws-winc-f14',
+            'build_id': '999',
+            'path': '/gcs/test/pr-logs/pull/repo/100/job/999',
+            'timestamp': None,
+        }
+        finished = {'timestamp': 1720500000, 'result': 'SUCCESS', 'duration': 100}
+
+        start_date = datetime(2025, 1, 1)
+        end_date = datetime(2025, 12, 31)
+
+        with patch.object(collector, '_fetch_finished_json', return_value=finished):
+            result = collector._process_run_single_pass(
+                run, start_date=start_date, end_date=end_date
+            )
+
+        # Build is from 2024, outside 2025 range -> should be skipped
+        assert result is None
+
+    def test_date_filtering_keeps_in_range_builds(self, collector):
+        """Runs inside the date range are kept when dates are supplied."""
+        # finished.json timestamp: 2025-06-15
+        ts = int(datetime(2025, 6, 15).timestamp())
+        run = {
+            'job_name': 'rehearse-100-periodic-ci-release-4.21-aws-winc-f14',
+            'build_id': '999',
+            'path': '/gcs/test/pr-logs/pull/repo/100/job/999',
+            'timestamp': None,
+        }
+        finished = {'timestamp': ts, 'result': 'SUCCESS', 'duration': 100}
+
+        start_date = datetime(2025, 1, 1)
+        end_date = datetime(2025, 12, 31)
+
+        with patch.object(collector, '_fetch_finished_json', return_value=finished):
+            with patch.object(collector, '_fetch_junit_xml_files', return_value=[]):
+                result = collector._process_run_single_pass(
+                    run, start_date=start_date, end_date=end_date
+                )
+
+        assert result is not None
+
+    def test_no_date_filtering_by_default(self, collector):
+        """Without date params, all runs are processed (backwards compat)."""
+        run = {
+            'job_name': 'rehearse-100-periodic-ci-release-4.21-aws-winc-f14',
+            'build_id': '999',
+            'path': '/gcs/test/pr-logs/pull/repo/100/job/999',
+            'timestamp': None,
+        }
+        finished = {'timestamp': 1720500000, 'result': 'SUCCESS', 'duration': 100}
+
+        with patch.object(collector, '_fetch_finished_json', return_value=finished):
+            with patch.object(collector, '_fetch_junit_xml_files', return_value=[]):
+                # No start_date/end_date -> old behavior, always processes
+                result = collector._process_run_single_pass(run)
+
+        assert result is not None

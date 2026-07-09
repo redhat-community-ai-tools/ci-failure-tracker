@@ -138,7 +138,11 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
             # prow_mcp uses exact job names from config
             expanded_patterns = None  # Will use job_names from collector config
         elif collector_type == 'gcsweb':
-            all_job_names = config['collector']['gcsweb']['job_names']
+            gcsweb_cfg = config['collector']['gcsweb']
+            all_job_names = list(gcsweb_cfg['job_names'])
+            # Include postsubmit job patterns if configured
+            postsubmit_patterns = gcsweb_cfg.get('postsubmit_job_patterns', [])
+            all_job_names.extend(postsubmit_patterns)
             if version_filter:
                 branch_map = config.get('tracking', {}).get('branch_version_map', {})
                 reverse_map = {v: k for k, v in branch_map.items()}
@@ -164,6 +168,9 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
             def _progress(msg):
                 collection_status['progress'] = msg
 
+            # Get PR log sources config (defaults to empty list)
+            pr_log_sources = config['collector']['gcsweb'].get('pr_log_sources', [])
+
             job_runs, test_results = collector.collect_all(
                 start_date=start_date,
                 end_date=end_date,
@@ -171,7 +178,8 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
                 versions=versions,
                 platforms=platforms,
                 skip_builds=skip_builds,
-                progress_callback=_progress
+                progress_callback=_progress,
+                pr_log_sources=pr_log_sources
             )
             logger.info(f"Collected {len(job_runs)} job runs, {len(test_results)} test results (single pass)")
         else:
