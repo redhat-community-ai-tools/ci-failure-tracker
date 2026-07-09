@@ -170,6 +170,16 @@ class DashboardDatabase:
         except sqlite3.OperationalError:
             pass
 
+        # Add job_type column if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE job_runs ADD COLUMN job_type TEXT DEFAULT 'periodic'")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute("ALTER TABLE test_results ADD COLUMN job_type TEXT DEFAULT 'periodic'")
+        except sqlite3.OperationalError:
+            pass
+
         # Migrate ai_analyses: make platform nullable and fix UNIQUE constraint
         try:
             cursor.execute("SELECT sql FROM sqlite_master WHERE name='ai_analyses'")
@@ -226,8 +236,8 @@ class DashboardDatabase:
                     INSERT OR REPLACE INTO job_runs (
                         job_name, build_id, status, timestamp, duration_seconds,
                         version, platform, total_tests, passed_tests, failed_tests,
-                        skipped_tests, pass_rate, job_url
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        skipped_tests, pass_rate, job_url, job_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     run.job_name,
                     run.build_id,
@@ -241,7 +251,8 @@ class DashboardDatabase:
                     run.failed_tests,
                     run.skipped_tests,
                     run.pass_rate,
-                    run.job_url
+                    run.job_url,
+                    getattr(run, 'job_type', None) or 'periodic'
                 ))
                 inserted += 1
             except sqlite3.IntegrityError:
@@ -269,8 +280,8 @@ class DashboardDatabase:
                 cursor.execute("""
                     INSERT OR REPLACE INTO test_results (
                         test_name, test_description, status, timestamp, duration_seconds, error_message,
-                        job_name, build_id, version, platform, job_url, log_url
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        job_name, build_id, version, platform, job_url, log_url, job_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     result.test_name,
                     result.test_description,
@@ -283,7 +294,8 @@ class DashboardDatabase:
                     result.version,
                     result.platform,
                     result.job_url,
-                    result.log_url
+                    result.log_url,
+                    getattr(result, 'job_type', None) or 'periodic'
                 ))
                 inserted += 1
             except sqlite3.IntegrityError:

@@ -40,6 +40,9 @@ class TestResult:
     job_url: Optional[str] = None
     log_url: Optional[str] = None
 
+    # Job classification
+    job_type: Optional[str] = None  # periodic, postsubmit, presubmit, rehearse
+
 
 @dataclass
 class JobRun:
@@ -60,6 +63,9 @@ class JobRun:
 
     # Links
     job_url: Optional[str] = None
+
+    # Job classification
+    job_type: Optional[str] = None  # periodic, postsubmit, presubmit, rehearse
 
     @property
     def pass_rate(self) -> float:

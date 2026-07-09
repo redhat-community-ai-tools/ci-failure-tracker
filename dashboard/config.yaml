@@ -161,6 +161,27 @@ collector:
       - "periodic-ci-openshift-openshift-tests-private-main-amd64-nightly-nutanix-ipi-ovn-winc-f7"
       - "periodic-ci-openshift-openshift-tests-private-main-amd64-nightly-vsphere-ipi-ovn-winc-f7"
 
+    # Postsubmit FBC jobs (also use logs/ path)
+    # WMCO version format: v10-21 = OCP 4.21, v11-0 = OCP 5.0
+    postsubmit_job_patterns:
+      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-*-winc"
+
+    # PR log sources: scan pr-logs/ for rehearse and PR jobs
+    pr_log_sources:
+      - repo: "openshift_release"
+        job_pattern: "*winc*"
+        max_prs: 30
+      - repo: "openshift_openshift-tests-private"
+        job_pattern: "*winc*"
+        max_prs: 20
+
+    # WMCO-to-OCP version mapping for FBC postsubmit jobs
+    # WMCO major version minus 6 = OCP major version
+    # e.g., v10-21 -> WMCO 10.21 -> OCP 4.21
+    wmco_version_map:
+      "10": "4"
+      "11": "5"
+
     # How many recent builds to fetch per job (reduced for initial testing)
     max_builds_per_job: 20
 
