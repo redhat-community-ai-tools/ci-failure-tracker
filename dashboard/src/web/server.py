@@ -2,7 +2,7 @@
 Flask web server for dashboard
 """
 
-from flask import Flask, render_template, jsonify, request, send_file
+from flask import Flask, render_template, jsonify, request, send_file, session, redirect
 from datetime import datetime, timedelta
 from pathlib import Path
 import yaml
@@ -13,6 +13,8 @@ import logging
 import io
 import csv
 import re
+import secrets
+import requests as http_requests
 from openpyxl import Workbook
 from openpyxl.chart import PieChart, Reference
 from openpyxl.styles import Font, Alignment, PatternFill
@@ -247,8 +249,15 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     app.jinja_env.auto_reload = True
     app.jinja_env.cache = {}
 
+    # Configure session secret key for OAuth flow
+    app.secret_key = os.environ.get('FLASK_SECRET_KEY', secrets.token_hex(32))
+
     if config:
         app.config.update(config)
+
+    # GitHub OAuth configuration
+    github_oauth_client_id = os.environ.get('GITHUB_OAUTH_CLIENT_ID', '')
+    github_oauth_client_secret = os.environ.get('GITHUB_OAUTH_CLIENT_SECRET', '')
 
     # Load tracking config for blocklist and configured versions/platforms
     blocklist = []
@@ -697,6 +706,116 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         else:
             return jsonify({'error': 'Failed to create Jira issue'}), 500
 
+    @app.route('/auth/github/login')
+    def auth_github_login():
+        """Redirect user to GitHub OAuth authorization page."""
+        if not github_oauth_client_id or not github_oauth_client_secret:
+            return jsonify({'error': 'GitHub OAuth is not configured'}), 400
+
+        # Generate a random state parameter to prevent CSRF
+        state = secrets.token_hex(16)
+        session['oauth_state'] = state
+
+        params = {
+            'client_id': github_oauth_client_id,
+            'scope': 'public_repo',
+            'state': state,
+        }
+        query = '&'.join(f'{k}={v}' for k, v in params.items())
+        return redirect(f'https://github.com/login/oauth/authorize?{query}')
+
+    @app.route('/auth/github/callback')
+    def auth_github_callback():
+        """Handle GitHub OAuth callback and exchange code for token."""
+        if not github_oauth_client_id or not github_oauth_client_secret:
+            return jsonify({'error': 'GitHub OAuth is not configured'}), 400
+
+        code = request.args.get('code')
+        state = request.args.get('state')
+
+        if not code:
+            return jsonify({'error': 'Missing authorization code'}), 400
+
+        # Verify state parameter to prevent CSRF
+        stored_state = session.pop('oauth_state', None)
+        if not state or state != stored_state:
+            return jsonify({'error': 'Invalid state parameter'}), 400
+
+        # Exchange code for access token
+        try:
+            token_response = http_requests.post(
+                'https://github.com/login/oauth/access_token',
+                json={
+                    'client_id': github_oauth_client_id,
+                    'client_secret': github_oauth_client_secret,
+                    'code': code,
+                },
+                headers={'Accept': 'application/json'},
+                timeout=30,
+            )
+
+            if token_response.status_code != 200:
+                logger.error(f"GitHub token exchange failed: {token_response.status_code}")
+                return jsonify({'error': 'Failed to exchange authorization code'}), 500
+
+            token_data = token_response.json()
+            access_token = token_data.get('access_token')
+
+            if not access_token:
+                error_desc = token_data.get('error_description', 'Unknown error')
+                logger.error(f"GitHub OAuth error: {error_desc}")
+                return jsonify({'error': f'OAuth error: {error_desc}'}), 400
+
+            # Fetch the user's GitHub profile to get their username
+            user_response = http_requests.get(
+                'https://api.github.com/user',
+                headers={
+                    'Authorization': f'token {access_token}',
+                    'Accept': 'application/vnd.github.v3+json',
+                },
+                timeout=30,
+            )
+
+            if user_response.status_code != 200:
+                logger.error(f"GitHub user fetch failed: {user_response.status_code}")
+                return jsonify({'error': 'Failed to fetch GitHub user info'}), 500
+
+            user_data = user_response.json()
+            github_username = user_data.get('login', '')
+
+            # Store token and username in the session (server-side, encrypted)
+            session['github_access_token'] = access_token
+            session['github_username'] = github_username
+
+            logger.info(f"GitHub OAuth login successful for user: {github_username}")
+
+            # Redirect back to the dashboard
+            return redirect('/')
+
+        except Exception as e:
+            logger.error(f"GitHub OAuth callback error: {e}")
+            return jsonify({'error': 'OAuth callback failed'}), 500
+
+    @app.route('/auth/github/status')
+    def auth_github_status():
+        """Return whether the user is authenticated via GitHub OAuth."""
+        access_token = session.get('github_access_token')
+        username = session.get('github_username')
+        oauth_configured = bool(github_oauth_client_id and github_oauth_client_secret)
+
+        return jsonify({
+            'authenticated': bool(access_token and username),
+            'username': username or '',
+            'oauth_configured': oauth_configured,
+        })
+
+    @app.route('/auth/github/logout', methods=['POST'])
+    def auth_github_logout():
+        """Clear the GitHub OAuth session."""
+        session.pop('github_access_token', None)
+        session.pop('github_username', None)
+        return jsonify({'status': 'logged_out'})
+
     @app.route('/api/github/report-problem', methods=['POST'])
     def api_report_problem():
         """Create a GitHub issue for a dashboard problem report."""
@@ -726,11 +845,15 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         ):
             return jsonify({'error': 'Invalid GitHub username format'}), 400
 
+        # Use the user's OAuth token if authenticated, otherwise fall back to PAT
+        user_token = session.get('github_access_token')
+
         result = github.create_report(
             summary=summary,
             description=description,
             reporter_name=reporter_name,
-            reporter_github=reporter_github
+            reporter_github=reporter_github,
+            user_token=user_token
         )
 
         if result:
