@@ -182,6 +182,11 @@ collector:
       "10": "4"
       "11": "5"
 
+    # Default OCP version for FBC postsubmit jobs that have no v10-XX
+    # variant in the job name (e.g., fbc-main-aws-winc).  These jobs
+    # currently target OCP 4.22 regardless of branch_version_map.
+    fbc_default_version: "4.22"
+
     # How many recent builds to fetch per job (reduced for initial testing)
     max_builds_per_job: 20
 

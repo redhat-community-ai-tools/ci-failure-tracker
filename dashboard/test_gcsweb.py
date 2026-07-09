@@ -33,6 +33,7 @@ def collector_with_wmco_map():
         'bucket': 'test',
         'branch_version_map': {'main': '5.0'},
         'wmco_version_map': {'10': '4', '11': '5'},
+        'fbc_default_version': '4.22',
     })
 
 
@@ -412,15 +413,25 @@ class TestExtractMetadataNewPatterns:
         # Fallback: 10 - 6 = 4, so OCP 4.21
         assert meta['version'] == '4.21'
 
-    def test_fbc_postsubmit_no_version_uses_branch_map(self, collector_with_wmco_map):
-        """FBC postsubmit without version segment uses branch_version_map."""
+    def test_fbc_postsubmit_no_version_uses_fbc_default(self, collector_with_wmco_map):
+        """FBC postsubmit without version segment uses fbc_default_version."""
         meta = collector_with_wmco_map._extract_metadata(
             'branch-ci-openshift-windows-machine-config-operator-'
             'fbc-main-aws-winc'
         )
-        # No v\d+-\d+ or release-X.Y, falls through to branch_version_map
-        assert meta['version'] == '5.0'
+        # No v\d+-\d+ or release-X.Y; fbc_default_version takes precedence
+        # over branch_version_map for FBC postsubmit jobs.
+        assert meta['version'] == '4.22'
         assert meta['platform'] == 'aws'
+
+    def test_fbc_default_version_not_applied_to_periodic(self, collector_with_wmco_map):
+        """Negative: fbc_default_version must NOT apply to periodic main jobs."""
+        meta = collector_with_wmco_map._extract_metadata(
+            'periodic-ci-openshift-openshift-tests-private-'
+            'main-amd64-nightly-aws-ipi-ovn-winc-f7'
+        )
+        # Periodic job with 'main' should use branch_version_map, not fbc_default
+        assert meta['version'] == '5.0'
 
     def test_presubmit_job_extracts_version(self, collector):
         meta = collector._extract_metadata(
@@ -624,3 +635,65 @@ class TestProcessRunSinglePassJobType:
         assert job_run.job_type == 'rehearse'
         assert 'pr-logs/pull' in job_run.job_url
         assert job_run.version == '4.21'
+
+    def test_date_filtering_skips_old_pr_builds(self, collector):
+        """Runs outside the date range are skipped when dates are supplied."""
+        # finished.json timestamp: 2024-07-09 (old)
+        run = {
+            'job_name': 'rehearse-100-periodic-ci-release-4.21-aws-winc-f14',
+            'build_id': '999',
+            'path': '/gcs/test/pr-logs/pull/repo/100/job/999',
+            'timestamp': None,
+        }
+        finished = {'timestamp': 1720500000, 'result': 'SUCCESS', 'duration': 100}
+
+        start_date = datetime(2025, 1, 1)
+        end_date = datetime(2025, 12, 31)
+
+        with patch.object(collector, '_fetch_finished_json', return_value=finished):
+            result = collector._process_run_single_pass(
+                run, start_date=start_date, end_date=end_date
+            )
+
+        # Build is from 2024, outside 2025 range -> should be skipped
+        assert result is None
+
+    def test_date_filtering_keeps_in_range_builds(self, collector):
+        """Runs inside the date range are kept when dates are supplied."""
+        # finished.json timestamp: 2025-06-15
+        ts = int(datetime(2025, 6, 15).timestamp())
+        run = {
+            'job_name': 'rehearse-100-periodic-ci-release-4.21-aws-winc-f14',
+            'build_id': '999',
+            'path': '/gcs/test/pr-logs/pull/repo/100/job/999',
+            'timestamp': None,
+        }
+        finished = {'timestamp': ts, 'result': 'SUCCESS', 'duration': 100}
+
+        start_date = datetime(2025, 1, 1)
+        end_date = datetime(2025, 12, 31)
+
+        with patch.object(collector, '_fetch_finished_json', return_value=finished):
+            with patch.object(collector, '_fetch_junit_xml_files', return_value=[]):
+                result = collector._process_run_single_pass(
+                    run, start_date=start_date, end_date=end_date
+                )
+
+        assert result is not None
+
+    def test_no_date_filtering_by_default(self, collector):
+        """Without date params, all runs are processed (backwards compat)."""
+        run = {
+            'job_name': 'rehearse-100-periodic-ci-release-4.21-aws-winc-f14',
+            'build_id': '999',
+            'path': '/gcs/test/pr-logs/pull/repo/100/job/999',
+            'timestamp': None,
+        }
+        finished = {'timestamp': 1720500000, 'result': 'SUCCESS', 'duration': 100}
+
+        with patch.object(collector, '_fetch_finished_json', return_value=finished):
+            with patch.object(collector, '_fetch_junit_xml_files', return_value=[]):
+                # No start_date/end_date -> old behavior, always processes
+                result = collector._process_run_single_pass(run)
+
+        assert result is not None

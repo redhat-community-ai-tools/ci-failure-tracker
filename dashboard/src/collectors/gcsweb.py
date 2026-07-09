@@ -152,12 +152,19 @@ class GCSWebCollector(BaseCollector):
                     ocp_major = str(int(wmco_major) - 6)
                     metadata['version'] = f'{ocp_major}.{wmco_minor}'
             else:
-                # Check branch_version_map for branch-based jobs (e.g., "main" -> "5.0")
-                branch_map = self.config.get('branch_version_map', {})
-                for branch, version in branch_map.items():
-                    if f'-{branch}-' in effective_name or effective_name.endswith(f'-{branch}'):
-                        metadata['version'] = version
-                        break
+                # FBC postsubmit jobs without a version variant use a
+                # dedicated config key because their target OCP version
+                # may differ from the branch_version_map default.
+                fbc_default = self.config.get('fbc_default_version')
+                if fbc_default and effective_name.startswith('branch-ci-') and '-fbc-' in effective_name:
+                    metadata['version'] = fbc_default
+                else:
+                    # Check branch_version_map for branch-based jobs (e.g., "main" -> "5.0")
+                    branch_map = self.config.get('branch_version_map', {})
+                    for branch, version in branch_map.items():
+                        if f'-{branch}-' in effective_name or effective_name.endswith(f'-{branch}'):
+                            metadata['version'] = version
+                            break
 
         # Extract platform
         platforms = ['aws', 'gcp', 'azure', 'vsphere', 'nutanix', 'metal', 'ovirt', 'openstack']
@@ -554,7 +561,10 @@ class GCSWebCollector(BaseCollector):
 
             # Process runs in parallel, reusing _process_run_single_pass
             def _process(run):
-                return self._process_run_single_pass(run, versions, platforms)
+                return self._process_run_single_pass(
+                    run, versions, platforms,
+                    start_date=start_date, end_date=end_date
+                )
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
@@ -733,9 +743,17 @@ class GCSWebCollector(BaseCollector):
         self,
         run: Dict[str, Any],
         versions: Optional[List[str]] = None,
-        platforms: Optional[List[str]] = None
+        platforms: Optional[List[str]] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
     ) -> Optional[tuple]:
-        """Process a single run, returning (JobRun, [TestResult]) or None."""
+        """Process a single run, returning (JobRun, [TestResult]) or None.
+
+        When *start_date*/*end_date* are supplied the run is skipped if
+        its ``finished.json`` timestamp falls outside the range.  This is
+        used by ``_collect_pr_sources`` where ``_list_pr_jobs`` cannot
+        pre-filter by date.
+        """
         metadata = self._extract_metadata(run['job_name'])
         if versions and metadata['version'] not in versions:
             return None
@@ -751,6 +769,12 @@ class GCSWebCollector(BaseCollector):
             timestamp = datetime.fromtimestamp(timestamp)
         else:
             timestamp = run.get('timestamp') or datetime.now()
+
+        # Date-range filtering for PR-sourced runs
+        if start_date and timestamp < start_date:
+            return None
+        if end_date and timestamp > end_date:
+            return None
 
         result_status = finished.get('result', 'UNKNOWN')
         status = self._map_status(result_status)
