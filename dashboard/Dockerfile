@@ -8,6 +8,9 @@ COPY requirements.txt .
 # Install dependencies with specific secure versions
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy config first (changes more often than code)
+COPY config.yaml .
+
 # Copy application code
 COPY . .
 
