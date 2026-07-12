@@ -965,12 +965,24 @@
                 const authData = await resp.json();
 
                 if (authData.authenticated) {
-                    // User is signed in via OAuth
+                    // User is signed in via OAuth — build banner with DOM
+                    // API to avoid XSS via unsanitised username.
                     banner.style.display = 'block';
                     banner.style.background = '#ecfdf5';
                     banner.style.border = '1px solid #6ee7b7';
                     banner.style.color = '#065f46';
-                    banner.innerHTML = 'Signed in as <strong>@' + authData.username + '</strong> &mdash; issue will be created under your GitHub account. <a href="#" onclick="githubLogout(); return false;" style="color: #065f46; margin-left: 8px;">Sign out</a>';
+                    banner.textContent = '';
+                    banner.append('Signed in as ');
+                    const usernameSpan = document.createElement('strong');
+                    usernameSpan.textContent = '@' + authData.username;
+                    banner.append(usernameSpan);
+                    banner.append(' — issue will be created under your GitHub account. ');
+                    const signOutLink = document.createElement('a');
+                    signOutLink.href = '#';
+                    signOutLink.style.cssText = 'color: #065f46; margin-left: 8px;';
+                    signOutLink.textContent = 'Sign out';
+                    signOutLink.onclick = function() { githubLogout(); return false; };
+                    banner.append(signOutLink);
                     // Hide manual reporter fields when authenticated
                     reporterFields.style.display = 'none';
                 } else if (authData.oauth_configured) {

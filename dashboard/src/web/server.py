@@ -15,6 +15,7 @@ import csv
 import html as html_module
 import re
 import secrets
+from urllib.parse import urlencode
 import requests as http_requests
 from openpyxl import Workbook
 from openpyxl.chart import PieChart, Reference
@@ -37,6 +38,12 @@ collection_status = {
     'completed_at': None,
     'lock': threading.Lock()
 }
+
+# Server-side store for OAuth access tokens.  Only a random token_id is
+# placed in the (signed, client-side) Flask session cookie so the actual
+# GitHub token is never exposed to the browser.
+# Note: tokens are lost on process restart; users simply re-authenticate.
+_oauth_token_store = {}
 
 
 def run_collection_background(db_path: str, config_file: str = 'config.yaml', days: int = 30):
@@ -259,6 +266,15 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     # GitHub OAuth configuration
     github_oauth_client_id = os.environ.get('GITHUB_OAUTH_CLIENT_ID', '')
     github_oauth_client_secret = os.environ.get('GITHUB_OAUTH_CLIENT_SECRET', '')
+
+    # Warn if OAuth is configured but secret key is ephemeral
+    if (github_oauth_client_id and github_oauth_client_secret
+            and not os.environ.get('FLASK_SECRET_KEY')):
+        logger.warning(
+            "FLASK_SECRET_KEY is not set. OAuth sessions will not survive "
+            "pod restarts. Set FLASK_SECRET_KEY to a stable value for "
+            "reliable OAuth."
+        )
 
     # Load tracking config for blocklist and configured versions/platforms
     blocklist = []
@@ -719,11 +735,11 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
 
         params = {
             'client_id': github_oauth_client_id,
+            'redirect_uri': request.url_root.rstrip('/') + '/auth/github/callback',
             'scope': 'public_repo',
             'state': state,
         }
-        query = '&'.join(f'{k}={v}' for k, v in params.items())
-        return redirect(f'https://github.com/login/oauth/authorize?{query}')
+        return redirect(f'https://github.com/login/oauth/authorize?{urlencode(params)}')
 
     @app.route('/auth/github/callback')
     def auth_github_callback():
@@ -784,8 +800,11 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             user_data = user_response.json()
             github_username = user_data.get('login', '')
 
-            # Store token and username in the session (server-side, encrypted)
-            session['github_access_token'] = access_token
+            # Store access token server-side; only a random id goes into
+            # the signed (not encrypted) session cookie.
+            token_id = secrets.token_hex(16)
+            _oauth_token_store[token_id] = access_token
+            session['oauth_token_id'] = token_id
             session['github_username'] = github_username
 
             logger.info(f"GitHub OAuth login successful for user: {github_username}")
@@ -800,7 +819,8 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     @app.route('/auth/github/status')
     def auth_github_status():
         """Return whether the user is authenticated via GitHub OAuth."""
-        access_token = session.get('github_access_token')
+        token_id = session.get('oauth_token_id')
+        access_token = _oauth_token_store.get(token_id) if token_id else None
         username = session.get('github_username')
         oauth_configured = bool(github_oauth_client_id and github_oauth_client_secret)
 
@@ -813,7 +833,9 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     @app.route('/auth/github/logout', methods=['POST'])
     def auth_github_logout():
         """Clear the GitHub OAuth session."""
-        session.pop('github_access_token', None)
+        token_id = session.pop('oauth_token_id', None)
+        if token_id:
+            _oauth_token_store.pop(token_id, None)
         session.pop('github_username', None)
         return jsonify({'status': 'logged_out'})
 
@@ -847,7 +869,8 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             return jsonify({'error': 'Invalid GitHub username format'}), 400
 
         # Use the user's OAuth token if authenticated, otherwise fall back to PAT
-        user_token = session.get('github_access_token')
+        token_id = session.get('oauth_token_id')
+        user_token = _oauth_token_store.get(token_id) if token_id else None
 
         result = github.create_report(
             summary=summary,

@@ -9,8 +9,16 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock
 
-from src.web.server import create_app
+from src.web.server import create_app, _oauth_token_store
 from src.integrations.github_integration import GitHubIntegration, GitHubConfig
+
+
+@pytest.fixture(autouse=True)
+def clear_token_store():
+    """Clear server-side OAuth token store between tests."""
+    _oauth_token_store.clear()
+    yield
+    _oauth_token_store.clear()
 
 
 @pytest.fixture
@@ -78,6 +86,7 @@ class TestOAuthLoginRedirect:
         location = response.headers['Location']
         assert 'https://github.com/login/oauth/authorize' in location
         assert 'client_id=test-client-id' in location
+        assert 'redirect_uri=' in location
         assert 'scope=public_repo' in location
         assert 'state=' in location
 
@@ -138,6 +147,10 @@ class TestOAuthCallback:
         assert status_data['authenticated'] is True
         assert status_data['username'] == 'testuser'
 
+        # Verify the token is stored server-side, NOT in the session cookie
+        assert len(_oauth_token_store) == 1
+        assert 'user-oauth-token' in _oauth_token_store.values()
+
     def test_rejects_missing_code(self, client_with_oauth):
         response = client_with_oauth.get('/auth/github/callback')
         assert response.status_code == 400
@@ -195,9 +208,11 @@ class TestAuthStatus:
 
     def test_token_not_exposed_in_status_response(self, client_with_oauth):
         """Security: access token must never appear in API responses."""
-        # Simulate an authenticated session
+        # Simulate an authenticated session with server-side token store
+        token_id = 'test-token-id'
+        _oauth_token_store[token_id] = 'secret-token-value'
         with client_with_oauth.session_transaction() as sess:
-            sess['github_access_token'] = 'secret-token-value'
+            sess['oauth_token_id'] = token_id
             sess['github_username'] = 'testuser'
 
         response = client_with_oauth.get('/auth/github/status')
@@ -213,9 +228,11 @@ class TestAuthLogout:
     """Tests for /auth/github/logout endpoint."""
 
     def test_clears_session_on_logout(self, client_with_oauth):
-        # Set up an authenticated session
+        # Set up an authenticated session with server-side token store
+        token_id = 'test-token-id'
+        _oauth_token_store[token_id] = 'user-token'
         with client_with_oauth.session_transaction() as sess:
-            sess['github_access_token'] = 'user-token'
+            sess['oauth_token_id'] = token_id
             sess['github_username'] = 'testuser'
 
         # Verify authenticated
@@ -231,6 +248,9 @@ class TestAuthLogout:
         assert status['authenticated'] is False
         assert status['username'] == ''
 
+        # Verify token was removed from server-side store
+        assert token_id not in _oauth_token_store
+
 
 class TestReportProblemWithOAuth:
     """Tests for report-problem using authenticated user's token."""
@@ -245,9 +265,11 @@ class TestReportProblemWithOAuth:
             json=lambda: {'number': 99, 'html_url': 'https://github.com/owner/repo/issues/99'},
         )
 
-        # Simulate authenticated session
+        # Simulate authenticated session with server-side token store
+        token_id = 'test-token-id'
+        _oauth_token_store[token_id] = 'user-oauth-token'
         with client_with_oauth.session_transaction() as sess:
-            sess['github_access_token'] = 'user-oauth-token'
+            sess['oauth_token_id'] = token_id
             sess['github_username'] = 'testuser'
 
         # Reset the cached instance so it picks up env vars
