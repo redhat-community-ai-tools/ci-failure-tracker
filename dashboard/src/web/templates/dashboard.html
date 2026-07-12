@@ -907,23 +907,6 @@
                         font-size: 14px; font-family: inherit; resize: vertical; box-sizing: border-box;
                     "></textarea>
                 </div>
-                <!-- Manual reporter fields (shown when OAuth is not configured or not authenticated) -->
-                <div id="reporterFieldsSection" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
-                    <div>
-                        <label for="reporterName" style="display: block; font-weight: 600; margin-bottom: 6px;">Your name or email <span style="font-weight: 400; color: #6b7280;">(optional)</span></label>
-                        <input type="text" id="reporterName" placeholder="e.g. Jane Doe or jane@redhat.com" style="
-                            width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px;
-                            font-size: 14px; box-sizing: border-box;
-                        ">
-                    </div>
-                    <div>
-                        <label for="reporterGithub" style="display: block; font-weight: 600; margin-bottom: 6px;">GitHub username <span style="font-weight: 400; color: #6b7280;">(optional)</span></label>
-                        <input type="text" id="reporterGithub" placeholder="e.g. janedoe" style="
-                            width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px;
-                            font-size: 14px; box-sizing: border-box;
-                        ">
-                    </div>
-                </div>
                 <div style="display: flex; justify-content: flex-end; gap: 10px;">
                     <button onclick="closeReportModal()" style="
                         padding: 10px 20px; border: 1px solid #d1d5db; background: white;
@@ -946,8 +929,6 @@
             document.getElementById('reportModal').style.display = 'block';
             document.getElementById('reportSummary').value = '';
             document.getElementById('reportDescription').value = '';
-            document.getElementById('reporterName').value = '';
-            document.getElementById('reporterGithub').value = '';
             const btn = document.getElementById('reportSubmitBtn');
             btn.textContent = 'Submit';
             btn.disabled = false;
@@ -956,9 +937,7 @@
 
             // Check GitHub OAuth auth status
             const banner = document.getElementById('reportAuthBanner');
-            const reporterFields = document.getElementById('reporterFieldsSection');
             banner.style.display = 'none';
-            reporterFields.style.display = 'grid';
 
             try {
                 const resp = await fetch('/auth/github/status');
@@ -983,19 +962,17 @@
                     signOutLink.textContent = 'Sign out';
                     signOutLink.onclick = function() { githubLogout(); return false; };
                     banner.append(signOutLink);
-                    // Hide manual reporter fields when authenticated
-                    reporterFields.style.display = 'none';
                 } else if (authData.oauth_configured) {
                     // OAuth is configured but user is not signed in
                     banner.style.display = 'block';
                     banner.style.background = '#eff6ff';
                     banner.style.border = '1px solid #93c5fd';
                     banner.style.color = '#1e40af';
-                    banner.innerHTML = '<a href="/auth/github/login" style="color: #1e40af; font-weight: 600; text-decoration: none;">Sign in with GitHub</a> to create the issue under your own account, or fill in the fields below to use the shared account.';
+                    banner.innerHTML = '<a href="/auth/github/login" style="color: #1e40af; font-weight: 600; text-decoration: none;">Sign in with GitHub</a> to create the issue under your own account, or submit to use the shared account.';
                 }
-                // If OAuth is not configured, banner stays hidden and manual fields stay visible (fallback)
+                // If OAuth is not configured, banner stays hidden (fallback to server PAT)
             } catch (e) {
-                // If status check fails, fall back to manual fields
+                // If status check fails, fall back to server PAT
                 console.warn('Could not check GitHub auth status:', e);
             }
 
@@ -1019,16 +996,9 @@
         async function submitReport() {
             const summary = document.getElementById('reportSummary').value.trim();
             const description = document.getElementById('reportDescription').value.trim();
-            const reporter_name = document.getElementById('reporterName').value.trim();
-            const reporter_github = document.getElementById('reporterGithub').value.trim();
 
             if (!summary || !description) {
                 alert('Please fill in both summary and description.');
-                return;
-            }
-
-            if (reporter_github && !/^@?[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(reporter_github)) {
-                alert('GitHub username may only contain letters, numbers, and hyphens, and cannot start or end with a hyphen.');
                 return;
             }
 
@@ -1041,7 +1011,7 @@
                 const response = await fetch('/api/github/report-problem', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ summary, description, reporter_name, reporter_github })
+                    body: JSON.stringify({ summary, description })
                 });
 
                 const data = await response.json();

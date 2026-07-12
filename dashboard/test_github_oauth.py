@@ -324,11 +324,11 @@ class TestReportProblemWithOAuth:
 
 
 class TestFallbackWithoutOAuth:
-    """Tests that PAT-based flow with manual username field still works."""
+    """Tests that PAT-based flow works when OAuth is not configured."""
 
     @patch('src.integrations.github_integration.requests.post')
-    def test_pat_flow_with_manual_username(self, mock_post, client_without_oauth):
-        """Without OAuth env vars, the PAT flow with manual fields works."""
+    def test_pat_flow_without_oauth(self, mock_post, client_without_oauth):
+        """Without OAuth env vars, the PAT flow works."""
         mock_post.return_value = MagicMock(
             status_code=201,
             json=lambda: {'number': 50, 'html_url': 'https://github.com/owner/repo/issues/50'},
@@ -342,8 +342,6 @@ class TestFallbackWithoutOAuth:
             json={
                 'summary': 'Test bug',
                 'description': 'Details',
-                'reporter_name': 'Test User',
-                'reporter_github': 'testuser',
             },
             content_type='application/json',
         )
@@ -355,10 +353,6 @@ class TestFallbackWithoutOAuth:
         call_kwargs = mock_post.call_args
         headers = call_kwargs.kwargs.get('headers') or call_kwargs[1].get('headers')
         assert headers['Authorization'] == 'token server-pat-token'
-
-        # Verify reporter info was included in the issue body
-        body = call_kwargs.kwargs.get('json') or call_kwargs[1].get('json')
-        assert '@testuser' in body['body']
 
         mod._github_instance = None
 
