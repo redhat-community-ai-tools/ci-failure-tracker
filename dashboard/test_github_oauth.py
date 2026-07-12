@@ -252,109 +252,33 @@ class TestAuthLogout:
         assert token_id not in _oauth_token_store
 
 
-class TestReportProblemWithOAuth:
-    """Tests for report-problem using authenticated user's token."""
+class TestReportProblemRedirect:
+    """Tests that the report-problem form redirects to GitHub new-issue URL."""
 
-    @patch('src.integrations.github_integration.requests.post')
-    def test_uses_user_token_when_authenticated(
-        self, mock_post, client_with_oauth
-    ):
-        """When user is OAuth-authenticated, their token is used."""
-        mock_post.return_value = MagicMock(
-            status_code=201,
-            json=lambda: {'number': 99, 'html_url': 'https://github.com/owner/repo/issues/99'},
-        )
+    def test_dashboard_renders_with_github_repo(self, client_with_oauth):
+        """Dashboard template receives github_repo from GITHUB_REPO env var."""
+        response = client_with_oauth.get('/')
+        assert response.status_code == 200
+        html = response.data.decode()
+        assert 'owner/repo' in html
 
-        # Simulate authenticated session with server-side token store
-        token_id = 'test-token-id'
-        _oauth_token_store[token_id] = 'user-oauth-token'
-        with client_with_oauth.session_transaction() as sess:
-            sess['oauth_token_id'] = token_id
-            sess['github_username'] = 'testuser'
+    def test_dashboard_renders_without_github_repo(self, db_path):
+        """Dashboard still renders when GITHUB_REPO is not set."""
+        with patch.dict(os.environ, {}, clear=True):
+            app = create_app(db_path)
+            app.config['TESTING'] = True
+            client = app.test_client()
+            response = client.get('/')
+            assert response.status_code == 200
 
-        # Reset the cached instance so it picks up env vars
-        import src.integrations.github_integration as mod
-        mod._github_instance = None
-
+    def test_report_problem_route_removed(self, client_with_oauth):
+        """The old server-side report-problem API route no longer exists."""
         response = client_with_oauth.post(
             '/api/github/report-problem',
-            json={'summary': 'Test bug', 'description': 'Details'},
+            json={'summary': 'Test', 'description': 'Details'},
             content_type='application/json',
         )
-
-        data = response.get_json()
-        assert data['status'] == 'created'
-
-        # Verify the user's token was used in the API call
-        call_kwargs = mock_post.call_args
-        headers = call_kwargs.kwargs.get('headers') or call_kwargs[1].get('headers')
-        assert headers['Authorization'] == 'token user-oauth-token'
-
-        mod._github_instance = None
-
-    @patch('src.integrations.github_integration.requests.post')
-    def test_falls_back_to_pat_when_not_authenticated(
-        self, mock_post, client_with_oauth
-    ):
-        """When user is not authenticated, the server PAT is used."""
-        mock_post.return_value = MagicMock(
-            status_code=201,
-            json=lambda: {'number': 100, 'html_url': 'https://github.com/owner/repo/issues/100'},
-        )
-
-        # Reset the cached instance
-        import src.integrations.github_integration as mod
-        mod._github_instance = None
-
-        response = client_with_oauth.post(
-            '/api/github/report-problem',
-            json={'summary': 'Test bug', 'description': 'Details'},
-            content_type='application/json',
-        )
-
-        data = response.get_json()
-        assert data['status'] == 'created'
-
-        # Verify the server PAT was used
-        call_kwargs = mock_post.call_args
-        headers = call_kwargs.kwargs.get('headers') or call_kwargs[1].get('headers')
-        assert headers['Authorization'] == 'token server-pat-token'
-
-        mod._github_instance = None
-
-
-class TestFallbackWithoutOAuth:
-    """Tests that PAT-based flow works when OAuth is not configured."""
-
-    @patch('src.integrations.github_integration.requests.post')
-    def test_pat_flow_without_oauth(self, mock_post, client_without_oauth):
-        """Without OAuth env vars, the PAT flow works."""
-        mock_post.return_value = MagicMock(
-            status_code=201,
-            json=lambda: {'number': 50, 'html_url': 'https://github.com/owner/repo/issues/50'},
-        )
-
-        import src.integrations.github_integration as mod
-        mod._github_instance = None
-
-        response = client_without_oauth.post(
-            '/api/github/report-problem',
-            json={
-                'summary': 'Test bug',
-                'description': 'Details',
-            },
-            content_type='application/json',
-        )
-
-        data = response.get_json()
-        assert data['status'] == 'created'
-
-        # Verify the server PAT was used
-        call_kwargs = mock_post.call_args
-        headers = call_kwargs.kwargs.get('headers') or call_kwargs[1].get('headers')
-        assert headers['Authorization'] == 'token server-pat-token'
-
-        mod._github_instance = None
+        assert response.status_code == 404
 
 
 class TestUserTokenInGitHubIntegration:
