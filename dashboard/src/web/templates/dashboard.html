@@ -925,6 +925,17 @@
         let trendChart, versionChart;
         let currentLogData = {}; // Store current log data for AI analysis and Jira creation
 
+        // Client-side response cache to avoid redundant API fetches
+        // when switching tabs or re-selecting the same period.
+        const _fetchCache = {};
+        const FETCH_CACHE_TTL_MS = 60000; // 60 seconds
+
+        function invalidateFetchCache() {
+            for (const key of Object.keys(_fetchCache)) {
+                delete _fetchCache[key];
+            }
+        }
+
         async function openReportModal() {
             document.getElementById('reportModal').style.display = 'block';
             document.getElementById('reportSummary').value = '';
@@ -1070,8 +1081,15 @@
 
         async function fetchData(endpoint, params = {}) {
             const queryString = new URLSearchParams(params).toString();
+            const cacheKey = `${endpoint}?${queryString}`;
+            const cached = _fetchCache[cacheKey];
+            if (cached && (Date.now() - cached.time) < FETCH_CACHE_TTL_MS) {
+                return cached.data;
+            }
             const response = await fetch(`/api/${endpoint}?${queryString}`);
-            return await response.json();
+            const data = await response.json();
+            _fetchCache[cacheKey] = { data, time: Date.now() };
+            return data;
         }
 
         function toggleExportMenu() {
@@ -2171,6 +2189,9 @@
                         clearInterval(collectionPolling);
                         collectionPolling = null;
                     }
+
+                    // Clear cache so fresh data is fetched after collection
+                    invalidateFetchCache();
 
                     // Refresh dashboard data without full page reload
                     refreshDashboard();
