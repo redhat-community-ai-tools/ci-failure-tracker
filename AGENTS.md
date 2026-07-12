@@ -51,3 +51,10 @@ Most agent work targets the dashboard.
 
 11. **Security.** No hardcoded credentials. Use environment variables for secrets.
     Use parameterized SQLite queries.
+
+12. **Filter parameter flow.** When adding or modifying collector methods that
+    accept filtering parameters (date ranges, version lists, platform lists),
+    verify every filter parameter is either (a) used in a conditional check
+    within the method body, or (b) forwarded to a callee that applies it. Do
+    not add filter parameters to method signatures without implementing or
+    forwarding the filter logic.
