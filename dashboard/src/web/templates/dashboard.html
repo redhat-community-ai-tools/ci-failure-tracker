@@ -926,6 +926,33 @@
         let trendChart, versionChart;
         let currentLogData = {}; // Store current log data for AI analysis and Jira creation
 
+        // Shared classification lookup maps (used by save, load, and AI analysis)
+        const classNames = {
+            'product_bug': 'Product Bug',
+            'automation_bug': 'Automation Bug',
+            'system_issue': 'System Issue',
+            'transient': 'Transient',
+            'to_investigate': 'To Investigate'
+        };
+        const classColors = {
+            'product_bug': '#dc2626',
+            'automation_bug': '#f59e0b',
+            'system_issue': '#3b82f6',
+            'transient': '#10b981',
+            'to_investigate': '#8b5cf6'
+        };
+
+        // Client-side response cache to avoid redundant API fetches
+        // when switching tabs or re-selecting the same period.
+        const _fetchCache = {};
+        const FETCH_CACHE_TTL_MS = 60000; // 60 seconds
+
+        function invalidateFetchCache() {
+            for (const key of Object.keys(_fetchCache)) {
+                delete _fetchCache[key];
+            }
+        }
+
         function openReportModal() {
             document.getElementById('reportModal').style.display = 'block';
             document.getElementById('reportSummary').value = '';
@@ -996,8 +1023,15 @@
 
         async function fetchData(endpoint, params = {}) {
             const queryString = new URLSearchParams(params).toString();
+            const cacheKey = `${endpoint}?${queryString}`;
+            const cached = _fetchCache[cacheKey];
+            if (cached && (Date.now() - cached.time) < FETCH_CACHE_TTL_MS) {
+                return cached.data;
+            }
             const response = await fetch(`/api/${endpoint}?${queryString}`);
-            return await response.json();
+            const data = await response.json();
+            _fetchCache[cacheKey] = { data, time: Date.now() };
+            return data;
         }
 
         function toggleExportMenu() {
@@ -1300,13 +1334,6 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    const classNames = {
-                        'product_bug': 'Product Bug',
-                        'automation_bug': 'Automation Bug',
-                        'system_issue': 'System Issue',
-                        'transient': 'Transient',
-                        'to_investigate': 'To Investigate'
-                    };
                     status.innerHTML = `<span style="color: #10b981; font-weight: 600;">Saved as ${classNames[classification]}</span>`;
                     btn.textContent = 'Saved';
                     btn.style.background = '#10b981';
@@ -1349,13 +1376,6 @@
                 if (data.manual_classification) {
                     const classSelect = document.getElementById('classificationSelect');
                     const classStatus = document.getElementById('classificationStatus');
-                    const classNames = {
-                        'product_bug': 'Product Bug',
-                        'automation_bug': 'Automation Bug',
-                        'system_issue': 'System Issue',
-                        'transient': 'Transient',
-                        'to_investigate': 'To Investigate'
-                    };
                     if (classSelect) {
                         classSelect.value = data.manual_classification;
                     }
@@ -1385,24 +1405,13 @@
                 if (data.ai_analysis) {
                     if (section && content) {
                         const analysis = data.ai_analysis;
-                        const classNames = {
-                            'product_bug': 'Product Bug',
-                            'automation_bug': 'Automation Bug',
-                            'system_issue': 'System Issue',
-                            'transient': 'Transient',
-                            'to_investigate': 'To Investigate'
-                        };
-                        const classColors = {
-                            'product_bug': '#dc2626',
-                            'automation_bug': '#f59e0b',
-                            'system_issue': '#3b82f6',
-                            'transient': '#10b981',
-                            'to_investigate': '#8b5cf6'
-                        };
                         const className = classNames[analysis.failure_type] || analysis.failure_type || 'Unknown';
                         const classColor = classColors[analysis.failure_type] || '#6b7280';
 
                         content.innerHTML = `
+                            <div style="margin-bottom: 12px;">
+                                <span style="display: inline-block; background: ${classColor}; color: white; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; text-transform: uppercase;">AI Suggestion: ${className}</span>
+                            </div>
                             <div style="background: #f9fafb; padding: 15px; border-radius: 6px; margin-bottom: 12px;">
                                 <div style="font-weight: 600; color: #374151; margin-bottom: 8px;">Root Cause:</div>
                                 <div style="color: #1f2937;">${analysis.root_cause || 'N/A'}</div>
@@ -1431,6 +1440,14 @@
                             ` : ''}
                         `;
                         section.style.display = 'block';
+                    }
+                    // Auto-populate Manual Classification dropdown
+                    // with AI suggestion if no manual classification set
+                    if (analysis.failure_type && !data.manual_classification) {
+                        const classSelect = document.getElementById('classificationSelect');
+                        if (classSelect && !classSelect.value) {
+                            classSelect.value = analysis.failure_type;
+                        }
                     }
                 } else {
                     // No cached analysis - hide section (user can manually trigger)
@@ -1481,8 +1498,14 @@
                 const data = await response.json();
 
                 if (response.ok && data.root_cause) {
+                    const liveClassName = classNames[data.failure_type] || data.failure_type || 'Unknown';
+                    const liveClassColor = classColors[data.failure_type] || '#6b7280';
+
                     // Display in same format as auto-loaded analysis
                     content.innerHTML = `
+                        <div style="margin-bottom: 12px;">
+                            <span style="display: inline-block; background: ${liveClassColor}; color: white; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; text-transform: uppercase;">AI Suggestion: ${liveClassName}</span>
+                        </div>
                         <div style="background: #f9fafb; padding: 15px; border-radius: 6px; margin-bottom: 12px;">
                             <div style="font-weight: 600; color: #374151; margin-bottom: 8px;">Root Cause:</div>
                             <div style="color: #1f2937;">${data.root_cause || 'N/A'}</div>
@@ -1510,6 +1533,15 @@
                             </div>
                         ` : ''}
                     `;
+                    // Auto-populate Manual Classification dropdown
+                    // with AI suggestion if not already set
+                    if (data.failure_type) {
+                        const classSelect = document.getElementById('classificationSelect');
+                        if (classSelect && !classSelect.value) {
+                            classSelect.value = data.failure_type;
+                        }
+                    }
+
                     // Update button to show success
                     if (btn) {
                         btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M10 15.586L6.707 12.293a1 1 0 0 0-1.414 1.414l4 4a1 1 0 0 0 1.414 0l8-8a1 1 0 0 0-1.414-1.414L10 15.586z"/></svg> Analyzed';
@@ -2097,6 +2129,9 @@
                         clearInterval(collectionPolling);
                         collectionPolling = null;
                     }
+
+                    // Clear cache so fresh data is fetched after collection
+                    invalidateFetchCache();
 
                     // Refresh dashboard data without full page reload
                     refreshDashboard();
