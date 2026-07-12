@@ -5,6 +5,7 @@ Flask web server for dashboard
 from flask import Flask, render_template, jsonify, request, send_file, session, redirect
 from datetime import datetime, timedelta
 from pathlib import Path
+import time
 import yaml
 import threading
 import sys
@@ -12,6 +13,7 @@ import os
 import logging
 import io
 import csv
+from collections import OrderedDict
 import html as html_module
 import re
 import secrets
@@ -39,11 +41,106 @@ collection_status = {
     'lock': threading.Lock()
 }
 
-# Server-side store for OAuth access tokens.  Only a random token_id is
-# placed in the (signed, client-side) Flask session cookie so the actual
-# GitHub token is never exposed to the browser.
+# ---------------------------------------------------------------------------
+# Bounded token store – prevents unbounded memory growth from OAuth tokens
+# that are never explicitly logged-out (e.g. user closes browser tab).
+#
+# Only a random token_id is placed in the (signed, client-side) Flask session
+# cookie so the actual GitHub token is never exposed to the browser.
 # Note: tokens are lost on process restart; users simply re-authenticate.
-_oauth_token_store = {}
+# ---------------------------------------------------------------------------
+
+# Defaults – override via env vars TOKEN_STORE_MAX_SIZE / TOKEN_STORE_TTL_SECONDS
+_TOKEN_STORE_MAX_SIZE = int(os.environ.get('TOKEN_STORE_MAX_SIZE', '1024'))
+_TOKEN_STORE_TTL_SECONDS = int(
+    os.environ.get('TOKEN_STORE_TTL_SECONDS', str(8 * 3600))   # 8 hours
+)
+
+
+class _BoundedTokenStore:
+    """Dict-like store with TTL expiry and LRU eviction.
+
+    Each entry records its insertion timestamp.  Expired entries are
+    lazily purged on ``get`` and ``__setitem__``.  When the store
+    reaches *max_size*, the oldest entry (by insertion order) is
+    evicted regardless of its age.
+    """
+
+    def __init__(self, max_size=_TOKEN_STORE_MAX_SIZE,
+                 max_age=_TOKEN_STORE_TTL_SECONDS, clock=time.time):
+        self._data = OrderedDict()       # token_id -> (value, timestamp)
+        self._max_size = max_size
+        self._max_age = max_age
+        self._clock = clock              # injectable for testing
+
+    # -- internal helpers ---------------------------------------------------
+
+    def _is_expired(self, timestamp):
+        return (self._clock() - timestamp) > self._max_age
+
+    def _evict_expired(self):
+        """Remove all entries older than *max_age*."""
+        now = self._clock()
+        # OrderedDict is insertion-ordered; oldest entries are at the front.
+        keys_to_delete = [
+            k for k, (_, ts) in self._data.items()
+            if (now - ts) > self._max_age
+        ]
+        for k in keys_to_delete:
+            del self._data[k]
+
+    # -- dict-compatible public API -----------------------------------------
+
+    def __setitem__(self, key, value):
+        self._evict_expired()
+        # Remove first so re-insertion moves it to the end (most-recent).
+        if key in self._data:
+            del self._data[key]
+        self._data[key] = (value, self._clock())
+        # Enforce max-size: evict oldest entries.
+        while len(self._data) > self._max_size:
+            self._data.popitem(last=False)
+
+    def get(self, key, default=None):
+        entry = self._data.get(key)
+        if entry is None:
+            return default
+        value, ts = entry
+        if self._is_expired(ts):
+            del self._data[key]
+            return default
+        return value
+
+    def pop(self, key, *args):
+        entry = self._data.pop(key, None)
+        if entry is None:
+            if args:
+                return args[0]
+            raise KeyError(key)
+        return entry[0]
+
+    def clear(self):
+        self._data.clear()
+
+    def __contains__(self, key):
+        entry = self._data.get(key)
+        if entry is None:
+            return False
+        if self._is_expired(entry[1]):
+            del self._data[key]
+            return False
+        return True
+
+    def __len__(self):
+        self._evict_expired()
+        return len(self._data)
+
+    def values(self):
+        self._evict_expired()
+        return [v for v, _ in self._data.values()]
+
+
+_oauth_token_store = _BoundedTokenStore()
 
 
 def run_collection_background(db_path: str, config_file: str = 'config.yaml', days: int = 30, version_filter: str = ''):
