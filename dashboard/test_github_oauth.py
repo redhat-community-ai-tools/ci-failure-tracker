@@ -281,6 +281,38 @@ class TestReportProblemRedirect:
         assert response.status_code == 404
 
 
+class TestReportProblemAuthGating:
+    """Tests that the Report a Problem button is gated by GitHub OAuth."""
+
+    def test_dashboard_includes_auth_check_script(self, client_with_oauth):
+        """Dashboard template contains JS that checks /auth/github/status on load."""
+        response = client_with_oauth.get('/')
+        html = response.data.decode()
+        assert 'checkGitHubAuth' in html
+        assert '/auth/github/status' in html
+
+    def test_report_button_has_id(self, client_with_oauth):
+        """Report a Problem button has an id so JS can update it."""
+        response = client_with_oauth.get('/')
+        html = response.data.decode()
+        assert 'id="reportProblemBtn"' in html
+
+    def test_template_includes_update_report_button(self, client_with_oauth):
+        """Template includes updateReportButton that hides button when unauthenticated."""
+        response = client_with_oauth.get('/')
+        html = response.data.decode()
+        assert 'updateReportButton' in html
+        assert 'Log in to Report' in html
+        assert '/auth/github/login' in html
+
+    def test_open_report_modal_guards_auth(self, client_with_oauth):
+        """openReportModal redirects to login when OAuth configured but unauthenticated."""
+        response = client_with_oauth.get('/')
+        html = response.data.decode()
+        assert 'githubAuthState.oauth_configured' in html
+        assert 'githubAuthState.authenticated' in html
+
+
 class TestUserTokenInGitHubIntegration:
     """Tests for the user_token parameter in GitHubIntegration.create_report."""
 

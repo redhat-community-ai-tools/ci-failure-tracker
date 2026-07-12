@@ -563,7 +563,7 @@
                     </div>
                     <p class="subtitle">Windows Containers QE - OpenShift CI Test Results</p>
                 </div>
-                <button onclick="openReportModal()" style="
+                <button id="reportProblemBtn" onclick="openReportModal()" style="
                     padding: 8px 16px;
                     border: 2px solid #dc2626;
                     background: #dc2626;
@@ -942,6 +942,35 @@
             'to_investigate': '#8b5cf6'
         };
 
+        // GitHub auth state for gating Report a Problem access
+        let githubAuthState = { authenticated: false, oauth_configured: false, username: '' };
+
+        async function checkGitHubAuth() {
+            try {
+                const response = await fetch('/auth/github/status');
+                const data = await response.json();
+                githubAuthState = data;
+                updateReportButton();
+            } catch (error) {
+                console.error('Failed to check GitHub auth status:', error);
+            }
+        }
+
+        function updateReportButton() {
+            const btn = document.getElementById('reportProblemBtn');
+            if (!btn) return;
+
+            if (githubAuthState.oauth_configured && !githubAuthState.authenticated) {
+                btn.textContent = 'Log in to Report';
+                btn.onclick = function() { window.location.href = '/auth/github/login'; };
+                btn.title = 'Log in to GitHub to report a problem';
+            } else {
+                btn.textContent = 'Report a Problem';
+                btn.onclick = openReportModal;
+                btn.title = '';
+            }
+        }
+
         // Client-side response cache to avoid redundant API fetches
         // when switching tabs or re-selecting the same period.
         const _fetchCache = {};
@@ -954,6 +983,10 @@
         }
 
         function openReportModal() {
+            if (githubAuthState.oauth_configured && !githubAuthState.authenticated) {
+                window.location.href = '/auth/github/login';
+                return;
+            }
             document.getElementById('reportModal').style.display = 'block';
             document.getElementById('reportSummary').value = '';
             document.getElementById('reportDescription').value = '';
@@ -2285,6 +2318,7 @@
         }
 
         // Initial load
+        checkGitHubAuth();
         loadMetadata().then(() => {
             checkCollectionStatus();
             refreshDashboard();
