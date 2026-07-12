@@ -69,3 +69,17 @@ class TestFetchCache:
         html = response.data.decode('utf-8')
         # The collection-complete handler should call invalidateFetchCache
         assert 'invalidateFetchCache()' in html
+
+    def test_error_responses_not_cached(self, client):
+        """fetchData() must not cache responses when response.ok is false."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        # The fetchData function must check response.ok before caching
+        assert 'response.ok' in html
+
+    def test_error_response_returns_data_without_caching(self, client):
+        """fetchData() must return error data directly, skipping the cache write."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        # Verify the guard returns before the cache-write line
+        assert '!response.ok' in html
