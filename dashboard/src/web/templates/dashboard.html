@@ -891,6 +891,8 @@
                 <span class="close" onclick="closeReportModal()">&times;</span>
             </div>
             <div class="modal-body">
+                <!-- GitHub OAuth auth status banner -->
+                <div id="reportAuthBanner" style="display: none; margin-bottom: 16px; padding: 12px 16px; border-radius: 6px; font-size: 14px;"></div>
                 <div style="margin-bottom: 16px;">
                     <label for="reportSummary" style="display: block; font-weight: 600; margin-bottom: 6px;">Summary</label>
                     <input type="text" id="reportSummary" placeholder="Brief description of the problem" style="
@@ -905,7 +907,8 @@
                         font-size: 14px; font-family: inherit; resize: vertical; box-sizing: border-box;
                     "></textarea>
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
+                <!-- Manual reporter fields (shown when OAuth is not configured or not authenticated) -->
+                <div id="reporterFieldsSection" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
                     <div>
                         <label for="reporterName" style="display: block; font-weight: 600; margin-bottom: 6px;">Your name or email <span style="font-weight: 400; color: #6b7280;">(optional)</span></label>
                         <input type="text" id="reporterName" placeholder="e.g. Jane Doe or jane@redhat.com" style="
@@ -939,7 +942,7 @@
         let trendChart, versionChart;
         let currentLogData = {}; // Store current log data for AI analysis and Jira creation
 
-        function openReportModal() {
+        async function openReportModal() {
             document.getElementById('reportModal').style.display = 'block';
             document.getElementById('reportSummary').value = '';
             document.getElementById('reportDescription').value = '';
@@ -950,11 +953,67 @@
             btn.disabled = false;
             btn.style.background = '#dc2626';
             btn.onclick = submitReport;
+
+            // Check GitHub OAuth auth status
+            const banner = document.getElementById('reportAuthBanner');
+            const reporterFields = document.getElementById('reporterFieldsSection');
+            banner.style.display = 'none';
+            reporterFields.style.display = 'grid';
+
+            try {
+                const resp = await fetch('/auth/github/status');
+                const authData = await resp.json();
+
+                if (authData.authenticated) {
+                    // User is signed in via OAuth — build banner with DOM
+                    // API to avoid XSS via unsanitised username.
+                    banner.style.display = 'block';
+                    banner.style.background = '#ecfdf5';
+                    banner.style.border = '1px solid #6ee7b7';
+                    banner.style.color = '#065f46';
+                    banner.textContent = '';
+                    banner.append('Signed in as ');
+                    const usernameSpan = document.createElement('strong');
+                    usernameSpan.textContent = '@' + authData.username;
+                    banner.append(usernameSpan);
+                    banner.append(' — issue will be created under your GitHub account. ');
+                    const signOutLink = document.createElement('a');
+                    signOutLink.href = '#';
+                    signOutLink.style.cssText = 'color: #065f46; margin-left: 8px;';
+                    signOutLink.textContent = 'Sign out';
+                    signOutLink.onclick = function() { githubLogout(); return false; };
+                    banner.append(signOutLink);
+                    // Hide manual reporter fields when authenticated
+                    reporterFields.style.display = 'none';
+                } else if (authData.oauth_configured) {
+                    // OAuth is configured but user is not signed in
+                    banner.style.display = 'block';
+                    banner.style.background = '#eff6ff';
+                    banner.style.border = '1px solid #93c5fd';
+                    banner.style.color = '#1e40af';
+                    banner.innerHTML = '<a href="/auth/github/login" style="color: #1e40af; font-weight: 600; text-decoration: none;">Sign in with GitHub</a> to create the issue under your own account, or fill in the fields below to use the shared account.';
+                }
+                // If OAuth is not configured, banner stays hidden and manual fields stay visible (fallback)
+            } catch (e) {
+                // If status check fails, fall back to manual fields
+                console.warn('Could not check GitHub auth status:', e);
+            }
+
             document.getElementById('reportSummary').focus();
         }
 
         function closeReportModal() {
             document.getElementById('reportModal').style.display = 'none';
+        }
+
+        async function githubLogout() {
+            try {
+                await fetch('/auth/github/logout', { method: 'POST' });
+                // Re-open the modal to refresh auth state
+                openReportModal();
+            } catch (e) {
+                console.warn('Logout failed:', e);
+            }
         }
 
         async function submitReport() {

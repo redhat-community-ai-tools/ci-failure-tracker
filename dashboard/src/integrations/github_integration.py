@@ -29,15 +29,16 @@ class GitHubIntegration:
     def __init__(self, config: GitHubConfig):
         self.config = config
 
-    def _get_headers(self):
+    def _get_headers(self, token=None):
         return {
-            'Authorization': f'token {self.config.token}',
+            'Authorization': f'token {token or self.config.token}',
             'Accept': 'application/vnd.github.v3+json',
             'Content-Type': 'application/json'
         }
 
     def create_report(self, summary: str, description: str,
-                      reporter_name: str = '', reporter_github: str = '') -> Optional[dict]:
+                      reporter_name: str = '', reporter_github: str = '',
+                      user_token: str = None) -> Optional[dict]:
         """Create a GitHub issue for a dashboard problem report.
 
         Args:
@@ -45,6 +46,9 @@ class GitHubIntegration:
             description: Detailed description with steps to reproduce.
             reporter_name: Optional name or email of the reporter.
             reporter_github: Optional GitHub username of the reporter.
+            user_token: Optional per-user OAuth token. When provided, the
+                issue is created under the user's identity instead of the
+                server PAT.
 
         Returns dict with 'number' and 'html_url' on success, None on failure.
         """
@@ -74,7 +78,7 @@ class GitHubIntegration:
 
             response = requests.post(
                 url,
-                headers=self._get_headers(),
+                headers=self._get_headers(token=user_token),
                 json=issue_data,
                 timeout=30
             )
