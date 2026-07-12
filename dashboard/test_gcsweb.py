@@ -288,6 +288,52 @@ class TestDiagnosticLogging:
         assert '4.23' in warning_msgs[0]
         assert '4.22' not in warning_msgs[0]
 
+    def test_collect_job_runs_logs_per_version_breakdown(self, collector, caplog):
+        """Per-version breakdown should log separate warnings per version."""
+        with patch.object(collector, '_resolve_patterns', return_value=[
+            'periodic-ci-release-4.22-aws-winc-f7',
+            'periodic-ci-release-4.23-gcp-winc-f7',
+        ]):
+            with patch.object(collector, '_list_job_runs', return_value=[]):
+                with caplog.at_level(logging.WARNING, logger='src.collectors.gcsweb'):
+                    start = datetime.now() - timedelta(days=30)
+                    end = datetime.now()
+                    runs = collector.collect_job_runs(
+                        start_date=start,
+                        end_date=end,
+                        job_patterns=['periodic-ci-release-*'],
+                    )
+
+        assert runs == []
+        # Each version should get its own per-version breakdown warning
+        version_msgs = [
+            m for m in caplog.messages if 'job(s) with no builds' in m
+        ]
+        assert len(version_msgs) == 2
+        assert any('Version 4.22: 1 job(s) with no builds' in m for m in version_msgs)
+        assert any('Version 4.23: 1 job(s) with no builds' in m for m in version_msgs)
+
+    def test_collect_job_runs_per_version_breakdown_unknown_version(self, collector, caplog):
+        """Jobs that don't match release-X.Y should be grouped under 'unknown'."""
+        with patch.object(collector, '_resolve_patterns', return_value=[
+            'periodic-ci-main-aws-winc',
+        ]):
+            with patch.object(collector, '_list_job_runs', return_value=[]):
+                with caplog.at_level(logging.WARNING, logger='src.collectors.gcsweb'):
+                    start = datetime.now() - timedelta(days=30)
+                    end = datetime.now()
+                    runs = collector.collect_job_runs(
+                        start_date=start,
+                        end_date=end,
+                        job_patterns=['periodic-ci-main-*'],
+                    )
+
+        assert runs == []
+        assert any(
+            'Version unknown: 1 job(s) with no builds' in m
+            for m in caplog.messages
+        )
+
     def test_fetch_file_logs_warning_on_error(self, collector, caplog):
         """_fetch_file should log a warning (not print) on errors."""
         mock_response = MagicMock()
