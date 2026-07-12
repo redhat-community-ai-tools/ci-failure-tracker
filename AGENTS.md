@@ -58,3 +58,12 @@ Most agent work targets the dashboard.
     within the method body, or (b) forwarded to a callee that applies it. Do
     not add filter parameters to method signatures without implementing or
     forwarding the filter logic.
+
+13. **Template-embedded JavaScript testing.** String-presence assertions
+    (e.g., checking that a function name appears in rendered HTML) are not
+    sufficient tests for JavaScript logic embedded in Jinja templates.
+    Tests must verify structural correctness: that cache-check logic
+    precedes network calls, that invalidation is called before refresh,
+    that error paths are handled. If the JS logic is complex enough to
+    require tests, consider extracting it into a separate `.js` file
+    that can be tested independently.
