@@ -1,0 +1,18 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# SQLite databases
+*.db
+*.sqlite3
+
+# Environment variables
+.env
+
+# pytest
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
