@@ -13,7 +13,6 @@ import logging
 import io
 import csv
 import html as html_module
-import re
 import secrets
 from urllib.parse import urlencode
 import requests as http_requests
@@ -878,16 +877,9 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
 
         summary = data.get('summary', '').strip()
         description = data.get('description', '').strip()
-        reporter_name = data.get('reporter_name', '').strip()
-        reporter_github = data.get('reporter_github', '').strip()
 
         if not summary or not description:
             return jsonify({'error': 'Both summary and description are required'}), 400
-
-        if reporter_github and not re.match(
-            r'^@?[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$', reporter_github
-        ):
-            return jsonify({'error': 'Invalid GitHub username format'}), 400
 
         # Use the user's OAuth token if authenticated, otherwise fall back to PAT
         token_id = session.get('oauth_token_id')
@@ -896,8 +888,6 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         result = github.create_report(
             summary=summary,
             description=description,
-            reporter_name=reporter_name,
-            reporter_github=reporter_github,
             user_token=user_token
         )
 
