@@ -891,6 +891,8 @@
                 <span class="close" onclick="closeReportModal()">&times;</span>
             </div>
             <div class="modal-body">
+                <!-- GitHub OAuth auth status banner -->
+                <div id="reportAuthBanner" style="display: none; margin-bottom: 16px; padding: 12px 16px; border-radius: 6px; font-size: 14px;"></div>
                 <div style="margin-bottom: 16px;">
                     <label for="reportSummary" style="display: block; font-weight: 600; margin-bottom: 6px;">Summary</label>
                     <input type="text" id="reportSummary" placeholder="Brief description of the problem" style="
@@ -904,22 +906,6 @@
                         width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px;
                         font-size: 14px; font-family: inherit; resize: vertical; box-sizing: border-box;
                     "></textarea>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
-                    <div>
-                        <label for="reporterName" style="display: block; font-weight: 600; margin-bottom: 6px;">Your name or email <span style="font-weight: 400; color: #6b7280;">(optional)</span></label>
-                        <input type="text" id="reporterName" placeholder="e.g. Jane Doe or jane@redhat.com" style="
-                            width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px;
-                            font-size: 14px; box-sizing: border-box;
-                        ">
-                    </div>
-                    <div>
-                        <label for="reporterGithub" style="display: block; font-weight: 600; margin-bottom: 6px;">GitHub username <span style="font-weight: 400; color: #6b7280;">(optional)</span></label>
-                        <input type="text" id="reporterGithub" placeholder="e.g. janedoe" style="
-                            width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px;
-                            font-size: 14px; box-sizing: border-box;
-                        ">
-                    </div>
                 </div>
                 <div style="display: flex; justify-content: flex-end; gap: 10px;">
                     <button onclick="closeReportModal()" style="
@@ -950,17 +936,57 @@
             }
         }
 
-        function openReportModal() {
+        async function openReportModal() {
             document.getElementById('reportModal').style.display = 'block';
             document.getElementById('reportSummary').value = '';
             document.getElementById('reportDescription').value = '';
-            document.getElementById('reporterName').value = '';
-            document.getElementById('reporterGithub').value = '';
             const btn = document.getElementById('reportSubmitBtn');
             btn.textContent = 'Submit';
             btn.disabled = false;
             btn.style.background = '#dc2626';
             btn.onclick = submitReport;
+
+            // Check GitHub OAuth auth status
+            const banner = document.getElementById('reportAuthBanner');
+            banner.style.display = 'none';
+
+            try {
+                const resp = await fetch('/auth/github/status');
+                const authData = await resp.json();
+
+                if (authData.authenticated) {
+                    // User is signed in via OAuth — build banner with DOM
+                    // API to avoid XSS via unsanitised username.
+                    banner.style.display = 'block';
+                    banner.style.background = '#ecfdf5';
+                    banner.style.border = '1px solid #6ee7b7';
+                    banner.style.color = '#065f46';
+                    banner.textContent = '';
+                    banner.append('Signed in as ');
+                    const usernameSpan = document.createElement('strong');
+                    usernameSpan.textContent = '@' + authData.username;
+                    banner.append(usernameSpan);
+                    banner.append(' — issue will be created under your GitHub account. ');
+                    const signOutLink = document.createElement('a');
+                    signOutLink.href = '#';
+                    signOutLink.style.cssText = 'color: #065f46; margin-left: 8px;';
+                    signOutLink.textContent = 'Sign out';
+                    signOutLink.onclick = function() { githubLogout(); return false; };
+                    banner.append(signOutLink);
+                } else if (authData.oauth_configured) {
+                    // OAuth is configured but user is not signed in
+                    banner.style.display = 'block';
+                    banner.style.background = '#eff6ff';
+                    banner.style.border = '1px solid #93c5fd';
+                    banner.style.color = '#1e40af';
+                    banner.innerHTML = '<a href="/auth/github/login" style="color: #1e40af; font-weight: 600; text-decoration: none;">Sign in with GitHub</a> to create the issue under your own account, or submit to use the shared account.';
+                }
+                // If OAuth is not configured, banner stays hidden (fallback to server PAT)
+            } catch (e) {
+                // If status check fails, fall back to server PAT
+                console.warn('Could not check GitHub auth status:', e);
+            }
+
             document.getElementById('reportSummary').focus();
         }
 
@@ -968,19 +994,22 @@
             document.getElementById('reportModal').style.display = 'none';
         }
 
+        async function githubLogout() {
+            try {
+                await fetch('/auth/github/logout', { method: 'POST' });
+                // Re-open the modal to refresh auth state
+                openReportModal();
+            } catch (e) {
+                console.warn('Logout failed:', e);
+            }
+        }
+
         async function submitReport() {
             const summary = document.getElementById('reportSummary').value.trim();
             const description = document.getElementById('reportDescription').value.trim();
-            const reporter_name = document.getElementById('reporterName').value.trim();
-            const reporter_github = document.getElementById('reporterGithub').value.trim();
 
             if (!summary || !description) {
                 alert('Please fill in both summary and description.');
-                return;
-            }
-
-            if (reporter_github && !/^@?[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(reporter_github)) {
-                alert('GitHub username may only contain letters, numbers, and hyphens, and cannot start or end with a hyphen.');
                 return;
             }
 
@@ -993,7 +1022,7 @@
                 const response = await fetch('/api/github/report-problem', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ summary, description, reporter_name, reporter_github })
+                    body: JSON.stringify({ summary, description })
                 });
 
                 const data = await response.json();

@@ -29,39 +29,30 @@ class GitHubIntegration:
     def __init__(self, config: GitHubConfig):
         self.config = config
 
-    def _get_headers(self):
+    def _get_headers(self, token=None):
         return {
-            'Authorization': f'token {self.config.token}',
+            'Authorization': f'token {token or self.config.token}',
             'Accept': 'application/vnd.github.v3+json',
             'Content-Type': 'application/json'
         }
 
     def create_report(self, summary: str, description: str,
-                      reporter_name: str = '', reporter_github: str = '') -> Optional[dict]:
+                      user_token: str = None) -> Optional[dict]:
         """Create a GitHub issue for a dashboard problem report.
 
         Args:
             summary: Brief description of the problem.
             description: Detailed description with steps to reproduce.
-            reporter_name: Optional name or email of the reporter.
-            reporter_github: Optional GitHub username of the reporter.
+            user_token: Optional per-user OAuth token. When provided, the
+                issue is created under the user's identity instead of the
+                server PAT.
 
         Returns dict with 'number' and 'html_url' on success, None on failure.
         """
         try:
             title = f"[Dashboard] {summary}"
 
-            # Build footer with reporter identity
-            footer_parts = []
-            if reporter_github:
-                # Strip leading @ if user included it
-                username = reporter_github.lstrip('@')
-                footer_parts.append(f"Reported by: @{username}")
-            elif reporter_name:
-                footer_parts.append(f"Reported by: {reporter_name}")
-            footer_parts.append("*Reported via CI Dashboard*")
-
-            body = f"{description}\n\n---\n" + "\n".join(footer_parts)
+            body = f"{description}\n\n---\n*Reported via CI Dashboard*"
 
             issue_data = {
                 'title': title,
@@ -74,7 +65,7 @@ class GitHubIntegration:
 
             response = requests.post(
                 url,
-                headers=self._get_headers(),
+                headers=self._get_headers(token=user_token),
                 json=issue_data,
                 timeout=30
             )
