@@ -563,7 +563,7 @@
                     </div>
                     <p class="subtitle">Windows Containers QE - OpenShift CI Test Results</p>
                 </div>
-                <button onclick="openReportModal()" style="
+                <button id="reportProblemBtn" onclick="openReportModal()" style="
                     padding: 8px 16px;
                     border: 2px solid #dc2626;
                     background: #dc2626;
@@ -891,8 +891,9 @@
                 <span class="close" onclick="closeReportModal()">&times;</span>
             </div>
             <div class="modal-body">
-                <!-- GitHub OAuth auth status banner -->
-                <div id="reportAuthBanner" style="display: none; margin-bottom: 16px; padding: 12px 16px; border-radius: 6px; font-size: 14px;"></div>
+                <p style="margin-bottom: 16px; font-size: 14px; color: #666;">
+                    Fill in the details below and click Submit to open a pre-filled GitHub issue. You will be able to review and edit the issue before creating it.
+                </p>
                 <div style="margin-bottom: 16px;">
                     <label for="reportSummary" style="display: block; font-weight: 600; margin-bottom: 6px;">Summary</label>
                     <input type="text" id="reportSummary" placeholder="Brief description of the problem" style="
@@ -925,6 +926,51 @@
         let trendChart, versionChart;
         let currentLogData = {}; // Store current log data for AI analysis and Jira creation
 
+        // Shared classification lookup maps (used by save, load, and AI analysis)
+        const classNames = {
+            'product_bug': 'Product Bug',
+            'automation_bug': 'Automation Bug',
+            'system_issue': 'System Issue',
+            'transient': 'Transient',
+            'to_investigate': 'To Investigate'
+        };
+        const classColors = {
+            'product_bug': '#dc2626',
+            'automation_bug': '#f59e0b',
+            'system_issue': '#3b82f6',
+            'transient': '#10b981',
+            'to_investigate': '#8b5cf6'
+        };
+
+        // GitHub auth state for gating Report a Problem access
+        let githubAuthState = { authenticated: false, oauth_configured: false, username: '' };
+
+        async function checkGitHubAuth() {
+            try {
+                const response = await fetch('/auth/github/status');
+                const data = await response.json();
+                githubAuthState = data;
+                updateReportButton();
+            } catch (error) {
+                console.error('Failed to check GitHub auth status:', error);
+            }
+        }
+
+        function updateReportButton() {
+            const btn = document.getElementById('reportProblemBtn');
+            if (!btn) return;
+
+            if (githubAuthState.oauth_configured && !githubAuthState.authenticated) {
+                btn.textContent = 'Log in to Report';
+                btn.onclick = function() { window.location.href = '/auth/github/login'; };
+                btn.title = 'Log in to GitHub to report a problem';
+            } else {
+                btn.textContent = 'Report a Problem';
+                btn.onclick = openReportModal;
+                btn.title = '';
+            }
+        }
+
         // Client-side response cache to avoid redundant API fetches
         // when switching tabs or re-selecting the same period.
         const _fetchCache = {};
@@ -936,7 +982,11 @@
             }
         }
 
-        async function openReportModal() {
+        function openReportModal() {
+            if (githubAuthState.oauth_configured && !githubAuthState.authenticated) {
+                window.location.href = '/auth/github/login';
+                return;
+            }
             document.getElementById('reportModal').style.display = 'block';
             document.getElementById('reportSummary').value = '';
             document.getElementById('reportDescription').value = '';
@@ -946,47 +996,6 @@
             btn.style.background = '#dc2626';
             btn.onclick = submitReport;
 
-            // Check GitHub OAuth auth status
-            const banner = document.getElementById('reportAuthBanner');
-            banner.style.display = 'none';
-
-            try {
-                const resp = await fetch('/auth/github/status');
-                const authData = await resp.json();
-
-                if (authData.authenticated) {
-                    // User is signed in via OAuth — build banner with DOM
-                    // API to avoid XSS via unsanitised username.
-                    banner.style.display = 'block';
-                    banner.style.background = '#ecfdf5';
-                    banner.style.border = '1px solid #6ee7b7';
-                    banner.style.color = '#065f46';
-                    banner.textContent = '';
-                    banner.append('Signed in as ');
-                    const usernameSpan = document.createElement('strong');
-                    usernameSpan.textContent = '@' + authData.username;
-                    banner.append(usernameSpan);
-                    banner.append(' — issue will be created under your GitHub account. ');
-                    const signOutLink = document.createElement('a');
-                    signOutLink.href = '#';
-                    signOutLink.style.cssText = 'color: #065f46; margin-left: 8px;';
-                    signOutLink.textContent = 'Sign out';
-                    signOutLink.onclick = function() { githubLogout(); return false; };
-                    banner.append(signOutLink);
-                } else if (authData.oauth_configured) {
-                    // OAuth is configured but user is not signed in
-                    banner.style.display = 'block';
-                    banner.style.background = '#eff6ff';
-                    banner.style.border = '1px solid #93c5fd';
-                    banner.style.color = '#1e40af';
-                    banner.innerHTML = '<a href="/auth/github/login" style="color: #1e40af; font-weight: 600; text-decoration: none;">Sign in with GitHub</a> to create the issue under your own account, or submit to use the shared account.';
-                }
-                // If OAuth is not configured, banner stays hidden (fallback to server PAT)
-            } catch (e) {
-                // If status check fails, fall back to server PAT
-                console.warn('Could not check GitHub auth status:', e);
-            }
-
             document.getElementById('reportSummary').focus();
         }
 
@@ -994,17 +1003,7 @@
             document.getElementById('reportModal').style.display = 'none';
         }
 
-        async function githubLogout() {
-            try {
-                await fetch('/auth/github/logout', { method: 'POST' });
-                // Re-open the modal to refresh auth state
-                openReportModal();
-            } catch (e) {
-                console.warn('Logout failed:', e);
-            }
-        }
-
-        async function submitReport() {
+        function submitReport() {
             const summary = document.getElementById('reportSummary').value.trim();
             const description = document.getElementById('reportDescription').value.trim();
 
@@ -1013,48 +1012,24 @@
                 return;
             }
 
-            const btn = document.getElementById('reportSubmitBtn');
-            btn.textContent = 'Creating...';
-            btn.disabled = true;
-            btn.style.background = '#9ca3af';
-
-            try {
-                const response = await fetch('/api/github/report-problem', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ summary, description })
-                });
-
-                const data = await response.json();
-
-                if (data.status === 'disabled') {
-                    alert('GitHub integration not configured. Set GITHUB_TOKEN and GITHUB_REPO environment variables.');
-                    btn.textContent = 'Submit';
-                    btn.disabled = false;
-                    btn.style.background = '#dc2626';
-                    return;
-                }
-
-                if (data.error) {
-                    alert('Error: ' + data.error);
-                    btn.textContent = 'Submit';
-                    btn.disabled = false;
-                    btn.style.background = '#dc2626';
-                    return;
-                }
-
-                if (data.status === 'created') {
-                    btn.textContent = data.issue_key;
-                    btn.style.background = '#10b981';
-                    btn.disabled = false;
-                    btn.onclick = function() { window.open(data.issue_url, '_blank'); };
-                }
-            } catch (err) {
-                alert('Failed to create issue: ' + err.message);
-                btn.textContent = 'Submit';
-                btn.disabled = false;
-                btn.style.background = '#dc2626';
+            const githubRepo = '{{ github_repo }}';
+            if (!githubRepo) {
+                alert('GitHub repository not configured. Set the GITHUB_REPO environment variable.');
+                return;
             }
+
+            const title = '[Dashboard] ' + summary;
+            const body = description + '\n\n---\n*Reported via CI Dashboard*';
+
+            const params = new URLSearchParams({
+                title: title,
+                body: body,
+                labels: 'bug'
+            });
+
+            const issueUrl = 'https://github.com/' + githubRepo + '/issues/new?' + params.toString();
+            window.open(issueUrl, '_blank');
+            closeReportModal();
         }
 
         function showTab(tabName) {
@@ -1393,13 +1368,6 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    const classNames = {
-                        'product_bug': 'Product Bug',
-                        'automation_bug': 'Automation Bug',
-                        'system_issue': 'System Issue',
-                        'transient': 'Transient',
-                        'to_investigate': 'To Investigate'
-                    };
                     status.innerHTML = `<span style="color: #10b981; font-weight: 600;">Saved as ${classNames[classification]}</span>`;
                     btn.textContent = 'Saved';
                     btn.style.background = '#10b981';
@@ -1442,13 +1410,6 @@
                 if (data.manual_classification) {
                     const classSelect = document.getElementById('classificationSelect');
                     const classStatus = document.getElementById('classificationStatus');
-                    const classNames = {
-                        'product_bug': 'Product Bug',
-                        'automation_bug': 'Automation Bug',
-                        'system_issue': 'System Issue',
-                        'transient': 'Transient',
-                        'to_investigate': 'To Investigate'
-                    };
                     if (classSelect) {
                         classSelect.value = data.manual_classification;
                     }
@@ -1478,20 +1439,6 @@
                 if (data.ai_analysis) {
                     if (section && content) {
                         const analysis = data.ai_analysis;
-                        const classNames = {
-                            'product_bug': 'Product Bug',
-                            'automation_bug': 'Automation Bug',
-                            'system_issue': 'System Issue',
-                            'transient': 'Transient',
-                            'to_investigate': 'To Investigate'
-                        };
-                        const classColors = {
-                            'product_bug': '#dc2626',
-                            'automation_bug': '#f59e0b',
-                            'system_issue': '#3b82f6',
-                            'transient': '#10b981',
-                            'to_investigate': '#8b5cf6'
-                        };
                         const className = classNames[analysis.failure_type] || analysis.failure_type || 'Unknown';
                         const classColor = classColors[analysis.failure_type] || '#6b7280';
 
@@ -1585,20 +1532,6 @@
                 const data = await response.json();
 
                 if (response.ok && data.root_cause) {
-                    const classNames = {
-                        'product_bug': 'Product Bug',
-                        'automation_bug': 'Automation Bug',
-                        'system_issue': 'System Issue',
-                        'transient': 'Transient',
-                        'to_investigate': 'To Investigate'
-                    };
-                    const classColors = {
-                        'product_bug': '#dc2626',
-                        'automation_bug': '#f59e0b',
-                        'system_issue': '#3b82f6',
-                        'transient': '#10b981',
-                        'to_investigate': '#8b5cf6'
-                    };
                     const liveClassName = classNames[data.failure_type] || data.failure_type || 'Unknown';
                     const liveClassColor = classColors[data.failure_type] || '#6b7280';
 
@@ -2386,6 +2319,7 @@
         }
 
         // Initial load
+        checkGitHubAuth();
         loadMetadata().then(() => {
             checkCollectionStatus();
             refreshDashboard();

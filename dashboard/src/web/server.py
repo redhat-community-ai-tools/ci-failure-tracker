@@ -464,7 +464,8 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         """Render main dashboard page.
         Shows whatever data is already in the DB from cron/manual collection.
         Users trigger collection manually via the refresh button."""
-        return render_template('dashboard.html', enable_ai=enable_ai)
+        github_repo = os.environ.get('GITHUB_REPO', '')
+        return render_template('dashboard.html', enable_ai=enable_ai, github_repo=github_repo)
 
     @app.route('/logs')
     def view_logs():
@@ -955,48 +956,6 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             _oauth_token_store.pop(token_id, None)
         session.pop('github_username', None)
         return jsonify({'status': 'logged_out'})
-
-    @app.route('/api/github/report-problem', methods=['POST'])
-    def api_report_problem():
-        """Create a GitHub issue for a dashboard problem report."""
-        from integrations import get_github_integration
-
-        github = get_github_integration()
-        if not github:
-            return jsonify({
-                'status': 'disabled',
-                'message': 'GitHub integration not configured. Set GITHUB_TOKEN and GITHUB_REPO environment variables.'
-            })
-
-        data = request.json
-        if not data:
-            return jsonify({'error': 'Missing request data'}), 400
-
-        summary = data.get('summary', '').strip()
-        description = data.get('description', '').strip()
-
-        if not summary or not description:
-            return jsonify({'error': 'Both summary and description are required'}), 400
-
-        # Use the user's OAuth token if authenticated, otherwise fall back to PAT
-        token_id = session.get('oauth_token_id')
-        user_token = _oauth_token_store.get(token_id) if token_id else None
-
-        result = github.create_report(
-            summary=summary,
-            description=description,
-            user_token=user_token
-        )
-
-        if result:
-            return jsonify({
-                'status': 'created',
-                'issue_key': f'#{result["number"]}',
-                'issue_url': result['html_url'],
-                'message': f'Created GitHub issue #{result["number"]}'
-            })
-        else:
-            return jsonify({'error': 'Failed to create GitHub issue'}), 500
 
     @app.route('/api/analyze-failure', methods=['POST'])
     def api_analyze_failure():
