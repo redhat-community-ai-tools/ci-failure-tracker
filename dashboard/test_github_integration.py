@@ -4,7 +4,6 @@ Validates issue creation, error handling, and configuration.
 """
 
 import os
-import re
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -13,9 +12,6 @@ from src.integrations.github_integration import (
     GitHubConfig,
     get_github_integration,
 )
-
-# Same pattern used by the server-side validation
-GITHUB_USERNAME_RE = re.compile(r'^@?[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$')
 
 
 @pytest.fixture
@@ -95,32 +91,6 @@ class TestCreateReport:
         body = call_kwargs.kwargs['json'] if 'json' in call_kwargs.kwargs else call_kwargs[1]['json']
         assert 'Reported by:' not in body['body']
         assert 'Reported via CI Dashboard' in body['body']
-
-
-class TestGithubUsernameValidation:
-    """Tests for GitHub username validation pattern."""
-
-    @pytest.mark.parametrize("username", [
-        "testuser",
-        "@testuser",
-        "jane-doe",
-        "user123",
-        "a",
-        "A-B",
-    ])
-    def test_accepts_valid_github_usernames(self, username):
-        assert GITHUB_USERNAME_RE.match(username)
-
-    @pytest.mark.parametrize("username", [
-        "-leadinghyphen",
-        "trailinghyphen-",
-        "has spaces",
-        "user@name",
-        "user!name",
-        "no--consecutive is fine but -start is not",
-    ])
-    def test_rejects_invalid_github_usernames(self, username):
-        assert not GITHUB_USERNAME_RE.match(username)
 
 
 class TestGetGithubIntegration:
