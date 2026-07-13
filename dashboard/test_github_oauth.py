@@ -6,6 +6,7 @@ logout, fallback to PAT when OAuth is not configured, and security
 """
 
 import os
+import re
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -282,35 +283,185 @@ class TestReportProblemRedirect:
 
 
 class TestReportProblemAuthGating:
-    """Tests that the Report a Problem button is gated by GitHub OAuth."""
+    """Tests that the Report a Problem button is gated by GitHub OAuth.
 
-    def test_dashboard_includes_auth_check_script(self, client_with_oauth):
-        """Dashboard template contains JS that checks /auth/github/status on load."""
+    Tests verify structural correctness per AGENTS.md rule 13: function
+    invocation at page load, conditional branching on auth state, guard
+    ordering before form display, and visible user feedback on the
+    unauthenticated path.
+    """
+
+    @staticmethod
+    def _extract_script(html):
+        """Extract the inline ``<script>`` block from dashboard HTML."""
+        match = re.search(r'<script>(.*?)</script>', html, re.DOTALL)
+        assert match, "No inline <script> block found in dashboard HTML"
+        return match.group(1)
+
+    @staticmethod
+    def _extract_function_body(script, func_name):
+        """Return the body text of a named JS function.
+
+        Handles ``async function`` declarations and counts nested braces
+        to capture the complete body.
+        """
+        pattern = (
+            r'(?:async\s+)?function\s+'
+            + re.escape(func_name)
+            + r'\s*\([^)]*\)\s*\{'
+        )
+        match = re.search(pattern, script)
+        assert match, f"Function '{func_name}' not found in script"
+        start = match.end()
+        depth = 1
+        pos = start
+        while pos < len(script) and depth > 0:
+            if script[pos] == '{':
+                depth += 1
+            elif script[pos] == '}':
+                depth -= 1
+            pos += 1
+        return script[start:pos - 1]
+
+    def test_auth_check_invoked_on_load(self, client_with_oauth):
+        """checkGitHubAuth must be called on page load, not just defined.
+
+        Fails if the function is defined but never invoked, because an
+        uncalled auth check cannot gate the report button.
+        """
         response = client_with_oauth.get('/')
         html = response.data.decode()
-        assert 'checkGitHubAuth' in html
-        assert '/auth/github/status' in html
+        script = self._extract_script(html)
 
-    def test_report_button_has_id(self, client_with_oauth):
-        """Report a Problem button has an id so JS can update it."""
+        # The function must be defined and must fetch auth status
+        body = self._extract_function_body(script, 'checkGitHubAuth')
+        assert '/auth/github/status' in body, \
+            "checkGitHubAuth does not fetch /auth/github/status"
+
+        # It must call updateReportButton to apply the result
+        assert re.search(r'updateReportButton\s*\(', body), \
+            "checkGitHubAuth does not call updateReportButton()"
+
+        # Locate the function definition span so we can exclude it
+        func_def = re.search(
+            r'(?:async\s+)?function\s+checkGitHubAuth\s*\(', script,
+        )
+        body_open = script.index('{', func_def.end() - 1)
+        depth, pos = 1, body_open + 1
+        while pos < len(script) and depth > 0:
+            if script[pos] == '{':
+                depth += 1
+            elif script[pos] == '}':
+                depth -= 1
+            pos += 1
+        func_end = pos
+
+        # The call must appear OUTSIDE the function definition (i.e. at
+        # the script's top-level initialization code that runs on load).
+        code_outside = script[:func_def.start()] + script[func_end:]
+        assert re.search(r'checkGitHubAuth\s*\(\s*\)', code_outside), \
+            "checkGitHubAuth() is defined but never invoked at page load"
+
+    def test_button_state_conditional_on_auth(self, client_with_oauth):
+        """updateReportButton must branch on unauthenticated state.
+
+        Fails if the conditional is removed, doesn't check both
+        oauth_configured and authenticated, or omits the negation
+        on authenticated (which would swap the branches).
+        """
         response = client_with_oauth.get('/')
         html = response.data.decode()
-        assert 'id="reportProblemBtn"' in html
+        script = self._extract_script(html)
 
-    def test_template_includes_update_report_button(self, client_with_oauth):
-        """Template includes updateReportButton that hides button when unauthenticated."""
+        body = self._extract_function_body(script, 'updateReportButton')
+
+        # Must contain a conditional checking oauth_configured
+        assert re.search(r'oauth_configured', body), \
+            "updateReportButton does not check oauth_configured"
+
+        # Must negate authenticated (i.e. the branch is for the
+        # *unauthenticated* case).  If someone swaps the branches
+        # by removing the ``!``, this assertion catches it.
+        assert re.search(r'!\s*githubAuthState\.authenticated', body), \
+            "updateReportButton does not check for !authenticated"
+
+        # The conditional must change the button text
+        assert 'textContent' in body, \
+            "updateReportButton does not update button text"
+
+    def test_modal_guard_precedes_form(self, client_with_oauth):
+        """Auth guard in openReportModal must precede the form display.
+
+        Fails if the guard is removed or if the modal is displayed
+        before the auth check runs.
+        """
         response = client_with_oauth.get('/')
         html = response.data.decode()
-        assert 'updateReportButton' in html
-        assert 'Log in to Report' in html
-        assert '/auth/github/login' in html
+        script = self._extract_script(html)
 
-    def test_open_report_modal_guards_auth(self, client_with_oauth):
-        """openReportModal redirects to login when OAuth configured but unauthenticated."""
+        body = self._extract_function_body(script, 'openReportModal')
+
+        # Auth guard must exist with the unauthenticated condition
+        guard = re.search(
+            r'if\s*\([^)]*oauth_configured[^)]*!\s*\w*\.?authenticated',
+            body,
+        )
+        if not guard:
+            guard = re.search(
+                r'if\s*\([^)]*!\s*\w*\.?authenticated[^)]*oauth_configured',
+                body,
+            )
+        assert guard, "openReportModal has no auth guard condition"
+
+        # The guard block must redirect unauthenticated users to login
+        login_redirect = re.search(r'/auth/github/login', body)
+        assert login_redirect, \
+            "openReportModal does not redirect to login"
+
+        # Modal display must come AFTER the guard
+        modal_show = re.search(
+            r'reportModal.*display\s*=\s*[\'"]block[\'"]',
+            body, re.DOTALL,
+        )
+        assert modal_show, \
+            "openReportModal does not display the report modal"
+
+        assert guard.start() < modal_show.start(), \
+            "Auth guard must precede modal display in openReportModal"
+
+    def test_unauthenticated_path_visible(self, client_with_oauth):
+        """Unauthenticated users must see visible feedback.
+
+        Fails if the unauthenticated branch does not produce user-
+        visible text or a login redirect, which would silently swallow
+        the error.
+        """
         response = client_with_oauth.get('/')
         html = response.data.decode()
-        assert 'githubAuthState.oauth_configured' in html
-        assert 'githubAuthState.authenticated' in html
+        script = self._extract_script(html)
+
+        body = self._extract_function_body(script, 'updateReportButton')
+
+        # The negation on authenticated marks the unauthenticated branch
+        negation = re.search(r'!\s*githubAuthState\.authenticated', body)
+        assert negation, \
+            "updateReportButton has no unauthenticated branch"
+
+        # Visible button text must appear after the unauthenticated check
+        login_text_pos = body.find('Log in to Report')
+        assert login_text_pos != -1, \
+            "No 'Log in to Report' text for unauthenticated users"
+        assert negation.start() < login_text_pos, \
+            "'Log in to Report' must be inside the unauthenticated branch"
+
+        # The unauthenticated path must redirect to GitHub login
+        login_url_pos = body.find('/auth/github/login')
+        assert login_url_pos != -1, \
+            "No login redirect for unauthenticated users"
+
+        # The button must be targeted by its DOM ID so JS can update it
+        assert 'reportProblemBtn' in body, \
+            "updateReportButton does not reference the button by ID"
 
 
 class TestUserTokenInGitHubIntegration:
