@@ -1050,6 +1050,24 @@
             } else if (tabName === 'weekly-report') {
                 document.getElementById('weekly-report-tab').classList.add('active');
                 document.querySelectorAll('.tab-button')[1].classList.add('active');
+
+                // Sync overview time range to weekly report filters
+                var overviewDays = document.getElementById('timeRange').value;
+                var currentDaysSelect = document.getElementById('reportCurrentDays');
+                var previousDaysSelect = document.getElementById('reportPreviousDays');
+                for (var i = 0; i < currentDaysSelect.options.length; i++) {
+                    if (currentDaysSelect.options[i].value === overviewDays) {
+                        currentDaysSelect.value = overviewDays;
+                        break;
+                    }
+                }
+                for (var i = 0; i < previousDaysSelect.options.length; i++) {
+                    if (previousDaysSelect.options[i].value === overviewDays) {
+                        previousDaysSelect.value = overviewDays;
+                        break;
+                    }
+                }
+
                 refreshWeeklyReport();
             }
         }
