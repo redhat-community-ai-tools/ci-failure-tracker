@@ -79,10 +79,10 @@ class WeeklyReportGenerator:
             current_rates = current_platforms[platform]['pass_rates']
             previous_rates = previous_platforms[platform]['pass_rates']
 
-            current_avg = sum(current_rates) / len(current_rates) if current_rates else 0
-            previous_avg = sum(previous_rates) / len(previous_rates) if previous_rates else 0
+            current_avg = sum(current_rates) / len(current_rates) if current_rates else None
+            previous_avg = sum(previous_rates) / len(previous_rates) if previous_rates else None
 
-            delta = current_avg - previous_avg
+            delta = (current_avg - previous_avg) if current_avg is not None and previous_avg is not None else None
 
             # Get test-level statistics for current and previous periods
             current_test_data = self.db.get_test_pass_rates(
@@ -105,9 +105,9 @@ class WeeklyReportGenerator:
             previous_failed_tests = previous_total_tests - previous_passed_tests
 
             comparisons[platform] = {
-                'current_pass_rate': round(current_avg, 1),
-                'previous_pass_rate': round(previous_avg, 1),
-                'delta': round(delta, 1),
+                'current_pass_rate': round(current_avg, 1) if current_avg is not None else None,
+                'previous_pass_rate': round(previous_avg, 1) if previous_avg is not None else None,
+                'delta': round(delta, 1) if delta is not None else None,
                 'current_runs': current_platforms[platform]['total_runs'],
                 'previous_runs': previous_platforms[platform]['total_runs'],
                 'current_total_tests': current_total_tests,
@@ -159,31 +159,39 @@ class WeeklyReportGenerator:
             curr = data['current_pass_rate']
             delta = data['delta']
 
-            # Status indicator
-            if delta >= 5:
-                status = "[OK]"
-            elif delta >= 0:
-                status = "[OK]"
-            elif delta >= -5:
-                status = "[WARN]"
-            else:
-                status = "[FAIL]"
-
-            # Delta formatting
-            if delta > 0:
-                delta_str = f"↑+{delta}%"
-            elif delta < 0:
-                delta_str = f"↓{delta}%"
-            else:
-                delta_str = "→0%"
-
             # Test counts
             curr_tests = data['current_total_tests']
             curr_passed = data['current_passed_tests']
             curr_failed = data['current_failed_tests']
             test_str = f"({curr_tests} tests: {curr_passed} passed, {curr_failed} failed)"
 
-            lines.append(f"{status} {platform.capitalize():10s} {prev:.0f}% → {curr:.0f}%   {delta_str}   {test_str}")
+            curr_str = f"{curr:.0f}%" if curr is not None else "N/A"
+
+            if prev is None or delta is None:
+                status = "[--]"
+                prev_str = "N/A"
+                delta_str = "N/A"
+            else:
+                prev_str = f"{prev:.0f}%"
+                # Status indicator
+                if delta >= 5:
+                    status = "[OK]"
+                elif delta >= 0:
+                    status = "[OK]"
+                elif delta >= -5:
+                    status = "[WARN]"
+                else:
+                    status = "[FAIL]"
+
+                # Delta formatting
+                if delta > 0:
+                    delta_str = f"↑+{delta}%"
+                elif delta < 0:
+                    delta_str = f"↓{delta}%"
+                else:
+                    delta_str = "→0%"
+
+            lines.append(f"{status} {platform.capitalize():10s} {prev_str} → {curr_str}   {delta_str}   {test_str}")
 
         lines.append("")
 
@@ -252,25 +260,32 @@ class WeeklyReportGenerator:
             curr = data['current_pass_rate']
             delta = data['delta']
 
-            # Delta formatting
-            if delta > 0:
-                delta_str = f"+{delta}%"
-                trend = "UP"
-            elif delta < 0:
-                delta_str = f"{delta}%"
-                trend = "DOWN"
-            else:
-                delta_str = "0%"
-                trend = "STABLE"
-
             # Test counts
             curr_tests = data['current_total_tests']
             curr_passed = data['current_passed_tests']
             curr_failed = data['current_failed_tests']
             test_str = f"{curr_tests}: {curr_passed} pass, {curr_failed} fail"
 
+            curr_str = f"{curr:>7.1f}%" if curr is not None else "     N/A"
+
+            if prev is None or delta is None:
+                prev_str = "     N/A"
+                delta_str = "N/A"
+                trend = "--"
+            else:
+                prev_str = f"{prev:>7.1f}%"
+                if delta > 0:
+                    delta_str = f"+{delta}%"
+                    trend = "UP"
+                elif delta < 0:
+                    delta_str = f"{delta}%"
+                    trend = "DOWN"
+                else:
+                    delta_str = "0%"
+                    trend = "STABLE"
+
             lines.append(
-                f"{platform.capitalize():<12} {prev:>7.1f}% {curr:>7.1f}% {delta_str:>10} {trend:>10} {test_str:>30}"
+                f"{platform.capitalize():<12} {prev_str} {curr_str} {delta_str:>10} {trend:>10} {test_str:>30}"
             )
 
         lines.append("")

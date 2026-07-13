@@ -1903,11 +1903,17 @@
                 .sort()
                 .map(([platform, data]) => {
                 const delta = data.delta;
+                const prevRate = data.previous_pass_rate;
+                const hasPrevious = prevRate != null && delta != null;
                 let statusClass = 'status-ok';
                 let deltaClass = 'neutral';
                 let arrow = '→';
 
-                if (delta >= 5) {
+                if (!hasPrevious) {
+                    statusClass = 'status-ok';
+                    deltaClass = 'neutral';
+                    arrow = '';
+                } else if (delta >= 5) {
                     statusClass = 'status-ok';
                     deltaClass = 'positive';
                     arrow = '↑';
@@ -1928,8 +1934,11 @@
                 const statusText = statusClass === 'status-ok' ? 'OK' :
                                    statusClass === 'status-warn' ? 'WARN' : 'FAIL';
 
+                const prevDisplay = hasPrevious ? `${prevRate}%` : 'N/A';
+                const deltaDisplay = hasPrevious ? `${arrow}${Math.abs(delta)}%` : 'N/A';
+
                 return `
-                    <div class="platform-card" onclick="showPlatformDetails('${platform}', ${data.current_runs}, ${data.current_pass_rate}, ${data.previous_pass_rate}, ${delta})">
+                    <div class="platform-card" onclick="showPlatformDetails('${platform}', ${data.current_runs}, ${data.current_pass_rate}, ${prevRate}, ${delta})">
                         <div style="display: flex; align-items: center; gap: 15px;">
                             <span class="status-badge ${statusClass}">${statusText}</span>
                             <span class="platform-name">${platform.charAt(0).toUpperCase() + platform.slice(1)}</span>
@@ -1938,7 +1947,7 @@
                         <div class="platform-stats">
                             <div class="stat-item">
                                 <div class="stat-label">Previous</div>
-                                <div class="stat-value">${data.previous_pass_rate}%</div>
+                                <div class="stat-value">${prevDisplay}</div>
                             </div>
                             <div style="font-size: 24px; color: #666;">→</div>
                             <div class="stat-item">
@@ -1947,7 +1956,7 @@
                             </div>
                             <div class="stat-item">
                                 <div class="stat-label">Change</div>
-                                <div class="delta ${deltaClass}">${arrow}${Math.abs(delta)}%</div>
+                                <div class="delta ${deltaClass}">${deltaDisplay}</div>
                             </div>
                             <div class="stat-item">
                                 <div class="stat-label">Runs</div>
@@ -1997,8 +2006,9 @@
             const executionPassRate = totalExecutions > 0 ? (passedExecutions / totalExecutions * 100).toFixed(1) : 0;
 
             // Render execution statistics at the top
-            const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
-            const deltaColor = delta > 0 ? '#059669' : delta < 0 ? '#dc2626' : '#666';
+            const hasPrev = previousRate != null && delta != null;
+            const arrow = !hasPrev ? '' : delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
+            const deltaColor = !hasPrev ? '#666' : delta > 0 ? '#059669' : delta < 0 ? '#dc2626' : '#666';
 
             document.getElementById('platformModalStats').innerHTML = `
                 <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #3b82f6;">
@@ -2032,11 +2042,11 @@
                     </div>
                     <div class="platform-stat-card">
                         <div class="platform-stat-label">Previous Pass Rate</div>
-                        <div class="platform-stat-value">${previousRate}%</div>
+                        <div class="platform-stat-value">${hasPrev ? previousRate + '%' : 'N/A'}</div>
                     </div>
                     <div class="platform-stat-card">
                         <div class="platform-stat-label">Change</div>
-                        <div class="platform-stat-value" style="color: ${deltaColor}">${arrow}${Math.abs(delta)}%</div>
+                        <div class="platform-stat-value" style="color: ${deltaColor}">${hasPrev ? arrow + Math.abs(delta) + '%' : 'N/A'}</div>
                     </div>
                 </div>
             `;
