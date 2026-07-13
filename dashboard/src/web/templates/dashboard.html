@@ -1088,6 +1088,7 @@
             }
             const response = await fetch(`/api/${endpoint}?${queryString}`);
             const data = await response.json();
+            if (!response.ok) return data;
             _fetchCache[cacheKey] = { data, time: Date.now() };
             return data;
         }
