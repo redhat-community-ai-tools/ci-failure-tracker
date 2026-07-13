@@ -9,7 +9,7 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock
 
-from src.web.server import create_app, _oauth_token_store
+from src.web.server import create_app, _oauth_token_store, _BoundedTokenStore
 from src.integrations.github_integration import GitHubIntegration, GitHubConfig
 
 
@@ -402,3 +402,116 @@ class TestUserTokenInGitHubIntegration:
         call_kwargs = mock_post.call_args
         headers = call_kwargs.kwargs.get('headers') or call_kwargs[1].get('headers')
         assert headers['Authorization'] == 'token server-pat'
+
+
+class TestBoundedTokenStore:
+    """Tests for TTL expiry and max-size eviction in _BoundedTokenStore."""
+
+    def test_token_expires_after_ttl(self):
+        """Insert a token, advance time past TTL, verify it is gone."""
+        current_time = 1000.0
+
+        def fake_clock():
+            return current_time
+
+        store = _BoundedTokenStore(max_size=100, max_age=3600, clock=fake_clock)
+        store['tok1'] = 'access-token-1'
+
+        # Before TTL: token is present
+        assert store.get('tok1') == 'access-token-1'
+        assert 'tok1' in store
+
+        # Advance time past TTL
+        current_time = 1000.0 + 3601
+        assert store.get('tok1') is None
+        assert 'tok1' not in store
+
+    def test_token_store_respects_max_size(self):
+        """Insert max_size + 1 tokens, verify the oldest is evicted."""
+        store = _BoundedTokenStore(max_size=3, max_age=86400)
+
+        store['a'] = 'token-a'
+        store['b'] = 'token-b'
+        store['c'] = 'token-c'
+        assert len(store) == 3
+
+        # Adding a fourth token evicts the oldest (a)
+        store['d'] = 'token-d'
+        assert len(store) == 3
+        assert store.get('a') is None
+        assert store.get('b') == 'token-b'
+        assert store.get('d') == 'token-d'
+
+    def test_explicit_logout_removes_token_immediately(self):
+        """Verify pop() removes token before TTL expires."""
+        store = _BoundedTokenStore(max_size=100, max_age=86400)
+        store['tok1'] = 'access-token'
+
+        assert store.get('tok1') == 'access-token'
+        removed = store.pop('tok1', None)
+        assert removed == 'access-token'
+        assert store.get('tok1') is None
+
+    def test_clear_removes_all_tokens(self):
+        """Verify clear() empties the store."""
+        store = _BoundedTokenStore(max_size=100, max_age=86400)
+        store['a'] = '1'
+        store['b'] = '2'
+        assert len(store) == 2
+
+        store.clear()
+        assert len(store) == 0
+        assert store.get('a') is None
+
+    def test_values_returns_only_live_tokens(self):
+        """Expired tokens should not appear in values()."""
+        current_time = 1000.0
+
+        def fake_clock():
+            return current_time
+
+        store = _BoundedTokenStore(max_size=100, max_age=3600, clock=fake_clock)
+        store['old'] = 'old-token'
+
+        current_time = 2000.0
+        store['new'] = 'new-token'
+
+        # Advance past TTL for 'old' but not 'new'
+        current_time = 1000.0 + 3601
+        vals = store.values()
+        assert 'old-token' not in vals
+        assert 'new-token' in vals
+
+    def test_len_excludes_expired_tokens(self):
+        """len() should not count expired entries."""
+        current_time = 1000.0
+
+        def fake_clock():
+            return current_time
+
+        store = _BoundedTokenStore(max_size=100, max_age=60, clock=fake_clock)
+        store['a'] = '1'
+        store['b'] = '2'
+        assert len(store) == 2
+
+        current_time = 1000.0 + 61
+        assert len(store) == 0
+
+    def test_re_insert_refreshes_position(self):
+        """Re-inserting a key should move it to most-recent position."""
+        store = _BoundedTokenStore(max_size=2, max_age=86400)
+        store['a'] = '1'
+        store['b'] = '2'
+
+        # Re-insert 'a' so it becomes most-recent
+        store['a'] = '1-refreshed'
+
+        # Adding 'c' should evict 'b' (oldest), not 'a'
+        store['c'] = '3'
+        assert store.get('a') == '1-refreshed'
+        assert store.get('b') is None
+        assert store.get('c') == '3'
+
+    def test_module_level_store_is_bounded(self):
+        """The module-level _oauth_token_store should be a _BoundedTokenStore."""
+        assert isinstance(_oauth_token_store, _BoundedTokenStore)
