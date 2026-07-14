@@ -47,12 +47,17 @@ Most agent work targets the dashboard.
    New keys must have defaults. Never rename or remove existing keys.
 
 10. **Config job-name verification.** When adding or modifying job names in
-    `config.yaml`, compare each new entry against corresponding entries for
-    adjacent versions. Do not assume uniform naming across all platforms for
-    a given version. If an issue claims a naming change for a version, verify
-    which specific platforms are affected by comparing the proposed names
-    against the pattern used by neighboring versions. Flag any deviations in
-    the commit message.
+    `config.yaml`, first run `git log -p -- dashboard/config.yaml` to see
+    how previous version entries were added. Use the most recent version-add
+    commit as a template for job names, counts, and suffixes. Pay attention
+    to correction commits (e.g., suffix changes, removed entries) as they
+    indicate common pitfalls. Then compare each new entry against
+    corresponding entries for adjacent versions in the current file. Do not
+    assume uniform naming across all platforms for a given version. If an
+    issue claims a naming change for a version, verify which specific
+    platforms are affected by comparing the proposed names against the
+    pattern used by neighboring versions. Flag any deviations in the commit
+    message.
 
 11. **Collector interface.** New collectors must implement the full `BaseCollector`
    ABC from `dashboard/src/collectors/base.py`.
