@@ -46,20 +46,28 @@ Most agent work targets the dashboard.
 9. **Config safety.** Changes to `config.yaml` must be backwards-compatible.
    New keys must have defaults. Never rename or remove existing keys.
 
-10. **Collector interface.** New collectors must implement the full `BaseCollector`
+10. **Config job-name verification.** When adding or modifying job names in
+    `config.yaml`, compare each new entry against corresponding entries for
+    adjacent versions. Do not assume uniform naming across all platforms for
+    a given version. If an issue claims a naming change for a version, verify
+    which specific platforms are affected by comparing the proposed names
+    against the pattern used by neighboring versions. Flag any deviations in
+    the commit message.
+
+11. **Collector interface.** New collectors must implement the full `BaseCollector`
    ABC from `dashboard/src/collectors/base.py`.
 
-11. **Security.** No hardcoded credentials. Use environment variables for secrets.
+12. **Security.** No hardcoded credentials. Use environment variables for secrets.
     Use parameterized SQLite queries.
 
-12. **Filter parameter flow.** When adding or modifying collector methods that
+13. **Filter parameter flow.** When adding or modifying collector methods that
     accept filtering parameters (date ranges, version lists, platform lists),
     verify every filter parameter is either (a) used in a conditional check
     within the method body, or (b) forwarded to a callee that applies it. Do
     not add filter parameters to method signatures without implementing or
     forwarding the filter logic.
 
-13. **Template-embedded JavaScript testing.** String-presence assertions
+14. **Template-embedded JavaScript testing.** String-presence assertions
     (e.g., checking that a function name appears in rendered HTML) are not
     sufficient tests for JavaScript logic embedded in Jinja templates.
     Tests must verify structural correctness: that cache-check logic
