@@ -77,12 +77,14 @@ collector:
     job_patterns:
       # Periodic (nightly) jobs - all tracked versions
       - "periodic-ci-openshift-openshift-tests-private-release-4.19-*-winc-*"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.20-*-winc-*"
       - "periodic-ci-openshift-openshift-tests-private-release-4.21-*-winc-*"
       - "periodic-ci-openshift-openshift-tests-private-release-4.22-*-winc-*"
       - "periodic-ci-openshift-openshift-tests-private-release-4.23-*-winc-*"
       - "periodic-ci-openshift-openshift-tests-private-release-5.0-*-winc-*"
       - "periodic-ci-openshift-openshift-tests-private-main-*-winc-*"
       - "periodic-ci-openshift-windows-machine-config-operator-release-4.19-*"
+      - "periodic-ci-openshift-windows-machine-config-operator-release-4.20-*"
       - "periodic-ci-openshift-windows-machine-config-operator-release-4.21-*"
       - "periodic-ci-openshift-windows-machine-config-operator-release-4.22-*"
       - "periodic-ci-openshift-windows-machine-config-operator-release-4.23-*"
@@ -119,6 +121,15 @@ collector:
       - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-vsphere-ipi-ovn-winc-f14"
       - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-vsphere-ipi-proxy-ovn-winc-f14"
       - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-vsphere-ipi-disconnected-ovn-winc-f28"
+
+      # 4.20 WINC jobs (zstream)
+      - "periodic-ci-openshift-openshift-tests-private-release-4.20-amd64-nightly-aws-ipi-ovn-winc-zstream-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.20-amd64-nightly-azure-ipi-ovn-winc-zstream-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.20-amd64-nightly-gcp-ipi-ovn-winc-zstream-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.20-amd64-nightly-nutanix-ipi-ovn-winc-zstream-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.20-amd64-nightly-vsphere-ipi-ovn-winc-zstream-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.20-amd64-nightly-vsphere-ipi-proxy-ovn-winc-zstream-f14"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.20-amd64-nightly-vsphere-ipi-disconnected-ovn-winc-zstream-f28"
 
       # 4.21 WINC jobs
       - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-aws-ipi-ovn-winc-f14"
@@ -227,6 +238,7 @@ tracking:
   # ========================================================================
   versions:
     - "4.19"
+    - "4.20"
     - "4.21"
     - "4.22"
     - "4.23"
