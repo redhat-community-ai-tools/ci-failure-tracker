@@ -399,12 +399,12 @@ class GCSWebCollector(BaseCollector):
             test_id = ocp_match.group(0)
 
             # Look for [sig-windows] or similar bracket pattern and extract everything after it
-            sig_match = re.search(r'\[sig-[\w-]+\]\s+(.+)', raw_name)
+            sig_match = re.search(r'\[sig-[\w-]+\]\s+[:\-\s]*(.+)', raw_name)
             if sig_match:
                 description = sig_match.group(1)
             else:
                 # Try other bracket patterns like [wmco]
-                bracket_match = re.search(r'\[[\w-]+\]\s+(.+)', raw_name)
+                bracket_match = re.search(r'\[[\w-]+\]\s+[:\-\s]*(.+)', raw_name)
                 if bracket_match:
                     description = bracket_match.group(1)
                 else:
