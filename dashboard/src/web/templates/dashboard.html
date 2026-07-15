@@ -1019,7 +1019,11 @@
             }
 
             const title = '[Dashboard] ' + summary;
-            const body = description + '\n\n---\n*Reported via CI Dashboard*';
+            const notifyUsers = {{ github_notify_users | tojson }};
+            let body = description + '\n\n---\n*Reported via CI Dashboard*';
+            if (notifyUsers.length > 0) {
+                body += '\n\n/cc ' + notifyUsers.map(u => '@' + u).join(' ');
+            }
 
             const params = new URLSearchParams({
                 title: title,

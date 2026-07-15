@@ -465,7 +465,18 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         Shows whatever data is already in the DB from cron/manual collection.
         Users trigger collection manually via the refresh button."""
         github_repo = os.environ.get('GITHUB_REPO', '')
-        return render_template('dashboard.html', enable_ai=enable_ai, github_repo=github_repo)
+        notify_users_raw = os.environ.get('GITHUB_NOTIFY_USERS', '')
+        github_notify_users = [
+            u.strip().lstrip('@')
+            for u in notify_users_raw.split(',')
+            if u.strip()
+        ]
+        return render_template(
+            'dashboard.html',
+            enable_ai=enable_ai,
+            github_repo=github_repo,
+            github_notify_users=github_notify_users,
+        )
 
     @app.route('/logs')
     def view_logs():
