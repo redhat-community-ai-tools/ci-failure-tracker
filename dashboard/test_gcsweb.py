@@ -743,3 +743,82 @@ class TestProcessRunSinglePassJobType:
                 result = collector._process_run_single_pass(run)
 
         assert result is not None
+
+
+class TestExtractTestNameLeadingHyphen:
+    """Tests for _extract_test_name stripping leading hyphens from descriptions.
+
+    Covers the bug reported in issue #79 where test descriptions like
+    '-Cluster-wide proxy acceptance test' displayed with a spurious
+    leading hyphen in the dashboard.
+
+    Includes negative cases (AGENTS.md rule 8) to ensure intra-name
+    hyphens are preserved.
+    """
+
+    def test_leading_hyphen_stripped_via_sig_bracket(self, collector):
+        """Hyphen after [sig-windows] bracket should be stripped."""
+        raw = (
+            "OCP-65980:sgao:Windows_Containers:"
+            "[sig-windows] -Cluster-wide proxy acceptance test"
+        )
+        test_id, desc = collector._extract_test_name(raw)
+        assert test_id == "OCP-65980"
+        assert desc == "Cluster-wide proxy acceptance test"
+
+    def test_leading_hyphen_stripped_without_brackets(self, collector):
+        """Hyphen directly after OCP ID should be stripped."""
+        raw = "OCP-71173 -Test connectivity from Windows nodes behind proxy"
+        test_id, desc = collector._extract_test_name(raw)
+        assert test_id == "OCP-71173"
+        assert desc == "Test connectivity from Windows nodes behind proxy"
+
+    def test_leading_hyphen_space_stripped(self, collector):
+        """Hyphen-space prefix in description should be stripped."""
+        raw = "OCP-68320:[sig-windows] -Import custom CA certificates"
+        test_id, desc = collector._extract_test_name(raw)
+        assert test_id == "OCP-68320"
+        assert desc == "Import custom CA certificates"
+
+    def test_intra_name_hyphens_preserved(self, collector):
+        """Negative: hyphens within the description must NOT be removed."""
+        raw = "OCP-28632:[sig-windows] east-west network connectivity"
+        test_id, desc = collector._extract_test_name(raw)
+        assert test_id == "OCP-28632"
+        assert desc == "east-west network connectivity"
+
+    def test_no_leading_hyphen_unchanged(self, collector):
+        """Negative: descriptions without leading hyphens stay intact."""
+        raw = "OCP-50924:[sig-windows] Windows instances react to kubelet CA rotation"
+        test_id, desc = collector._extract_test_name(raw)
+        assert test_id == "OCP-50924"
+        assert desc == "Windows instances react to kubelet CA rotation"
+
+    def test_colon_separator_stripped(self, collector):
+        """Leading colon separator after cleanup should be stripped."""
+        raw = "OCP-12345: some test description"
+        test_id, desc = collector._extract_test_name(raw)
+        assert test_id == "OCP-12345"
+        assert desc == "some test description"
+
+    def test_multiple_leading_separators_stripped(self, collector):
+        """Multiple leading separator chars (:-space) all stripped."""
+        raw = "OCP-99999:- test with mixed separators"
+        test_id, desc = collector._extract_test_name(raw)
+        assert test_id == "OCP-99999"
+        assert desc == "test with mixed separators"
+
+    def test_with_test_suite_filter(self):
+        """Leading hyphen stripped even after test_suite_filter removal."""
+        c = GCSWebCollector({
+            'url': 'https://example.com',
+            'bucket': 'test',
+            'test_suite_filter': 'Windows_Containers',
+        })
+        raw = (
+            "OCP-66670:[sig-windows] Windows_Containers "
+            "-Cluster-wide proxy trusted-ca configmap tests"
+        )
+        test_id, desc = c._extract_test_name(raw)
+        assert test_id == "OCP-66670"
+        assert desc == "Cluster-wide proxy trusted-ca configmap tests"

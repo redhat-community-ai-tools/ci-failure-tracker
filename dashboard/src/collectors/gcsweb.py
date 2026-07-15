@@ -424,6 +424,9 @@ class GCSWebCollector(BaseCollector):
             # Remove all bracketed tags like [Slow], [Disruptive], [Serial]
             description = re.sub(r'\s*\[[\w-]+\]', '', description)
 
+            # Remove any remaining leading separators (: - or spaces)
+            description = re.sub(r'^[:\-\s]+', '', description)
+
             return (test_id, description.strip() if description else test_id)
 
         return (raw_name.strip(), raw_name.strip())
