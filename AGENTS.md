@@ -80,3 +80,9 @@ Most agent work targets the dashboard.
     that error paths are handled. If the JS logic is complex enough to
     require tests, consider extracting it into a separate `.js` file
     that can be tested independently.
+
+15. **Case-insensitive HTML regex.** When writing regex patterns that
+    match HTML tags (e.g., `<script>`, `<div>`), always include
+    `re.IGNORECASE` since HTML tag names are case-insensitive per spec.
+    This prevents CodeQL "Bad HTML filtering regexp" findings and avoids
+    review rework.
