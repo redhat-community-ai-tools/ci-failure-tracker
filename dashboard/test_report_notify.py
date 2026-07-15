@@ -25,7 +25,7 @@ def db_path(tmp_path):
 
 def _extract_script(html):
     """Extract the inline ``<script>`` block from dashboard HTML."""
-    match = re.search(r'<script>(.*?)</script>', html, re.DOTALL)
+    match = re.search(r'<script>(.*?)</script>', html, re.DOTALL | re.IGNORECASE)
     assert match, "No inline <script> block found in dashboard HTML"
     return match.group(1)
 
