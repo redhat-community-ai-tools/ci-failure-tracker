@@ -355,6 +355,45 @@ class TestBuildHealthAPI:
         assert 'source_url' in version_data
         assert 'abc1234' in version_data['source_url']
 
+    def test_build_health_source_url_from_config(self, tmp_path):
+        """source_url uses the source_repo_url value from config."""
+        from datetime import datetime
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+        runs = [
+            JobRun(
+                job_name='job-aws', build_id='1',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.22', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.0.0-abc1234',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        config_path = str(tmp_path / 'config.yaml')
+        with open(config_path, 'w') as f:
+            f.write(
+                'tracking:\n'
+                '  versions: ["4.22"]\n'
+                '  platforms: ["aws"]\n'
+                '  blocklist: []\n'
+                '  source_repo_url: "https://github.com/my-org/my-repo"\n'
+            )
+
+        app = create_app(db_path, config_file=config_path)
+        app.config['TESTING'] = True
+        with app.test_client() as test_client:
+            resp = test_client.get('/api/build-health?version=4.22&days=7')
+            data = resp.get_json()
+            version_data = data['operator_versions'][0]
+            assert version_data['source_url'] == (
+                'https://github.com/my-org/my-repo/commit/abc1234'
+            )
+
+        database.close()
+
     def test_build_health_empty_database(self, tmp_path):
         """Returns empty result when no operator versions exist."""
         db_path = str(tmp_path / 'empty.db')
@@ -539,4 +578,4 @@ class TestBuildHealthErrorHandling:
             assert resp.content_type == 'application/json'
             data = resp.get_json()
             assert 'error' in data
-            assert 'simulated database error' in data['error']
+            assert data['error'] == 'An internal error has occurred.'

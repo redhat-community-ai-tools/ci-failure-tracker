@@ -424,12 +424,17 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     blocklist = []
     config_versions = []
     config_platforms = []
+    source_repo_url = 'https://github.com/openshift/windows-machine-config-operator'
     try:
         with open(config_file, 'r') as f:
             yaml_config = yaml.safe_load(f)
             blocklist = yaml_config.get('tracking', {}).get('blocklist', [])
             config_versions = yaml_config.get('tracking', {}).get('versions', [])
             config_platforms = yaml_config.get('tracking', {}).get('platforms', [])
+            source_repo_url = yaml_config.get('tracking', {}).get(
+                'source_repo_url',
+                'https://github.com/openshift/windows-machine-config-operator',
+            )
     except Exception as e:
         print(f"Warning: Could not load tracking config: {e}")
 
@@ -781,8 +786,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 if '-' in ov:
                     commit_hash = ov.split('-', 1)[1]
                     data['source_url'] = (
-                        f'https://github.com/openshift/windows-machine-config-operator'
-                        f'/commit/{commit_hash}'
+                        f'{source_repo_url}/commit/{commit_hash}'
                     )
 
             latest = latest_per_ocp[0]['operator_version'] if latest_per_ocp else None

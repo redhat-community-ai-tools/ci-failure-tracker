@@ -291,6 +291,9 @@ tracking:
   # ========================================================================
   test_suite_filter: "Windows_Containers"
 
+  # Source repository URL for Build Health commit links
+  source_repo_url: "https://github.com/openshift/windows-machine-config-operator"
+
   # How many days to look back when collecting data
   lookback_days: 30
 
