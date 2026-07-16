@@ -505,3 +505,38 @@ class TestSemanticVersionSorting:
         data = resp.get_json()
         for entry in data['operator_versions']:
             assert 'ocp_version' in entry
+
+
+# ---------------------------------------------------------------------------
+# Error handling tests
+# ---------------------------------------------------------------------------
+
+class TestBuildHealthErrorHandling:
+    """Tests for /api/build-health error handling."""
+
+    def test_build_health_returns_json_on_db_error(self, tmp_path, monkeypatch):
+        """Verify /api/build-health returns JSON even when the DB query fails."""
+        db_path = str(tmp_path / 'test.db')
+
+        config_path = str(tmp_path / 'config.yaml')
+        with open(config_path, 'w') as f:
+            f.write('tracking:\n  versions: []\n  platforms: []\n  blocklist: []\n')
+
+        app = create_app(db_path, config_file=config_path)
+        app.config['TESTING'] = True
+
+        def broken_query(*args, **kwargs):
+            raise Exception("simulated database error")
+
+        monkeypatch.setattr(
+            "storage.database.DashboardDatabase.get_build_health",
+            broken_query,
+        )
+
+        with app.test_client() as client:
+            resp = client.get('/api/build-health')
+            assert resp.status_code == 500
+            assert resp.content_type == 'application/json'
+            data = resp.get_json()
+            assert 'error' in data
+            assert 'simulated database error' in data['error']

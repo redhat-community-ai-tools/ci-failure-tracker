@@ -1109,6 +1109,10 @@
                 return cached.data;
             }
             const response = await fetch(`/api/${endpoint}?${queryString}`);
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                throw new Error(`Expected JSON from /api/${endpoint} but received ${contentType || 'unknown content type'} (HTTP ${response.status})`);
+            }
             const data = await response.json();
             if (!response.ok) return data;
             _fetchCache[cacheKey] = { data, time: Date.now() };
