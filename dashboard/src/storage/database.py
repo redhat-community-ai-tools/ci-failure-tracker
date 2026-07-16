@@ -800,23 +800,24 @@ class DashboardDatabase:
     def get_build_health(self, version=None, days=30):
         """Get build health summary grouped by operator (WMCO) version.
 
-        Returns the latest operator version with per-platform pass/fail
-        breakdown.  Only job runs that have a non-null operator_version
-        are included.
+        Returns per-platform pass/fail breakdown for each operator version,
+        including the OCP version each run belongs to.  Only job runs that
+        have a non-null operator_version are included.
 
         Args:
             version: Optional OCP version filter (e.g. "4.22")
             days: Number of days to look back
 
         Returns:
-            List of dicts with keys: operator_version, platform,
-            total_runs, passed_runs, failed_runs
+            List of dicts with keys: operator_version, version (OCP),
+            platform, total_runs, passed_runs, failed_runs
         """
         cursor = self.conn.cursor()
 
         query = """
             SELECT
                 operator_version,
+                version,
                 platform,
                 COUNT(*) as total_runs,
                 SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) as passed_runs,
@@ -831,7 +832,7 @@ class DashboardDatabase:
             query += " AND version = ?"
             params.append(version)
 
-        query += " GROUP BY operator_version, platform ORDER BY operator_version DESC, platform"
+        query += " GROUP BY operator_version, version, platform ORDER BY operator_version DESC, platform"
 
         cursor.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]

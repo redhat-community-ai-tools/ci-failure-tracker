@@ -1889,6 +1889,7 @@
 
         function renderVersionCard(ver, isLatest) {
             var versionLabel = ver.operator_version;
+            var ocpLabel = ver.ocp_version ? ' <span style="color: #666; font-size: 14px; font-weight: 400;">(OCP ' + ver.ocp_version + ')</span>' : '';
             var sourceLink = '';
             if (ver.source_url) {
                 var commitHash = versionLabel.split('-')[1] || '';
@@ -1903,7 +1904,7 @@
 
             var html = '<div class="card" style="margin-bottom: 20px;">';
             html += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">';
-            html += '<h3 style="margin: 0;">' + versionLabel + latestBadge + sourceLink + '</h3>';
+            html += '<h3 style="margin: 0;">' + versionLabel + ocpLabel + latestBadge + sourceLink + '</h3>';
             html += '<div>' + releasableHtml + ' <span style="color: #666; font-size: 13px; margin-left: 8px;">' + ver.pass_rate + '% pass rate &middot; ' + ver.total_runs + ' runs</span></div>';
             html += '</div>';
 

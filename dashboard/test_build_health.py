@@ -249,6 +249,12 @@ class TestGetBuildHealth:
         platforms = {r['platform'] for r in rows}
         assert platforms == {'aws', 'gcp', 'azure'}
 
+    def test_includes_ocp_version(self, db_with_data):
+        """Each row includes the OCP version field."""
+        rows = db_with_data.get_build_health(version='4.22', days=7)
+        for r in rows:
+            assert r['version'] == '4.22'
+
     def test_excludes_null_operator_version(self, db_with_data):
         """Runs without operator_version are excluded."""
         rows = db_with_data.get_build_health(version='4.22', days=7)
@@ -317,13 +323,15 @@ class TestBuildHealthAPI:
         data = resp.get_json()
         assert data['latest_version'] == '10.0.0-abc1234'
 
-    def test_build_health_returns_all_versions(self, client):
-        """Endpoint returns operator_versions list."""
+    def test_build_health_returns_latest_per_ocp(self, client):
+        """Endpoint returns one entry per OCP version with ocp_version field."""
         resp = client.get('/api/build-health?version=4.22&days=7')
         data = resp.get_json()
         assert isinstance(data['operator_versions'], list)
         assert len(data['operator_versions']) == 1
-        assert data['operator_versions'][0]['operator_version'] == '10.0.0-abc1234'
+        entry = data['operator_versions'][0]
+        assert entry['operator_version'] == '10.0.0-abc1234'
+        assert entry['ocp_version'] == '4.22'
 
     def test_build_health_platforms_present(self, client):
         """Endpoint returns per-platform breakdown inside each version."""
@@ -425,23 +433,33 @@ class TestSemanticVersionSorting:
     """Tests for semantic version sorting in /api/build-health."""
 
     @pytest.fixture
-    def client_multi_version(self, tmp_path):
-        """Create client with multiple operator versions including 9.x and 10.x."""
+    def client_multi_ocp(self, tmp_path):
+        """Create client with multiple OCP versions each having different
+        operator versions, including 9.x and 10.x."""
         from datetime import datetime
 
         db_path = str(tmp_path / 'test.db')
         database = DashboardDatabase(db_path)
 
         runs = [
+            # OCP 4.21 has two operator versions; only 9.0.1 (latest) should be returned
             JobRun(
-                job_name='job-aws-old', build_id='1',
+                job_name='job-aws-421-old', build_id='1',
                 status=TestStatus.PASSED, timestamp=datetime.now(),
-                duration_seconds=100, version='4.22', platform='aws',
+                duration_seconds=100, version='4.21', platform='aws',
                 total_tests=10, passed_tests=10, failed_tests=0,
                 skipped_tests=0, operator_version='9.0.0-bbb222',
             ),
             JobRun(
-                job_name='job-aws-new', build_id='2',
+                job_name='job-aws-421-new', build_id='2',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='9.0.1-ccc333',
+            ),
+            # OCP 4.22 has one operator version
+            JobRun(
+                job_name='job-aws-422', build_id='3',
                 status=TestStatus.PASSED, timestamp=datetime.now(),
                 duration_seconds=100, version='4.22', platform='aws',
                 total_tests=10, passed_tests=10, failed_tests=0,
@@ -452,7 +470,7 @@ class TestSemanticVersionSorting:
 
         config_path = str(tmp_path / 'config.yaml')
         with open(config_path, 'w') as f:
-            f.write('tracking:\n  versions: ["4.22"]\n  platforms: ["aws"]\n  blocklist: []\n')
+            f.write('tracking:\n  versions: ["4.21","4.22"]\n  platforms: ["aws"]\n  blocklist: []\n')
 
         app = create_app(db_path, config_file=config_path)
         app.config['TESTING'] = True
@@ -461,16 +479,29 @@ class TestSemanticVersionSorting:
 
         database.close()
 
-    def test_10_sorts_above_9(self, client_multi_version):
-        """10.0.0 is correctly sorted above 9.0.0 (not lexicographic)."""
-        resp = client_multi_version.get('/api/build-health?version=4.22&days=7')
+    def test_10_sorts_above_9(self, client_multi_ocp):
+        """10.0.0 is correctly sorted above 9.0.1 (not lexicographic)."""
+        resp = client_multi_ocp.get('/api/build-health?days=7')
         data = resp.get_json()
         assert data['latest_version'] == '10.0.0-aaa111'
         versions = [v['operator_version'] for v in data['operator_versions']]
-        assert versions == ['10.0.0-aaa111', '9.0.0-bbb222']
+        assert versions == ['10.0.0-aaa111', '9.0.1-ccc333']
 
-    def test_all_versions_returned(self, client_multi_version):
-        """Both versions are returned, not just latest."""
-        resp = client_multi_version.get('/api/build-health?version=4.22&days=7')
+    def test_only_latest_per_ocp_returned(self, client_multi_ocp):
+        """Only the latest operator version per OCP version is returned."""
+        resp = client_multi_ocp.get('/api/build-health?days=7')
         data = resp.get_json()
+        # Two OCP versions (4.21 and 4.22), one entry each
         assert len(data['operator_versions']) == 2
+        ocp_versions = {v['ocp_version'] for v in data['operator_versions']}
+        assert ocp_versions == {'4.21', '4.22'}
+        # 4.21 should have 9.0.1 (not 9.0.0)
+        v421 = [v for v in data['operator_versions'] if v['ocp_version'] == '4.21'][0]
+        assert v421['operator_version'] == '9.0.1-ccc333'
+
+    def test_ocp_version_field_present(self, client_multi_ocp):
+        """Each entry has the ocp_version field."""
+        resp = client_multi_ocp.get('/api/build-health?days=7')
+        data = resp.get_json()
+        for entry in data['operator_versions']:
+            assert 'ocp_version' in entry

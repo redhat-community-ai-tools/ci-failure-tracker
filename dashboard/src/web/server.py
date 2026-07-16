@@ -704,14 +704,18 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
 
     @app.route('/api/build-health')
     def api_build_health():
-        """Get build health summary grouped by operator (WMCO) version.
+        """Get build health per OCP version, showing only the latest
+        operator (WMCO) version for each OCP version.
 
-        Returns all operator versions with per-platform pass/fail
-        breakdown.  Only includes job runs where the operator version was
-        successfully extracted from build logs.
+        Returns a list of entries — one per OCP version — each containing
+        the latest operator version with per-platform pass/fail breakdown.
+        Only includes job runs where the operator version was successfully
+        extracted from build logs.
         """
         days = request.args.get('days', 30, type=int)
-        version = normalize_version(request.args.get('version'))
+        # Do NOT normalize: when no version is provided, show all OCP
+        # versions so the user sees the latest operator build per OCP.
+        version = request.args.get('version') or None
 
         rows = db.get_build_health(version=version, days=days)
 
@@ -721,33 +725,51 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 'latest_version': None,
             })
 
-        # Group by operator_version
-        versions_data = {}
+        # Group rows by (ocp_version, operator_version)
+        # Each row also carries a platform breakdown.
+        ocp_groups = {}  # ocp_version -> {operator_version -> data}
         for row in rows:
+            ocp_ver = row['version']
             ov = row['operator_version']
-            if ov not in versions_data:
-                versions_data[ov] = {'operator_version': ov, 'platforms': {},
-                                     'total_runs': 0, 'passed_runs': 0,
-                                     'failed_runs': 0}
-            versions_data[ov]['platforms'][row['platform']] = {
+
+            if ocp_ver not in ocp_groups:
+                ocp_groups[ocp_ver] = {}
+
+            if ov not in ocp_groups[ocp_ver]:
+                ocp_groups[ocp_ver][ov] = {
+                    'operator_version': ov,
+                    'ocp_version': ocp_ver,
+                    'platforms': {},
+                    'total_runs': 0,
+                    'passed_runs': 0,
+                    'failed_runs': 0,
+                }
+
+            entry = ocp_groups[ocp_ver][ov]
+            entry['platforms'][row['platform']] = {
                 'total_runs': row['total_runs'],
                 'passed_runs': row['passed_runs'],
                 'failed_runs': row['failed_runs'],
             }
-            versions_data[ov]['total_runs'] += row['total_runs']
-            versions_data[ov]['passed_runs'] += row['passed_runs']
-            versions_data[ov]['failed_runs'] += row['failed_runs']
+            entry['total_runs'] += row['total_runs']
+            entry['passed_runs'] += row['passed_runs']
+            entry['failed_runs'] += row['failed_runs']
 
-        # Sort versions descending using semantic version comparison
-        sorted_versions = sorted(
-            versions_data.keys(),
-            key=_parse_operator_version_key,
+        # For each OCP version, pick only the latest operator version
+        latest_per_ocp = []
+        for ocp_ver, ov_map in ocp_groups.items():
+            best_ov = max(ov_map.keys(), key=_parse_operator_version_key)
+            latest_per_ocp.append(ov_map[best_ov])
+
+        # Sort by operator version descending (highest first)
+        latest_per_ocp.sort(
+            key=lambda d: _parse_operator_version_key(d['operator_version']),
             reverse=True,
         )
-        latest = sorted_versions[0] if sorted_versions else None
 
-        # Compute releasable flag and pass_rate per version
-        for ov, data in versions_data.items():
+        # Compute releasable flag, pass_rate, and source_url per entry
+        for data in latest_per_ocp:
+            ov = data['operator_version']
             data['releasable'] = all(
                 p['failed_runs'] == 0
                 for p in data['platforms'].values()
@@ -755,7 +777,6 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             data['pass_rate'] = round(
                 data['passed_runs'] / data['total_runs'] * 100, 1
             ) if data['total_runs'] else 0.0
-            # Add GitHub source link if commit hash is present
             if '-' in ov:
                 commit_hash = ov.split('-', 1)[1]
                 data['source_url'] = (
@@ -763,13 +784,12 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                     f'/commit/{commit_hash}'
                 )
 
-        # Return all versions (sorted descending) with latest flagged
-        result = {
-            'latest_version': latest,
-            'operator_versions': [versions_data[v] for v in sorted_versions],
-        }
+        latest = latest_per_ocp[0]['operator_version'] if latest_per_ocp else None
 
-        return jsonify(result)
+        return jsonify({
+            'latest_version': latest,
+            'operator_versions': latest_per_ocp,
+        })
 
     @app.route('/api/platform-tests')
     def api_platform_tests():
