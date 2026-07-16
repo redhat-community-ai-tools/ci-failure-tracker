@@ -355,6 +355,21 @@ class TestBuildHealthAPI:
         assert 'source_url' in version_data
         assert 'abc1234' in version_data['source_url']
 
+    def test_build_health_returns_json_on_database_error(self, client, monkeypatch):
+        """Verify /api/build-health returns JSON (not HTML) when db query fails."""
+        monkeypatch.setattr(
+            'src.web.server.DashboardDatabase.get_build_health',
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                Exception('database connection failed')
+            ),
+        )
+        response = client.get('/api/build-health')
+        assert response.status_code == 500
+        assert response.content_type == 'application/json'
+        data = response.get_json()
+        assert 'error' in data
+        assert 'database connection failed' in data['error']
+
     def test_build_health_empty_database(self, tmp_path):
         """Returns empty result when no operator versions exist."""
         db_path = str(tmp_path / 'empty.db')
