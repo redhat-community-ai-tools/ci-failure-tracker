@@ -45,6 +45,10 @@ Most agent work targets the dashboard.
 
 9. **Config safety.** Changes to `config.yaml` must be backwards-compatible.
    New keys must have defaults. Never rename or remove existing keys.
+   Domain-specific matching patterns (regex for log parsing, step name
+   lists, URL templates) must be defined in `config.yaml` with built-in
+   defaults in the code, so that format changes can be addressed via
+   config updates rather than code changes.
 
 10. **Config job-name verification.** When adding or modifying job names in
     `config.yaml`, first run `git log -p -- dashboard/config.yaml` to see
