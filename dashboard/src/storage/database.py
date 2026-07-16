@@ -180,6 +180,12 @@ class DashboardDatabase:
         except sqlite3.OperationalError:
             pass
 
+        # Add operator_version column if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE job_runs ADD COLUMN operator_version TEXT")
+        except sqlite3.OperationalError:
+            pass
+
         # Migrate ai_analyses: make platform nullable and fix UNIQUE constraint
         try:
             cursor.execute("SELECT sql FROM sqlite_master WHERE name='ai_analyses'")
@@ -236,8 +242,8 @@ class DashboardDatabase:
                     INSERT OR REPLACE INTO job_runs (
                         job_name, build_id, status, timestamp, duration_seconds,
                         version, platform, total_tests, passed_tests, failed_tests,
-                        skipped_tests, pass_rate, job_url, job_type
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        skipped_tests, pass_rate, job_url, job_type, operator_version
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     run.job_name,
                     run.build_id,
@@ -252,7 +258,8 @@ class DashboardDatabase:
                     run.skipped_tests,
                     run.pass_rate,
                     run.job_url,
-                    getattr(run, 'job_type', None) or 'periodic'
+                    getattr(run, 'job_type', None) or 'periodic',
+                    getattr(run, 'operator_version', None)
                 ))
                 inserted += 1
             except sqlite3.IntegrityError:
@@ -789,6 +796,46 @@ class DashboardDatabase:
         """, (test_name, version, f'-{days}'))
 
         return [row[0] for row in cursor.fetchall()]
+
+    def get_build_health(self, version=None, days=30):
+        """Get build health summary grouped by operator (WMCO) version.
+
+        Returns per-platform pass/fail breakdown for each operator version,
+        including the OCP version each run belongs to.  Only job runs that
+        have a non-null operator_version are included.
+
+        Args:
+            version: Optional OCP version filter (e.g. "4.22")
+            days: Number of days to look back
+
+        Returns:
+            List of dicts with keys: operator_version, version (OCP),
+            platform, total_runs, passed_runs, failed_runs
+        """
+        cursor = self.conn.cursor()
+
+        query = """
+            SELECT
+                operator_version,
+                version,
+                platform,
+                COUNT(*) as total_runs,
+                SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) as passed_runs,
+                SUM(CASE WHEN status != 'passed' THEN 1 ELSE 0 END) as failed_runs
+            FROM job_runs
+            WHERE operator_version IS NOT NULL
+            AND timestamp >= datetime('now', ? || ' days')
+        """
+        params = [f'-{days}']
+
+        if version:
+            query += " AND version = ?"
+            params.append(version)
+
+        query += " GROUP BY operator_version, version, platform ORDER BY operator_version DESC, platform"
+
+        cursor.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
 
     def close(self):
         """Close database connection"""

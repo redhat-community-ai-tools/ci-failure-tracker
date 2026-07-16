@@ -213,6 +213,14 @@ collector:
     # Parallel processing (jobs processed concurrently)
     max_workers: 5
 
+    # Operator version extraction patterns (tried in order, first match wins).
+    # Each pattern must contain one capture group for the version string.
+    # Add or remove patterns here when WMCO changes its log format.
+    operator_version:
+      patterns:
+        - '"version"\s*:\s*"(\d+\.\d+\.\d+-[0-9a-f]+)"'
+        - 'operator\s+version\s+(\d+\.\d+\.\d+-[0-9a-f]+)'
+
   # prow_mcp configuration (POC - uses prow-mcp-server)
   prow_mcp:
     # MCP server URL (run prow-mcp-server separately)
