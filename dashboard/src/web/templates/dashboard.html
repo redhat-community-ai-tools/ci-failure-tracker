@@ -578,6 +578,7 @@
             </div>
             <div style="margin-top: 15px;">
                 <button class="tab-button active" onclick="showTab('overview')">Overview</button>
+                <button class="tab-button" onclick="showTab('build-health')">Build Health</button>
                 <button class="tab-button" onclick="showTab('weekly-report')">Weekly Report</button>
             </div>
         </header>
@@ -706,6 +707,22 @@
                 </tbody>
             </table>
         </div>
+        </div>
+
+        <!-- Build Health Tab -->
+        <div id="build-health-tab" class="tab-content">
+            <div class="card" style="margin-bottom: 20px;">
+                <h3>WMCO Operator Build Health</h3>
+                <p style="color: #666; font-size: 14px; margin-top: 5px;">
+                    Shows the latest WMCO operator version detected in CI build logs with per-platform pass/fail status.
+                </p>
+            </div>
+
+            <div id="buildHealthContent">
+                <div style="text-align: center; padding: 40px; color: #666;">
+                    Loading build health data...
+                </div>
+            </div>
         </div>
 
         <!-- Weekly Report Tab -->
@@ -1048,13 +1065,19 @@
             });
 
             // Show selected tab
-            if (tabName === 'overview') {
-                document.getElementById('overview-tab').classList.add('active');
-                document.querySelectorAll('.tab-button')[0].classList.add('active');
-            } else if (tabName === 'weekly-report') {
-                document.getElementById('weekly-report-tab').classList.add('active');
-                document.querySelectorAll('.tab-button')[1].classList.add('active');
+            var tabEl = document.getElementById(tabName + '-tab');
+            if (tabEl) {
+                tabEl.classList.add('active');
+            }
+            // Activate the matching button
+            var buttons = document.querySelectorAll('.tab-button');
+            buttons.forEach(function(btn) {
+                if (btn.textContent.toLowerCase().replace(/\s+/g, '-') === tabName) {
+                    btn.classList.add('active');
+                }
+            });
 
+            if (tabName === 'weekly-report') {
                 // Sync overview time range to weekly report filters
                 var overviewDays = document.getElementById('timeRange').value;
                 var currentDaysSelect = document.getElementById('reportCurrentDays');
@@ -1073,6 +1096,8 @@
                 }
 
                 refreshWeeklyReport();
+            } else if (tabName === 'build-health') {
+                refreshBuildHealth();
             }
         }
 
@@ -1860,6 +1885,85 @@
                     </td>
                 </tr>
             `}).join('');
+        }
+
+        async function refreshBuildHealth() {
+            var container = document.getElementById('buildHealthContent');
+            container.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">Loading build health data...</div>';
+
+            var days = document.getElementById('timeRange').value;
+            var version = document.getElementById('versionFilter').value;
+            var params = { days: days };
+            if (version) params.version = version;
+
+            try {
+                var data = await fetchData('build-health', params);
+
+                if (!data.latest_version) {
+                    container.innerHTML = '<div class="card" style="text-align: center; padding: 40px; color: #666;">' +
+                        '<p>No operator version data available.</p>' +
+                        '<p style="font-size: 13px; margin-top: 10px;">Operator versions are extracted from build logs during data collection. ' +
+                        'Run a new collection to populate this data.</p></div>';
+                    return;
+                }
+
+                var versionLabel = data.latest_version;
+                var sourceLink = '';
+                if (data.source_url) {
+                    var commitHash = versionLabel.split('-')[1] || '';
+                    sourceLink = ' <a href="' + data.source_url + '" target="_blank" style="color: #2563eb; font-size: 14px;">' + commitHash.substring(0, 7) + '</a>';
+                }
+
+                var releasableHtml = data.releasable
+                    ? '<span style="background: #dcfce7; color: #166534; padding: 4px 12px; border-radius: 12px; font-weight: 600; font-size: 14px;">YES - All platforms passed</span>'
+                    : '<span style="background: #fef2f2; color: #991b1b; padding: 4px 12px; border-radius: 12px; font-weight: 600; font-size: 14px;">NO - Some platforms failed</span>';
+
+                var html = '<div class="summary-cards">';
+                html += '<div class="card"><h3>WMCO Version</h3><div class="value" style="font-size: 22px;">' + versionLabel + sourceLink + '</div></div>';
+                html += '<div class="card"><h3>Releasable</h3><div class="value" style="margin-top: 8px;">' + releasableHtml + '</div></div>';
+                html += '<div class="card"><h3>Pass Rate</h3><div class="value">' + data.pass_rate + '%</div></div>';
+                html += '<div class="card"><h3>Total Runs</h3><div class="value">' + data.total_runs + '</div></div>';
+                html += '</div>';
+
+                // Platform breakdown table
+                var platforms = data.platforms || {};
+                var platformNames = Object.keys(platforms).sort();
+
+                if (platformNames.length > 0) {
+                    html += '<div class="card" style="margin-top: 20px;"><h3>Platform Breakdown</h3>';
+                    html += '<table style="width: 100%; border-collapse: collapse; margin-top: 15px;">';
+                    html += '<thead><tr style="border-bottom: 2px solid #e5e7eb;">';
+                    html += '<th style="text-align: left; padding: 10px; font-size: 13px; color: #666;">Platform</th>';
+                    html += '<th style="text-align: center; padding: 10px; font-size: 13px; color: #666;">Runs</th>';
+                    html += '<th style="text-align: center; padding: 10px; font-size: 13px; color: #666;">Passed</th>';
+                    html += '<th style="text-align: center; padding: 10px; font-size: 13px; color: #666;">Failed</th>';
+                    html += '<th style="text-align: center; padding: 10px; font-size: 13px; color: #666;">Status</th>';
+                    html += '</tr></thead><tbody>';
+
+                    platformNames.forEach(function(platform) {
+                        var p = platforms[platform];
+                        var allGreen = p.failed_runs === 0;
+                        var statusBadge = allGreen
+                            ? '<span style="background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 8px; font-size: 12px; font-weight: 600;">PASS</span>'
+                            : '<span style="background: #fef2f2; color: #991b1b; padding: 2px 8px; border-radius: 8px; font-size: 12px; font-weight: 600;">FAIL</span>';
+                        html += '<tr style="border-bottom: 1px solid #f3f4f6;">';
+                        html += '<td style="padding: 10px; font-weight: 500;">' + platform.toUpperCase() + '</td>';
+                        html += '<td style="text-align: center; padding: 10px;">' + p.total_runs + '</td>';
+                        html += '<td style="text-align: center; padding: 10px; color: #166534;">' + p.passed_runs + '</td>';
+                        html += '<td style="text-align: center; padding: 10px; color: ' + (p.failed_runs > 0 ? '#991b1b' : '#666') + ';">' + p.failed_runs + '</td>';
+                        html += '<td style="text-align: center; padding: 10px;">' + statusBadge + '</td>';
+                        html += '</tr>';
+                    });
+
+                    html += '</tbody></table></div>';
+                }
+
+                container.innerHTML = html;
+            } catch (err) {
+                container.innerHTML = '<div class="card" style="text-align: center; padding: 40px; color: #dc2626;">' +
+                    '<p>Failed to load build health data.</p>' +
+                    '<p style="font-size: 13px; margin-top: 5px;">' + err + '</p></div>';
+            }
         }
 
         async function refreshWeeklyReport() {

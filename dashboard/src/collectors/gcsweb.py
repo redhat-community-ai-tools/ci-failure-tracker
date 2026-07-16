@@ -428,6 +428,61 @@ class GCSWebCollector(BaseCollector):
 
         return (raw_name.strip(), raw_name.strip())
 
+    def _extract_operator_version(self, text: str) -> Optional[str]:
+        """Extract WMCO operator version from build log text.
+
+        Looks for patterns like:
+          "version": "10.0.0-6dfe513"
+          operator version 9.0.0-abc1234
+
+        Returns the version string (e.g. "10.0.0-6dfe513") or None.
+        """
+        # Pattern 1: JSON-style "version": "X.Y.Z-hash"
+        m = re.search(r'"version"\s*:\s*"(\d+\.\d+\.\d+-[0-9a-f]+)"', text)
+        if m:
+            return m.group(1)
+
+        # Pattern 2: prose-style "operator version X.Y.Z-hash"
+        m = re.search(r'operator\s+version\s+(\d+\.\d+\.\d+-[0-9a-f]+)', text, re.IGNORECASE)
+        if m:
+            return m.group(1)
+
+        return None
+
+    def _fetch_build_log_text(self, run_path: str) -> Optional[str]:
+        """Fetch build-log.txt from the artifacts directory of a job run.
+
+        Tries the common e2e step path first, then falls back to listing
+        artifact directories to find a build-log.txt.  Returns the log
+        text (first 256 KB to avoid large downloads) or None.
+        """
+        # Try common step names where WMCO logs its version
+        common_steps = [
+            'e2e-aws-ipi-ovn-winc',
+            'e2e-azure-ipi-ovn-winc',
+            'e2e-gcp-ipi-ovn-winc',
+            'e2e-vsphere-ipi-ovn-winc',
+            'e2e-nutanix-ipi-ovn-winc',
+        ]
+        for step in common_steps:
+            path = f"{run_path}/artifacts/{step}/build-log.txt"
+            content = self._fetch_file(path)
+            if content:
+                # Limit to first 256 KB to find version near startup
+                return content[:262144].decode('utf-8', errors='replace')
+
+        # Fallback: list artifacts and look for any build-log.txt
+        artifacts_path = f"{run_path}/artifacts/"
+        links = self._list_directory(artifacts_path)
+        for link_path, link_text in links:
+            if link_text.endswith('/'):
+                log_path = f"{link_path}build-log.txt"
+                content = self._fetch_file(log_path)
+                if content:
+                    return content[:262144].decode('utf-8', errors='replace')
+
+        return None
+
     def _resolve_patterns(self, patterns: List[str]) -> List[str]:
         """
         Resolve wildcard patterns to actual job names by listing the logs directory.
@@ -814,6 +869,12 @@ class GCSWebCollector(BaseCollector):
 
         passed_tests = total_tests - failed_tests - skipped_tests
 
+        # Extract WMCO operator version from build log
+        operator_version = None
+        build_log_text = self._fetch_build_log_text(run['path'])
+        if build_log_text:
+            operator_version = self._extract_operator_version(build_log_text)
+
         job_run = JobRun(
             job_name=run['job_name'],
             build_id=run['build_id'],
@@ -827,7 +888,8 @@ class GCSWebCollector(BaseCollector):
             failed_tests=failed_tests,
             skipped_tests=skipped_tests,
             job_url=job_url,
-            job_type=job_type
+            job_type=job_type,
+            operator_version=operator_version
         )
 
         return job_run, all_results

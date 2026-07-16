@@ -690,6 +690,77 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             'summary': summary
         })
 
+    @app.route('/api/build-health')
+    def api_build_health():
+        """Get build health summary grouped by operator (WMCO) version.
+
+        Returns the latest operator version with per-platform pass/fail
+        breakdown.  Only includes job runs where the operator version was
+        successfully extracted from build logs.
+        """
+        days = request.args.get('days', 30, type=int)
+        version = normalize_version(request.args.get('version'))
+
+        rows = db.get_build_health(version=version, days=days)
+
+        if not rows:
+            return jsonify({
+                'operator_versions': [],
+                'latest_version': None,
+                'platforms': {},
+            })
+
+        # Group by operator_version
+        versions_data = {}
+        for row in rows:
+            ov = row['operator_version']
+            if ov not in versions_data:
+                versions_data[ov] = {'platforms': {}, 'total_runs': 0,
+                                     'passed_runs': 0, 'failed_runs': 0}
+            versions_data[ov]['platforms'][row['platform']] = {
+                'total_runs': row['total_runs'],
+                'passed_runs': row['passed_runs'],
+                'failed_runs': row['failed_runs'],
+            }
+            versions_data[ov]['total_runs'] += row['total_runs']
+            versions_data[ov]['passed_runs'] += row['passed_runs']
+            versions_data[ov]['failed_runs'] += row['failed_runs']
+
+        # Sort versions descending; the "latest" is the first one
+        sorted_versions = sorted(versions_data.keys(), reverse=True)
+        latest = sorted_versions[0] if sorted_versions else None
+
+        # Compute releasable flag: all platforms passed every run
+        for ov, data in versions_data.items():
+            data['releasable'] = all(
+                p['failed_runs'] == 0
+                for p in data['platforms'].values()
+            )
+            data['pass_rate'] = round(
+                data['passed_runs'] / data['total_runs'] * 100, 1
+            ) if data['total_runs'] else 0.0
+
+        # Only return latest version per the feature request
+        result = {
+            'latest_version': latest,
+            'platforms': versions_data.get(latest, {}).get('platforms', {}),
+            'total_runs': versions_data.get(latest, {}).get('total_runs', 0),
+            'passed_runs': versions_data.get(latest, {}).get('passed_runs', 0),
+            'failed_runs': versions_data.get(latest, {}).get('failed_runs', 0),
+            'pass_rate': versions_data.get(latest, {}).get('pass_rate', 0.0),
+            'releasable': versions_data.get(latest, {}).get('releasable', False),
+        }
+
+        # Add GitHub source link if commit hash is present
+        if latest and '-' in latest:
+            commit_hash = latest.split('-', 1)[1]
+            result['source_url'] = (
+                f'https://github.com/openshift/windows-machine-config-operator'
+                f'/commit/{commit_hash}'
+            )
+
+        return jsonify(result)
+
     @app.route('/api/platform-tests')
     def api_platform_tests():
         """Get test results for a specific platform"""

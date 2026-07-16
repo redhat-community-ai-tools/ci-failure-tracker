@@ -67,6 +67,9 @@ class JobRun:
     # Job classification
     job_type: Optional[str] = None  # periodic, postsubmit, presubmit, rehearse
 
+    # Operator version extracted from build log (e.g. "10.0.0-6dfe513")
+    operator_version: Optional[str] = None
+
     @property
     def pass_rate(self) -> float:
         """Calculate pass rate percentage"""
