@@ -1156,6 +1156,15 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         except Exception:
             pass
 
+        # Get cross-platform failure data for correlation
+        recent_failures = []
+        try:
+            recent_failures = db.get_recent_failures_by_platform(
+                test_name, version
+            )
+        except Exception:
+            logger.debug("Failed to fetch recent_failures for cross-platform correlation", exc_info=True)
+
         # Analyze with pre-classifier + AI
         try:
             analyzer = HybridFailureAnalyzer()
@@ -1166,7 +1175,8 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 platform=platform,
                 version=version,
                 pass_rate=pass_rate,
-                test_description=test_description
+                test_description=test_description,
+                recent_failures=recent_failures,
             )
 
             # Save analysis to database

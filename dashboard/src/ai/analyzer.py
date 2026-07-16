@@ -3,9 +3,10 @@ AI analyzer with infrastructure pre-classifiers and improved Vertex AI
 prompt engineering.
 
 Pre-classifies known infrastructure failure patterns (SSH flakes, DNS
-failures, cloud quota errors) before sending to Vertex AI. For failures
-that reach the AI, uses structured prompts with historical context and
-chain-of-thought reasoning to improve classification accuracy.
+failures, cloud quota errors) and cross-platform failure correlation
+before sending to Vertex AI. For failures that reach the AI, uses
+structured prompts with historical context and chain-of-thought
+reasoning to improve classification accuracy.
 """
 
 import os
@@ -407,6 +408,124 @@ def detect_known_flaky_test(
     }
 
 
+def _error_signature(error_message: str) -> str:
+    """Normalize an error message into a comparable signature.
+
+    Removes variable parts (hex hashes, UUIDs, IP addresses) so that
+    the same class of error produces the same signature regardless of
+    run-specific details like task IDs or node addresses.
+
+    Uses the first 200 characters to focus on the error class rather
+    than lengthy stack traces that may diverge across runs.
+    """
+    if not error_message:
+        return ''
+    text = error_message[:200]
+    # Remove long hex strings (task IDs, commit hashes, etc.)
+    text = re.sub(r'[0-9a-f]{16,}', '<hash>', text, flags=re.IGNORECASE)
+    # Remove UUIDs
+    text = re.sub(
+        r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
+        '<uuid>', text, flags=re.IGNORECASE,
+    )
+    # Remove IP addresses
+    text = re.sub(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', '<ip>', text)
+    # Collapse whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
+def detect_cross_platform_failure(
+    error_message: str,
+    recent_failures: List[Dict[str, str]],
+    platform_threshold: int = 3,
+) -> Optional[Dict[str, Any]]:
+    """Pre-classify failures that appear on multiple platforms.
+
+    When the same error signature appears on 3+ distinct platforms,
+    this is strong evidence of an automation/test bug rather than a
+    platform-specific product defect.
+
+    Args:
+        error_message: Current failure's error message.
+        recent_failures: List of dicts with 'platform' and
+            'error_message' keys from recent failures of the same
+            test across platforms.
+        platform_threshold: Minimum distinct platforms to trigger
+            (default 3).
+
+    Returns:
+        Pre-built analysis dict if threshold met, None otherwise.
+    """
+    if not error_message or not recent_failures:
+        return None
+
+    current_sig = _error_signature(error_message)
+    if not current_sig:
+        return None
+
+    matching_platforms = set()
+    for failure in recent_failures:
+        other_sig = _error_signature(failure.get('error_message', ''))
+        if other_sig and other_sig == current_sig:
+            matching_platforms.add(failure['platform'].lower())
+
+    if len(matching_platforms) < platform_threshold:
+        return None
+
+    platforms_str = ', '.join(sorted(matching_platforms))
+    logger.info(
+        "Pre-classified as cross-platform failure "
+        f"(platforms={len(matching_platforms)}: {platforms_str})"
+    )
+
+    return {
+        'root_cause': (
+            f'Same failure signature found on '
+            f'{len(matching_platforms)} platforms '
+            f'({platforms_str}). Cross-platform universality '
+            'indicates an automation/test timing issue, not a '
+            'platform-specific product defect.'
+        ),
+        'component': 'test-automation (cross-platform)',
+        'confidence': 88,
+        'failure_type': 'automation_bug',
+        'classification': 'automation_bug',
+        'platform_specific': False,
+        'affected_platforms': sorted(matching_platforms),
+        'evidence': (
+            f'Identical error signature on '
+            f'{len(matching_platforms)} platforms: '
+            f'{platforms_str}'
+        ),
+        'suggested_action': (
+            'Cross-platform failure pattern detected. '
+            'Investigate the test code for timing issues, '
+            'missing readiness checks, or race conditions. '
+            'A product bug would typically be tied to specific '
+            'platform configurations.'
+        ),
+        'issue_title': (
+            f'Automation Bug: Cross-platform failure on '
+            f'{len(matching_platforms)} platforms'
+        ),
+        'issue_description': (
+            f'The same failure appears on '
+            f'{len(matching_platforms)} platforms '
+            f'({platforms_str}), indicating a test/automation '
+            'issue rather than a platform-specific product bug. '
+            'Cross-platform universality is the strongest signal '
+            'that this is a timing or readiness issue in test '
+            'code.'
+        ),
+        'is_product_bug': False,
+        'pre_classified': True,
+        'pre_classifier': 'cross_platform_detector',
+        'cost': 0.0,
+        'analysis_mode': 'pre-classifier',
+    }
+
+
 def _apply_confidence_review(analysis: Dict[str, Any]) -> Dict[str, Any]:
     """
     Flag low-confidence results for human review.
@@ -497,12 +616,14 @@ class HybridFailureAnalyzer:
         platform: str,
         version: str,
         pass_rate: Optional[float] = None,
-        test_description: str = ''
+        test_description: str = '',
+        recent_failures: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """
         Analyze failure using pre-classifier + Vertex AI (Claude via Google Cloud).
 
         Step 1: Check for known infrastructure patterns (SSH flakes) -- free, instant
+        Step 1e: Check cross-platform failure correlation
         Step 2: If not pre-classified, use Vertex AI (~$0.02 per analysis)
 
         Args:
@@ -512,6 +633,11 @@ class HybridFailureAnalyzer:
             platform: Platform (aws, azure, gcp, etc.)
             version: OpenShift version
             pass_rate: Test pass rate (used by pre-classifier to confirm transient)
+            test_description: Optional test description text
+            recent_failures: Optional list of dicts with 'platform' and
+                'error_message' keys from recent failures of the same
+                test on other platforms (used for cross-platform
+                correlation)
 
         Returns:
             Analysis dictionary with root_cause, component, confidence, etc.
@@ -544,6 +670,18 @@ class HybridFailureAnalyzer:
         if flaky_result:
             logger.info(f"Pre-classified {test_name} by test name as known flaky (skipping Vertex AI)")
             return flaky_result
+
+        # Step 1e: Check cross-platform failure correlation
+        if recent_failures is not None:
+            cross_platform_result = detect_cross_platform_failure(
+                error_message, recent_failures
+            )
+            if cross_platform_result:
+                logger.info(
+                    f"Pre-classified {test_name} as cross-platform "
+                    "failure (skipping Vertex AI)"
+                )
+                return cross_platform_result
 
         # Step 2: Use Vertex AI for analysis
         logger.info(f"Analyzing {test_name} with Vertex AI")

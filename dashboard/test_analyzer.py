@@ -1,7 +1,7 @@
 """Tests for AI failure analyzer.
 
-Validates pre-classifiers (SSH, DNS, quota), confidence thresholds,
-is_product_bug derivation, and response parsing.
+Validates pre-classifiers (SSH, DNS, quota, cross-platform correlation),
+confidence thresholds, is_product_bug derivation, and response parsing.
 """
 
 import json
@@ -12,6 +12,8 @@ from src.ai.analyzer import (
     detect_infra_flake,
     detect_timeout_flake,
     detect_known_flaky_test,
+    detect_cross_platform_failure,
+    _error_signature,
     _apply_confidence_review,
     _derive_is_product_bug,
     LOW_CONFIDENCE_THRESHOLD,
@@ -669,3 +671,356 @@ class TestDetectKnownFlakyTest:
             pass_rate=70.0,
         )
         assert result is not None
+
+
+class TestErrorSignature:
+    """Tests for error message signature normalization."""
+
+    def test_normalizes_hex_hashes(self):
+        """Same error with different task hashes should match."""
+        sig1 = _error_signature(
+            'failed to load task: task '
+            '1f932614e27f0b7494522ebd25e32aae'
+            '3f0ed497dc6b1b3886e23b4aa7d25162 not found'
+        )
+        sig2 = _error_signature(
+            'failed to load task: task '
+            'aabbccdd11223344556677889900aabb'
+            '11223344556677889900aabb11223344 not found'
+        )
+        assert sig1 == sig2
+
+    def test_normalizes_ip_addresses(self):
+        """Same error with different IPs should match."""
+        sig1 = _error_signature('connection to 192.168.1.1 refused')
+        sig2 = _error_signature('connection to 10.0.0.5 refused')
+        assert sig1 == sig2
+
+    def test_normalizes_uuids(self):
+        """Same error with different UUIDs should match."""
+        sig1 = _error_signature(
+            'pod 12345678-1234-1234-1234-123456789abc failed'
+        )
+        sig2 = _error_signature(
+            'pod aabbccdd-eeff-0011-2233-445566778899 failed'
+        )
+        assert sig1 == sig2
+
+    def test_different_errors_different_signatures(self):
+        """Fundamentally different errors should not match."""
+        sig1 = _error_signature('task not found')
+        sig2 = _error_signature('pod crashed with OOMKilled')
+        assert sig1 != sig2
+
+    def test_empty_message(self):
+        assert _error_signature('') == ''
+
+    def test_none_message(self):
+        assert _error_signature(None) == ''
+
+    def test_collapses_whitespace(self):
+        sig1 = _error_signature('task   not   found')
+        sig2 = _error_signature('task not found')
+        assert sig1 == sig2
+
+    def test_truncates_at_200_chars(self):
+        """Long messages are truncated to focus on error class."""
+        prefix = 'error: task not found'
+        long_msg = prefix + ' x' * 200
+        sig = _error_signature(long_msg)
+        assert len(sig) <= 200 + 20  # some slack for normalization
+
+
+class TestDetectCrossPlatformFailure:
+    """Tests for cross-platform failure correlation pre-classifier."""
+
+    def test_same_failure_three_plus_platforms(self):
+        """Same failure on 3+ platforms -> Automation Bug signal."""
+        hash_a = 'a' * 64
+        hash_b = 'b' * 64
+        hash_c = 'c' * 64
+        hash_d = 'd' * 64
+        error = (
+            f'failed to load task: no running task found: '
+            f'task {hash_a} not found'
+        )
+        recent_failures = [
+            {
+                'platform': 'nutanix',
+                'error_message': (
+                    f'failed to load task: no running task found: '
+                    f'task {hash_b} not found'
+                ),
+            },
+            {
+                'platform': 'vsphere',
+                'error_message': (
+                    f'failed to load task: no running task found: '
+                    f'task {hash_c} not found'
+                ),
+            },
+            {
+                'platform': 'aws',
+                'error_message': (
+                    f'failed to load task: no running task found: '
+                    f'task {hash_d} not found'
+                ),
+            },
+        ]
+        result = detect_cross_platform_failure(error, recent_failures)
+        assert result is not None
+        assert result['classification'] == 'automation_bug'
+        assert result['is_product_bug'] is False
+        assert result['pre_classifier'] == 'cross_platform_detector'
+        assert len(result['affected_platforms']) >= 3
+        assert result['confidence'] == 88
+        assert result['cost'] == 0.0
+
+    def test_four_platforms_all_matching(self):
+        """All 4 platforms with same error triggers detection."""
+        error = 'connection reset by peer during exec'
+        recent_failures = [
+            {'platform': 'nutanix', 'error_message': error},
+            {'platform': 'vsphere', 'error_message': error},
+            {'platform': 'aws', 'error_message': error},
+            {'platform': 'azure', 'error_message': error},
+        ]
+        result = detect_cross_platform_failure(error, recent_failures)
+        assert result is not None
+        assert result['classification'] == 'automation_bug'
+        assert set(result['affected_platforms']) == {
+            'nutanix', 'vsphere', 'aws', 'azure'
+        }
+
+    def test_failure_one_platform_no_override(self):
+        """Failure on only 1 platform -> no override."""
+        error = 'failed to load task: no running task found'
+        recent_failures = [
+            {
+                'platform': 'nutanix',
+                'error_message': 'failed to load task: no running task found',
+            },
+        ]
+        result = detect_cross_platform_failure(error, recent_failures)
+        assert result is None
+
+    def test_different_errors_no_grouping(self):
+        """Different errors across platforms -> no grouping."""
+        error = 'failed to load task: no running task found'
+        recent_failures = [
+            {
+                'platform': 'nutanix',
+                'error_message': 'failed to load task: no running task found',
+            },
+            {
+                'platform': 'vsphere',
+                'error_message': 'pod crashed with OOMKilled',
+            },
+            {
+                'platform': 'aws',
+                'error_message': 'connection refused on port 8443',
+            },
+            {
+                'platform': 'azure',
+                'error_message': 'timeout waiting for node readiness',
+            },
+        ]
+        result = detect_cross_platform_failure(error, recent_failures)
+        assert result is None
+
+    def test_two_platforms_below_threshold(self):
+        """Same error on 2 platforms (below threshold) -> no trigger."""
+        error = 'failed to load task: no running task found'
+        recent_failures = [
+            {
+                'platform': 'aws',
+                'error_message': 'failed to load task: no running task found',
+            },
+            {
+                'platform': 'azure',
+                'error_message': 'failed to load task: no running task found',
+            },
+        ]
+        result = detect_cross_platform_failure(error, recent_failures)
+        assert result is None
+
+    def test_empty_recent_failures(self):
+        """Empty recent failures list -> no trigger."""
+        result = detect_cross_platform_failure('some error', [])
+        assert result is None
+
+    def test_none_recent_failures(self):
+        """None recent failures -> no trigger."""
+        result = detect_cross_platform_failure('some error', None)
+        assert result is None
+
+    def test_empty_error_message(self):
+        """Empty current error -> no trigger."""
+        recent_failures = [
+            {'platform': 'aws', 'error_message': 'some error'},
+            {'platform': 'azure', 'error_message': 'some error'},
+            {'platform': 'gcp', 'error_message': 'some error'},
+        ]
+        result = detect_cross_platform_failure('', recent_failures)
+        assert result is None
+
+    def test_none_error_message(self):
+        """None current error -> no trigger."""
+        result = detect_cross_platform_failure(None, [
+            {'platform': 'aws', 'error_message': 'err'},
+        ])
+        assert result is None
+
+    def test_mixed_matching_below_threshold(self):
+        """2 matching + 1 different -> below threshold."""
+        error = 'task handle not stable'
+        recent_failures = [
+            {'platform': 'aws', 'error_message': 'task handle not stable'},
+            {'platform': 'azure', 'error_message': 'task handle not stable'},
+            {'platform': 'gcp', 'error_message': 'completely different error'},
+        ]
+        result = detect_cross_platform_failure(error, recent_failures)
+        assert result is None
+
+    def test_case_insensitive_platform_names(self):
+        """Platform names should be normalized to lowercase."""
+        error = 'exec failed: task not found'
+        recent_failures = [
+            {'platform': 'AWS', 'error_message': 'exec failed: task not found'},
+            {'platform': 'Azure', 'error_message': 'exec failed: task not found'},
+            {'platform': 'NUTANIX', 'error_message': 'exec failed: task not found'},
+        ]
+        result = detect_cross_platform_failure(error, recent_failures)
+        assert result is not None
+        assert result['classification'] == 'automation_bug'
+
+    def test_result_fields_complete(self):
+        """Verify all expected fields are present in the result."""
+        error = 'some recurring error across platforms'
+        recent_failures = [
+            {'platform': 'aws', 'error_message': error},
+            {'platform': 'azure', 'error_message': error},
+            {'platform': 'gcp', 'error_message': error},
+        ]
+        result = detect_cross_platform_failure(error, recent_failures)
+        assert result is not None
+        assert 'root_cause' in result
+        assert 'component' in result
+        assert 'confidence' in result
+        assert 'failure_type' in result
+        assert 'classification' in result
+        assert 'platform_specific' in result
+        assert 'affected_platforms' in result
+        assert 'evidence' in result
+        assert 'suggested_action' in result
+        assert 'issue_title' in result
+        assert 'issue_description' in result
+        assert result['pre_classified'] is True
+        assert result['analysis_mode'] == 'pre-classifier'
+
+    def test_empty_error_messages_in_failures_skipped(self):
+        """Failures with empty error messages should not match."""
+        error = 'task not found'
+        recent_failures = [
+            {'platform': 'aws', 'error_message': ''},
+            {'platform': 'azure', 'error_message': ''},
+            {'platform': 'gcp', 'error_message': ''},
+        ]
+        result = detect_cross_platform_failure(error, recent_failures)
+        assert result is None
+
+
+class TestAnalyzeFailureCrossPlatform:
+    """Integration tests for cross-platform correlation in analyze_failure."""
+
+    def test_cross_platform_skips_vertex_ai(self):
+        """Cross-platform failure should be pre-classified."""
+        analyzer = HybridFailureAnalyzer()
+        hash_a = 'a' * 64
+        hash_b = 'b' * 64
+        hash_c = 'c' * 64
+        hash_d = 'd' * 64
+        result = analyzer.analyze_failure(
+            test_name='OCP-42204',
+            error_message=(
+                f'failed to load task: no running task found: '
+                f'task {hash_a} not found'
+            ),
+            log_url='',
+            platform='nutanix',
+            version='4.18',
+            recent_failures=[
+                {
+                    'platform': 'vsphere',
+                    'error_message': (
+                        f'failed to load task: no running task '
+                        f'found: task {hash_b} not found'
+                    ),
+                },
+                {
+                    'platform': 'aws',
+                    'error_message': (
+                        f'failed to load task: no running task '
+                        f'found: task {hash_c} not found'
+                    ),
+                },
+                {
+                    'platform': 'azure',
+                    'error_message': (
+                        f'failed to load task: no running task '
+                        f'found: task {hash_d} not found'
+                    ),
+                },
+            ],
+        )
+        assert result['pre_classified'] is True
+        assert result['classification'] == 'automation_bug'
+        assert result['cost'] == 0.0
+        assert result['pre_classifier'] == 'cross_platform_detector'
+
+    def test_no_recent_failures_falls_through(self):
+        """Without recent_failures, cross-platform check is skipped."""
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            test_name='OCP-42204',
+            error_message='task not found in containerd',
+            log_url='',
+            platform='nutanix',
+            version='4.18',
+        )
+        # Falls through to Vertex AI (which fails without client)
+        assert result.get('pre_classified') is not True
+
+    def test_ssh_flake_takes_priority(self):
+        """SSH pre-classifier should take priority over cross-platform."""
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            test_name='OCP-12345',
+            error_message='SSH attempt 3 failed with exit status 255',
+            log_url='',
+            platform='aws',
+            version='4.22',
+            pass_rate=90.0,
+            recent_failures=[
+                {
+                    'platform': 'azure',
+                    'error_message': (
+                        'SSH attempt 3 failed with exit status 255'
+                    ),
+                },
+                {
+                    'platform': 'gcp',
+                    'error_message': (
+                        'SSH attempt 3 failed with exit status 255'
+                    ),
+                },
+                {
+                    'platform': 'vsphere',
+                    'error_message': (
+                        'SSH attempt 3 failed with exit status 255'
+                    ),
+                },
+            ],
+        )
+        # SSH pre-classifier matches first
+        assert result['pre_classifier'] == 'ssh_flake_detector'
