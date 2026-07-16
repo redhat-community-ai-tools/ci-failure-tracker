@@ -250,12 +250,20 @@ class GCSWebCollector(BaseCollector):
         return runs[:max_results]
 
     def _fetch_file(self, path: str) -> Optional[bytes]:
-        """Fetch a file from gcsweb"""
+        """Fetch a file from gcsweb.
+
+        Returns None when the response is an HTML viewer page (gcsweb
+        returns 200 OK with its directory-browser UI instead of 404
+        when a file does not exist).
+        """
         url = f"{self.GCSWEB_BASE_URL}{path}"
 
         try:
             response = self.session.get(url, timeout=30)
             response.raise_for_status()
+            ct = response.headers.get('Content-Type', '')
+            if 'text/html' in ct:
+                return None
             return response.content
         except Exception as e:
             logger.warning(f"[gcsweb] Error fetching file {path}: {e}")
@@ -428,46 +436,43 @@ class GCSWebCollector(BaseCollector):
 
         return (raw_name.strip(), raw_name.strip())
 
-    # Default patterns used when config has no operator_version.patterns
-    _DEFAULT_OPERATOR_VERSION_PATTERNS = [
-        r'"version"\s*:\s*"(\d+\.\d+\.\d+-[0-9a-f]+)"',
-        r'operator\s+version\s+(\d+\.\d+\.\d+-[0-9a-f]+)',
-    ]
+    def _fetch_operator_version_from_csv(self, run_path: str) -> Optional[str]:
+        """Extract WMCO operator version from the ClusterServiceVersion artifact.
 
-    def _extract_operator_version(self, text: str) -> Optional[str]:
-        """Extract WMCO operator version from build log text.
+        The gather-extra CI step captures ``clusterserviceversions.json``
+        which lists all installed CSVs including the WMCO operator.
+        The file lives at::
 
-        Tries each regex from ``config['operator_version']['patterns']``
-        in order (falling back to built-in defaults).  The first pattern
-        whose first capture group matches wins.
+            {run_path}/artifacts/{chain_dir}/gather-extra/artifacts/clusterserviceversions.json
 
-        Returns the version string (e.g. "10.0.0-6dfe513") or None.
-        """
-        ov_config = self.config.get('operator_version', {})
-        patterns = ov_config.get('patterns', self._DEFAULT_OPERATOR_VERSION_PATTERNS)
-
-        for pattern in patterns:
-            m = re.search(pattern, text, re.IGNORECASE)
-            if m:
-                return m.group(1)
-
-        return None
-
-    def _fetch_build_log_text(self, run_path: str) -> Optional[str]:
-        """Fetch build-log.txt from the artifacts directory of a job run.
-
-        Lists artifact directories and returns the first build-log.txt
-        found (first 16 KB, since the operator version appears near
-        startup).  Returns the log text or None.
+        Returns the version string (e.g. "10.22.1") or None.
         """
         artifacts_path = f"{run_path}/artifacts/"
         links = self._list_directory(artifacts_path)
+
+        skip_dirs = {'build-resources', 'release'}
         for link_path, link_text in links:
-            if link_text.endswith('/'):
-                log_path = f"{link_path}build-log.txt"
-                content = self._fetch_file(log_path)
-                if content:
-                    return content[:16384].decode('utf-8', errors='replace')
+            if not link_text.endswith('/'):
+                continue
+            dir_name = link_text.rstrip('/')
+            if dir_name in skip_dirs:
+                continue
+
+            csv_path = f"{link_path}gather-extra/artifacts/clusterserviceversions.json"
+            content = self._fetch_file(csv_path)
+            if not content:
+                continue
+
+            try:
+                data = json.loads(content)
+                for item in data.get('items', []):
+                    name = item.get('metadata', {}).get('name', '')
+                    if name.startswith('windows-machine-config-operator'):
+                        version = item.get('spec', {}).get('version')
+                        if version:
+                            return version
+            except (json.JSONDecodeError, KeyError):
+                continue
 
         return None
 
@@ -857,11 +862,7 @@ class GCSWebCollector(BaseCollector):
 
         passed_tests = total_tests - failed_tests - skipped_tests
 
-        # Extract WMCO operator version from build log
-        operator_version = None
-        build_log_text = self._fetch_build_log_text(run['path'])
-        if build_log_text:
-            operator_version = self._extract_operator_version(build_log_text)
+        operator_version = self._fetch_operator_version_from_csv(run['path'])
 
         job_run = JobRun(
             job_name=run['job_name'],
