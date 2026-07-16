@@ -424,12 +424,17 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     blocklist = []
     config_versions = []
     config_platforms = []
+    source_repo_url = 'https://github.com/openshift/windows-machine-config-operator'
     try:
         with open(config_file, 'r') as f:
             yaml_config = yaml.safe_load(f)
             blocklist = yaml_config.get('tracking', {}).get('blocklist', [])
             config_versions = yaml_config.get('tracking', {}).get('versions', [])
             config_platforms = yaml_config.get('tracking', {}).get('platforms', [])
+            source_repo_url = yaml_config.get('tracking', {}).get(
+                'source_repo_url',
+                'https://github.com/openshift/windows-machine-config-operator',
+            )
     except Exception as e:
         print(f"Warning: Could not load tracking config: {e}")
 
@@ -712,84 +717,87 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         Only includes job runs where the operator version was successfully
         extracted from build logs.
         """
-        days = request.args.get('days', 30, type=int)
-        # Do NOT normalize: when no version is provided, show all OCP
-        # versions so the user sees the latest operator build per OCP.
-        version = request.args.get('version') or None
+        try:
+            days = request.args.get('days', 30, type=int)
+            # Do NOT normalize: when no version is provided, show all OCP
+            # versions so the user sees the latest operator build per OCP.
+            version = request.args.get('version') or None
 
-        rows = db.get_build_health(version=version, days=days)
+            rows = db.get_build_health(version=version, days=days)
 
-        if not rows:
-            return jsonify({
-                'operator_versions': [],
-                'latest_version': None,
-            })
+            if not rows:
+                return jsonify({
+                    'operator_versions': [],
+                    'latest_version': None,
+                })
 
-        # Group rows by (ocp_version, operator_version)
-        # Each row also carries a platform breakdown.
-        ocp_groups = {}  # ocp_version -> {operator_version -> data}
-        for row in rows:
-            ocp_ver = row['version']
-            ov = row['operator_version']
+            # Group rows by (ocp_version, operator_version)
+            # Each row also carries a platform breakdown.
+            ocp_groups = {}  # ocp_version -> {operator_version -> data}
+            for row in rows:
+                ocp_ver = row['version']
+                ov = row['operator_version']
 
-            if ocp_ver not in ocp_groups:
-                ocp_groups[ocp_ver] = {}
+                if ocp_ver not in ocp_groups:
+                    ocp_groups[ocp_ver] = {}
 
-            if ov not in ocp_groups[ocp_ver]:
-                ocp_groups[ocp_ver][ov] = {
-                    'operator_version': ov,
-                    'ocp_version': ocp_ver,
-                    'platforms': {},
-                    'total_runs': 0,
-                    'passed_runs': 0,
-                    'failed_runs': 0,
+                if ov not in ocp_groups[ocp_ver]:
+                    ocp_groups[ocp_ver][ov] = {
+                        'operator_version': ov,
+                        'ocp_version': ocp_ver,
+                        'platforms': {},
+                        'total_runs': 0,
+                        'passed_runs': 0,
+                        'failed_runs': 0,
+                    }
+
+                entry = ocp_groups[ocp_ver][ov]
+                entry['platforms'][row['platform']] = {
+                    'total_runs': row['total_runs'],
+                    'passed_runs': row['passed_runs'],
+                    'failed_runs': row['failed_runs'],
                 }
+                entry['total_runs'] += row['total_runs']
+                entry['passed_runs'] += row['passed_runs']
+                entry['failed_runs'] += row['failed_runs']
 
-            entry = ocp_groups[ocp_ver][ov]
-            entry['platforms'][row['platform']] = {
-                'total_runs': row['total_runs'],
-                'passed_runs': row['passed_runs'],
-                'failed_runs': row['failed_runs'],
-            }
-            entry['total_runs'] += row['total_runs']
-            entry['passed_runs'] += row['passed_runs']
-            entry['failed_runs'] += row['failed_runs']
+            # For each OCP version, pick only the latest operator version
+            latest_per_ocp = []
+            for ocp_ver, ov_map in ocp_groups.items():
+                best_ov = max(ov_map.keys(), key=_parse_operator_version_key)
+                latest_per_ocp.append(ov_map[best_ov])
 
-        # For each OCP version, pick only the latest operator version
-        latest_per_ocp = []
-        for ocp_ver, ov_map in ocp_groups.items():
-            best_ov = max(ov_map.keys(), key=_parse_operator_version_key)
-            latest_per_ocp.append(ov_map[best_ov])
-
-        # Sort by operator version descending (highest first)
-        latest_per_ocp.sort(
-            key=lambda d: _parse_operator_version_key(d['operator_version']),
-            reverse=True,
-        )
-
-        # Compute releasable flag, pass_rate, and source_url per entry
-        for data in latest_per_ocp:
-            ov = data['operator_version']
-            data['releasable'] = all(
-                p['failed_runs'] == 0
-                for p in data['platforms'].values()
+            # Sort by operator version descending (highest first)
+            latest_per_ocp.sort(
+                key=lambda d: _parse_operator_version_key(d['operator_version']),
+                reverse=True,
             )
-            data['pass_rate'] = round(
-                data['passed_runs'] / data['total_runs'] * 100, 1
-            ) if data['total_runs'] else 0.0
-            if '-' in ov:
-                commit_hash = ov.split('-', 1)[1]
-                data['source_url'] = (
-                    f'https://github.com/openshift/windows-machine-config-operator'
-                    f'/commit/{commit_hash}'
+
+            # Compute releasable flag, pass_rate, and source_url per entry
+            for data in latest_per_ocp:
+                ov = data['operator_version']
+                data['releasable'] = all(
+                    p['failed_runs'] == 0
+                    for p in data['platforms'].values()
                 )
+                data['pass_rate'] = round(
+                    data['passed_runs'] / data['total_runs'] * 100, 1
+                ) if data['total_runs'] else 0.0
+                if '-' in ov:
+                    commit_hash = ov.split('-', 1)[1]
+                    data['source_url'] = (
+                        f'{source_repo_url}/commit/{commit_hash}'
+                    )
 
-        latest = latest_per_ocp[0]['operator_version'] if latest_per_ocp else None
+            latest = latest_per_ocp[0]['operator_version'] if latest_per_ocp else None
 
-        return jsonify({
-            'latest_version': latest,
-            'operator_versions': latest_per_ocp,
-        })
+            return jsonify({
+                'latest_version': latest,
+                'operator_versions': latest_per_ocp,
+            })
+        except Exception as e:
+            logger.error(f"Build health query failed: {e}", exc_info=True)
+            return jsonify({'error': 'An internal error has occurred.'}), 500
 
     @app.route('/api/platform-tests')
     def api_platform_tests():
