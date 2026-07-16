@@ -40,6 +40,18 @@ collection_status = {
     'lock': threading.Lock()
 }
 
+# Global backfill status
+backfill_status = {
+    'running': False,
+    'progress': '',
+    'error': None,
+    'completed_at': None,
+    'total': 0,
+    'processed': 0,
+    'updated': 0,
+    'lock': threading.Lock()
+}
+
 # ---------------------------------------------------------------------------
 # Bounded token store – prevents unbounded memory growth from OAuth tokens
 # that are never explicitly logged-out (e.g. user closes browser tab).
@@ -379,6 +391,97 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
         collection_status['running'] = False
 
 
+def run_backfill_background(db_path: str, config_file: str = 'config.yaml'):
+    """Run operator_version backfill in background thread.
+
+    Queries job_runs where operator_version IS NULL, fetches
+    build-log.txt for each via gcsweb, extracts the operator version,
+    and updates the row.
+    """
+    global backfill_status
+
+    try:
+        logger.info("Starting operator_version backfill")
+        backfill_status['progress'] = 'Initializing...'
+
+        # Load config
+        with open(config_file, 'r') as f:
+            config = yaml.safe_load(f)
+
+        # Build collector config
+        tracking = config.get('tracking', {})
+        gcsweb_config = config.get('collector', {}).get('gcsweb', {}).copy()
+        gcsweb_config['test_suite_filter'] = tracking.get('test_suite_filter', '')
+        gcsweb_config['branch_version_map'] = tracking.get('branch_version_map', {})
+
+        from collectors.gcsweb import GCSWebCollector
+        collector = GCSWebCollector(gcsweb_config)
+
+        # Open database
+        db = DashboardDatabase(db_path)
+        runs = db.get_runs_without_operator_version()
+
+        total = len(runs)
+        backfill_status['total'] = total
+        backfill_status['processed'] = 0
+        backfill_status['updated'] = 0
+
+        if total == 0:
+            backfill_status['progress'] = 'No runs to backfill'
+            backfill_status['completed_at'] = datetime.now().isoformat()
+            db.close()
+            return
+
+        logger.info(f"Backfill: {total} runs with NULL operator_version")
+        backfill_status['progress'] = f'Found {total} runs to backfill'
+
+        rate_limit = float(config.get('backfill', {}).get('rate_limit', 0.3))
+
+        for i, run in enumerate(runs):
+            job_name = run['job_name']
+            build_id = run['build_id']
+            bucket = gcsweb_config.get('bucket', 'qe-private-deck')
+            run_path = f"/gcs/{bucket}/logs/{job_name}/{build_id}"
+
+            build_log_text = collector._fetch_build_log_text(run_path)
+            if build_log_text:
+                version = collector._extract_operator_version(build_log_text)
+                if version:
+                    db.update_operator_version(job_name, build_id, version)
+                    backfill_status['updated'] += 1
+
+            backfill_status['processed'] = i + 1
+            backfill_status['progress'] = (
+                f'Processed {i + 1}/{total} runs, '
+                f'{backfill_status["updated"]} updated'
+            )
+
+            # Rate limit to avoid hammering gcsweb
+            time.sleep(rate_limit)
+
+        db.close()
+
+        logger.info(
+            f"Backfill complete: {backfill_status['processed']} processed, "
+            f"{backfill_status['updated']} updated"
+        )
+        backfill_status['progress'] = (
+            f'Complete! Processed {total} runs, '
+            f'{backfill_status["updated"]} versions found'
+        )
+        backfill_status['error'] = None
+        backfill_status['completed_at'] = datetime.now().isoformat()
+
+    except Exception as e:
+        logger.error(f"Backfill failed: {e}", exc_info=True)
+        backfill_status['error'] = str(e)
+        backfill_status['progress'] = 'Failed'
+        backfill_status['completed_at'] = None
+    finally:
+        logger.info("Backfill thread finished")
+        backfill_status['running'] = False
+
+
 def create_app(db_path: str, config: dict = None, config_file: str = 'config.yaml'):
     """
     Create Flask application
@@ -584,6 +687,47 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 target=run_collection_background,
                 args=(db_path, config_file, days, version),
                 daemon=True
+            )
+            thread.start()
+
+        return jsonify({'status': 'started'})
+
+    @app.route('/api/backfill-versions', methods=['GET', 'POST'])
+    def api_backfill_versions():
+        """Trigger or query operator_version backfill.
+
+        POST triggers the backfill in a background thread.
+        GET returns the current backfill progress.
+        """
+        global backfill_status
+
+        if request.method == 'GET':
+            return jsonify({
+                'running': backfill_status['running'],
+                'progress': backfill_status['progress'],
+                'error': backfill_status['error'],
+                'completed_at': backfill_status['completed_at'],
+                'total': backfill_status['total'],
+                'processed': backfill_status['processed'],
+                'updated': backfill_status['updated'],
+            })
+
+        with backfill_status['lock']:
+            if backfill_status['running']:
+                return jsonify({'error': 'Backfill already running'}), 409
+
+            backfill_status['running'] = True
+            backfill_status['progress'] = 'Initializing...'
+            backfill_status['error'] = None
+            backfill_status['completed_at'] = None
+            backfill_status['total'] = 0
+            backfill_status['processed'] = 0
+            backfill_status['updated'] = 0
+
+            thread = threading.Thread(
+                target=run_backfill_background,
+                args=(db_path, config_file),
+                daemon=True,
             )
             thread.start()
 
