@@ -2,8 +2,10 @@
 
 Covers:
 - Operator version extraction from build log text (positive and negative cases)
+- Configurable extraction patterns via config
 - Database storage and retrieval of operator_version
 - /api/build-health endpoint response shape and logic
+- Semantic version sorting
 """
 
 import json
@@ -80,6 +82,43 @@ class TestExtractOperatorVersion:
     def test_empty_string(self, collector):
         """Empty string returns None."""
         assert collector._extract_operator_version('') is None
+
+
+class TestConfigurablePatterns:
+    """Tests for operator_version.patterns config."""
+
+    def test_custom_pattern_used(self):
+        """Custom pattern from config is used instead of defaults."""
+        config = {
+            'url': 'https://example.com',
+            'bucket': 'test',
+            'operator_version': {
+                'patterns': [r'build:\s*v(\d+\.\d+\.\d+-[0-9a-f]+)'],
+            },
+        }
+        c = GCSWebCollector(config)
+        text = 'build: v5.0.0-cafe123'
+        assert c._extract_operator_version(text) == '5.0.0-cafe123'
+
+    def test_custom_pattern_no_false_positive(self):
+        """Custom pattern does not match text suited to default patterns."""
+        config = {
+            'url': 'https://example.com',
+            'bucket': 'test',
+            'operator_version': {
+                'patterns': [r'build:\s*v(\d+\.\d+\.\d+-[0-9a-f]+)'],
+            },
+        }
+        c = GCSWebCollector(config)
+        # Default JSON-style pattern should NOT match when config overrides
+        text = '"version": "10.0.0-6dfe513"'
+        assert c._extract_operator_version(text) is None
+
+    def test_default_patterns_when_no_config(self):
+        """Defaults are used when operator_version config is absent."""
+        c = GCSWebCollector({'url': 'https://example.com', 'bucket': 'test'})
+        text = '"version": "10.0.0-6dfe513"'
+        assert c._extract_operator_version(text) == '10.0.0-6dfe513'
 
 
 # ---------------------------------------------------------------------------
@@ -278,25 +317,35 @@ class TestBuildHealthAPI:
         data = resp.get_json()
         assert data['latest_version'] == '10.0.0-abc1234'
 
-    def test_build_health_platforms_present(self, client):
-        """Endpoint returns per-platform breakdown."""
+    def test_build_health_returns_all_versions(self, client):
+        """Endpoint returns operator_versions list."""
         resp = client.get('/api/build-health?version=4.22&days=7')
         data = resp.get_json()
-        assert 'aws' in data['platforms']
-        assert 'gcp' in data['platforms']
+        assert isinstance(data['operator_versions'], list)
+        assert len(data['operator_versions']) == 1
+        assert data['operator_versions'][0]['operator_version'] == '10.0.0-abc1234'
+
+    def test_build_health_platforms_present(self, client):
+        """Endpoint returns per-platform breakdown inside each version."""
+        resp = client.get('/api/build-health?version=4.22&days=7')
+        data = resp.get_json()
+        version_data = data['operator_versions'][0]
+        assert 'aws' in version_data['platforms']
+        assert 'gcp' in version_data['platforms']
 
     def test_build_health_releasable_when_all_pass(self, client):
         """releasable is True when all platforms pass."""
         resp = client.get('/api/build-health?version=4.22&days=7')
         data = resp.get_json()
-        assert data['releasable'] is True
+        assert data['operator_versions'][0]['releasable'] is True
 
     def test_build_health_source_url(self, client):
         """source_url links to the WMCO commit on GitHub."""
         resp = client.get('/api/build-health?version=4.22&days=7')
         data = resp.get_json()
-        assert 'source_url' in data
-        assert 'abc1234' in data['source_url']
+        version_data = data['operator_versions'][0]
+        assert 'source_url' in version_data
+        assert 'abc1234' in version_data['source_url']
 
     def test_build_health_empty_database(self, tmp_path):
         """Returns empty result when no operator versions exist."""
@@ -314,7 +363,7 @@ class TestBuildHealthAPI:
             resp = client.get('/api/build-health?days=7')
             data = resp.get_json()
             assert data['latest_version'] is None
-            assert data['platforms'] == {}
+            assert data['operator_versions'] == []
 
         database.close()
 
@@ -363,10 +412,65 @@ class TestBuildHealthReleasability:
         """releasable is False when any platform has failures."""
         resp = client_with_failure.get('/api/build-health?version=4.22&days=7')
         data = resp.get_json()
-        assert data['releasable'] is False
+        assert data['operator_versions'][0]['releasable'] is False
 
     def test_pass_rate_reflects_failures(self, client_with_failure):
         """Pass rate is less than 100 when failures exist."""
         resp = client_with_failure.get('/api/build-health?version=4.22&days=7')
         data = resp.get_json()
-        assert data['pass_rate'] == 50.0  # 1 passed out of 2 runs
+        assert data['operator_versions'][0]['pass_rate'] == 50.0
+
+
+class TestSemanticVersionSorting:
+    """Tests for semantic version sorting in /api/build-health."""
+
+    @pytest.fixture
+    def client_multi_version(self, tmp_path):
+        """Create client with multiple operator versions including 9.x and 10.x."""
+        from datetime import datetime
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        runs = [
+            JobRun(
+                job_name='job-aws-old', build_id='1',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.22', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='9.0.0-bbb222',
+            ),
+            JobRun(
+                job_name='job-aws-new', build_id='2',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.22', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.0.0-aaa111',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        config_path = str(tmp_path / 'config.yaml')
+        with open(config_path, 'w') as f:
+            f.write('tracking:\n  versions: ["4.22"]\n  platforms: ["aws"]\n  blocklist: []\n')
+
+        app = create_app(db_path, config_file=config_path)
+        app.config['TESTING'] = True
+        with app.test_client() as client:
+            yield client
+
+        database.close()
+
+    def test_10_sorts_above_9(self, client_multi_version):
+        """10.0.0 is correctly sorted above 9.0.0 (not lexicographic)."""
+        resp = client_multi_version.get('/api/build-health?version=4.22&days=7')
+        data = resp.get_json()
+        assert data['latest_version'] == '10.0.0-aaa111'
+        versions = [v['operator_version'] for v in data['operator_versions']]
+        assert versions == ['10.0.0-aaa111', '9.0.0-bbb222']
+
+    def test_all_versions_returned(self, client_multi_version):
+        """Both versions are returned, not just latest."""
+        resp = client_multi_version.get('/api/build-health?version=4.22&days=7')
+        data = resp.get_json()
+        assert len(data['operator_versions']) == 2

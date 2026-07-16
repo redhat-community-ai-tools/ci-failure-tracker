@@ -690,11 +690,23 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             'summary': summary
         })
 
+    def _parse_operator_version_key(version_str):
+        """Return a sort key for semantic version comparison.
+
+        Accepts strings like "10.0.0-6dfe513".  Splits on "." and "-"
+        to compare numeric parts as integers so that 10.x > 9.x.
+        """
+        try:
+            base, _hash = version_str.rsplit('-', 1)
+            return tuple(int(x) for x in base.split('.'))
+        except (ValueError, AttributeError):
+            return (0,)
+
     @app.route('/api/build-health')
     def api_build_health():
         """Get build health summary grouped by operator (WMCO) version.
 
-        Returns the latest operator version with per-platform pass/fail
+        Returns all operator versions with per-platform pass/fail
         breakdown.  Only includes job runs where the operator version was
         successfully extracted from build logs.
         """
@@ -707,7 +719,6 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             return jsonify({
                 'operator_versions': [],
                 'latest_version': None,
-                'platforms': {},
             })
 
         # Group by operator_version
@@ -715,8 +726,9 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         for row in rows:
             ov = row['operator_version']
             if ov not in versions_data:
-                versions_data[ov] = {'platforms': {}, 'total_runs': 0,
-                                     'passed_runs': 0, 'failed_runs': 0}
+                versions_data[ov] = {'operator_version': ov, 'platforms': {},
+                                     'total_runs': 0, 'passed_runs': 0,
+                                     'failed_runs': 0}
             versions_data[ov]['platforms'][row['platform']] = {
                 'total_runs': row['total_runs'],
                 'passed_runs': row['passed_runs'],
@@ -726,11 +738,15 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             versions_data[ov]['passed_runs'] += row['passed_runs']
             versions_data[ov]['failed_runs'] += row['failed_runs']
 
-        # Sort versions descending; the "latest" is the first one
-        sorted_versions = sorted(versions_data.keys(), reverse=True)
+        # Sort versions descending using semantic version comparison
+        sorted_versions = sorted(
+            versions_data.keys(),
+            key=_parse_operator_version_key,
+            reverse=True,
+        )
         latest = sorted_versions[0] if sorted_versions else None
 
-        # Compute releasable flag: all platforms passed every run
+        # Compute releasable flag and pass_rate per version
         for ov, data in versions_data.items():
             data['releasable'] = all(
                 p['failed_runs'] == 0
@@ -739,25 +755,19 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             data['pass_rate'] = round(
                 data['passed_runs'] / data['total_runs'] * 100, 1
             ) if data['total_runs'] else 0.0
+            # Add GitHub source link if commit hash is present
+            if '-' in ov:
+                commit_hash = ov.split('-', 1)[1]
+                data['source_url'] = (
+                    f'https://github.com/openshift/windows-machine-config-operator'
+                    f'/commit/{commit_hash}'
+                )
 
-        # Only return latest version per the feature request
+        # Return all versions (sorted descending) with latest flagged
         result = {
             'latest_version': latest,
-            'platforms': versions_data.get(latest, {}).get('platforms', {}),
-            'total_runs': versions_data.get(latest, {}).get('total_runs', 0),
-            'passed_runs': versions_data.get(latest, {}).get('passed_runs', 0),
-            'failed_runs': versions_data.get(latest, {}).get('failed_runs', 0),
-            'pass_rate': versions_data.get(latest, {}).get('pass_rate', 0.0),
-            'releasable': versions_data.get(latest, {}).get('releasable', False),
+            'operator_versions': [versions_data[v] for v in sorted_versions],
         }
-
-        # Add GitHub source link if commit hash is present
-        if latest and '-' in latest:
-            commit_hash = latest.split('-', 1)[1]
-            result['source_url'] = (
-                f'https://github.com/openshift/windows-machine-config-operator'
-                f'/commit/{commit_hash}'
-            )
 
         return jsonify(result)
 
