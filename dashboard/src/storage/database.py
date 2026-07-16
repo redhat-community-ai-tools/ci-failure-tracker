@@ -797,6 +797,53 @@ class DashboardDatabase:
 
         return [row[0] for row in cursor.fetchall()]
 
+    def get_recent_failures_by_platform(
+        self,
+        test_name: str,
+        version: str,
+        days: int = 7,
+    ) -> List[Dict[str, str]]:
+        """Get the most recent failure per platform for a test.
+
+        Used by the cross-platform failure correlation pre-classifier
+        to detect when the same error appears across multiple
+        platforms.
+
+        Args:
+            test_name: Test name (e.g. OCP-42204)
+            version: OpenShift version
+            days: How many days back to look
+
+        Returns:
+            List of dicts with 'platform' and 'error_message' keys,
+            one entry per platform (most recent failure).
+        """
+        cursor = self.conn.cursor()
+
+        cursor.execute("""
+            SELECT platform, error_message, timestamp
+            FROM test_results
+            WHERE test_name = ?
+            AND version = ?
+            AND status = 'failed'
+            AND error_message IS NOT NULL
+            AND error_message != ''
+            AND timestamp >= datetime('now', ? || ' days')
+            ORDER BY timestamp DESC
+        """, (test_name, version, f'-{days}'))
+
+        seen = set()
+        results = []
+        for row in cursor.fetchall():
+            platform = row[0]
+            if platform not in seen:
+                seen.add(platform)
+                results.append({
+                    'platform': platform,
+                    'error_message': row[1],
+                })
+        return results
+
     def get_build_health(self, version=None, days=30):
         """Get build health summary grouped by operator (WMCO) version.
 
