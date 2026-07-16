@@ -59,10 +59,10 @@ class TestExtractOperatorVersion:
         text = 'OCP version 4.22 is running\ncluster ready'
         assert collector._extract_operator_version(text) is None
 
-    def test_semver_without_hash_not_matched(self, collector):
-        """Semver without commit hash like '10.0.0' is NOT matched."""
+    def test_semver_without_hash_matched(self, collector):
+        """Plain semver like '10.0.0' IS matched (CSV versions have no hash)."""
         text = '"version": "10.0.0"'
-        assert collector._extract_operator_version(text) is None
+        assert collector._extract_operator_version(text) == '10.0.0'
 
     def test_non_hex_hash_not_matched(self, collector):
         """Version with non-hex hash like '10.0.0-xyz!!!' is NOT matched."""

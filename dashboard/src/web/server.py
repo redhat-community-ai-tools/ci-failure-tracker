@@ -443,12 +443,15 @@ def run_backfill_background(db_path: str, config_file: str = 'config.yaml'):
             bucket = gcsweb_config.get('bucket', 'qe-private-deck')
             run_path = f"/gcs/{bucket}/logs/{job_name}/{build_id}"
 
-            build_log_text = collector._fetch_build_log_text(run_path)
-            if build_log_text:
-                version = collector._extract_operator_version(build_log_text)
-                if version:
-                    db.update_operator_version(job_name, build_id, version)
-                    backfill_status['updated'] += 1
+            # Try CSV (clusterserviceversions.json) first, then build log
+            version = collector._fetch_csv_operator_version(run_path)
+            if not version:
+                build_log_text = collector._fetch_build_log_text(run_path)
+                if build_log_text:
+                    version = collector._extract_operator_version(build_log_text)
+            if version:
+                db.update_operator_version(job_name, build_id, version)
+                backfill_status['updated'] += 1
 
             backfill_status['processed'] = i + 1
             backfill_status['progress'] = (
@@ -842,11 +845,14 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     def _parse_operator_version_key(version_str):
         """Return a sort key for semantic version comparison.
 
-        Accepts strings like "10.0.0-6dfe513".  Splits on "." and "-"
-        to compare numeric parts as integers so that 10.x > 9.x.
+        Accepts strings like ``"10.0.0-6dfe513"`` (with commit hash)
+        or ``"10.22.1"`` (plain semver from CSV).  Splits on ``.``
+        and ``-`` to compare numeric parts as integers so that
+        ``10.x > 9.x``.
         """
         try:
-            base, _hash = version_str.rsplit('-', 1)
+            # Strip optional commit-hash suffix (e.g. "-6dfe513")
+            base = version_str.rsplit('-', 1)[0] if '-' in version_str else version_str
             return tuple(int(x) for x in base.split('.'))
         except (ValueError, AttributeError):
             return (0,)
@@ -931,6 +937,12 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                     commit_hash = ov.split('-', 1)[1]
                     data['source_url'] = (
                         f'{source_repo_url}/commit/{commit_hash}'
+                    )
+                else:
+                    # Plain semver from CSV (e.g. "10.22.1") — link
+                    # to the release tag instead of a commit.
+                    data['source_url'] = (
+                        f'{source_repo_url}/releases/tag/v{ov}'
                     )
 
             latest = latest_per_ocp[0]['operator_version'] if latest_per_ocp else None

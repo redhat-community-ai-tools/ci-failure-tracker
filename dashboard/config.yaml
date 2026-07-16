@@ -216,10 +216,14 @@ collector:
     # Operator version extraction patterns (tried in order, first match wins).
     # Each pattern must contain one capture group for the version string.
     # Add or remove patterns here when WMCO changes its log format.
+    # Patterns with commit hash suffix are tried first; plain semver
+    # patterns (from CSV data) are tried as fallback.
     operator_version:
       patterns:
         - '"version"\s*:\s*"(\d+\.\d+\.\d+-[0-9a-f]+)"'
         - 'operator\s+version\s+(\d+\.\d+\.\d+-[0-9a-f]+)'
+        - '"version"\s*:\s*"(\d+\.\d+\.\d+)"'
+        - 'operator\s+version\s+(\d+\.\d+\.\d+)'
 
   # prow_mcp configuration (POC - uses prow-mcp-server)
   prow_mcp:

@@ -250,12 +250,33 @@ class GCSWebCollector(BaseCollector):
         return runs[:max_results]
 
     def _fetch_file(self, path: str) -> Optional[bytes]:
-        """Fetch a file from gcsweb"""
+        """Fetch a file from gcsweb.
+
+        Returns None when the response is an HTML page instead of a
+        real file.  gcsweb returns ``200 OK`` with an HTML directory
+        listing when the requested file does not exist, so we check
+        the Content-Type header and the first bytes of the body.
+        """
         url = f"{self.GCSWEB_BASE_URL}{path}"
 
         try:
             response = self.session.get(url, timeout=30)
             response.raise_for_status()
+
+            # gcsweb returns 200 with an HTML viewer page when a file
+            # does not exist.  Detect this by Content-Type or content.
+            content_type = response.headers.get('Content-Type', '')
+            if 'text/html' in content_type:
+                logger.debug(f"[gcsweb] Skipping HTML response for {path}")
+                return None
+
+            # Fallback: sniff the first bytes for an HTML doctype/tag
+            prefix = response.content[:256].lstrip()
+            lower_prefix = prefix[:64].lower()
+            if lower_prefix.startswith(b'<!doctype') or lower_prefix.startswith(b'<html'):
+                logger.debug(f"[gcsweb] Skipping HTML content for {path}")
+                return None
+
             return response.content
         except Exception as e:
             logger.warning(f"[gcsweb] Error fetching file {path}: {e}")
@@ -432,6 +453,8 @@ class GCSWebCollector(BaseCollector):
     _DEFAULT_OPERATOR_VERSION_PATTERNS = [
         r'"version"\s*:\s*"(\d+\.\d+\.\d+-[0-9a-f]+)"',
         r'operator\s+version\s+(\d+\.\d+\.\d+-[0-9a-f]+)',
+        r'"version"\s*:\s*"(\d+\.\d+\.\d+)"',
+        r'operator\s+version\s+(\d+\.\d+\.\d+)',
     ]
 
     def _extract_operator_version(self, text: str) -> Optional[str]:
@@ -468,6 +491,66 @@ class GCSWebCollector(BaseCollector):
                 content = self._fetch_file(log_path)
                 if content:
                     return content[:16384].decode('utf-8', errors='replace')
+
+        return None
+
+    def _fetch_csv_operator_version(self, run_path: str) -> Optional[str]:
+        """Extract WMCO operator version from clusterserviceversions.json.
+
+        On passed CI runs the ``gather-extra`` step captures
+        ``clusterserviceversions.json`` at::
+
+            {run_path}/artifacts/{chain_dir}/gather-extra/artifacts/
+                clusterserviceversions.json
+
+        This file contains the WMCO ClusterServiceVersion with the
+        operator version in ``spec.version`` (e.g. ``10.22.1``).
+
+        Returns the version string or None.
+        """
+        artifacts_path = f"{run_path}/artifacts/"
+        links = self._list_directory(artifacts_path)
+
+        for link_path, link_text in links:
+            # Skip non-directory entries and known non-chain directories
+            if not link_text.endswith('/'):
+                continue
+            dir_name = link_text.rstrip('/')
+            if dir_name in ('build-resources', 'release'):
+                continue
+
+            csv_path = (
+                f"{link_path}gather-extra/artifacts/"
+                f"clusterserviceversions.json"
+            )
+            content = self._fetch_file(csv_path)
+            if not content:
+                continue
+
+            try:
+                data = json.loads(content)
+            except (json.JSONDecodeError, ValueError):
+                logger.debug(
+                    f"[gcsweb] Invalid JSON in {csv_path}"
+                )
+                continue
+
+            # The file may be a single CSV object or a list of items
+            items = data if isinstance(data, list) else data.get('items', [data])
+
+            for item in items:
+                name = (
+                    item.get('metadata', {}).get('name', '')
+                )
+                if 'windows-machine-config-operator' in name:
+                    version = item.get('spec', {}).get('version')
+                    if version:
+                        logger.info(
+                            f"[gcsweb] Found WMCO version "
+                            f"{version} from CSV in "
+                            f"{dir_name}"
+                        )
+                        return version
 
         return None
 
@@ -857,11 +940,12 @@ class GCSWebCollector(BaseCollector):
 
         passed_tests = total_tests - failed_tests - skipped_tests
 
-        # Extract WMCO operator version from build log
-        operator_version = None
-        build_log_text = self._fetch_build_log_text(run['path'])
-        if build_log_text:
-            operator_version = self._extract_operator_version(build_log_text)
+        # Extract WMCO operator version: try CSV first, then build log
+        operator_version = self._fetch_csv_operator_version(run['path'])
+        if not operator_version:
+            build_log_text = self._fetch_build_log_text(run['path'])
+            if build_log_text:
+                operator_version = self._extract_operator_version(build_log_text)
 
         job_run = JobRun(
             job_name=run['job_name'],
