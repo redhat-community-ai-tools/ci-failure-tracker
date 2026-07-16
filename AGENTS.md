@@ -90,3 +90,10 @@ Most agent work targets the dashboard.
     `re.IGNORECASE` since HTML tag names are case-insensitive per spec.
     This prevents CodeQL "Bad HTML filtering regexp" findings and avoids
     review rework.
+
+16. **Version comparison.** When sorting or comparing version strings
+    (OCP versions like `4.21`, operator versions like `10.0.0-abc`),
+    always use semantic version comparison — split on dots and dashes,
+    compare numeric components as integers. Never use lexicographic
+    string sorting for versions, since `"9.0.0" > "10.0.0"`
+    lexicographically but `10.0.0 > 9.0.0` semantically.
