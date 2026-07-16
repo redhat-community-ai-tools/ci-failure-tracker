@@ -395,8 +395,8 @@ def run_backfill_background(db_path: str, config_file: str = 'config.yaml'):
     """Run operator_version backfill in background thread.
 
     Queries job_runs where operator_version IS NULL, fetches
-    build-log.txt for each via gcsweb, extracts the operator version,
-    and updates the row.
+    clusterserviceversions.json for each via gcsweb, extracts the
+    WMCO operator version, and updates the row.
     """
     global backfill_status
 
@@ -404,11 +404,9 @@ def run_backfill_background(db_path: str, config_file: str = 'config.yaml'):
         logger.info("Starting operator_version backfill")
         backfill_status['progress'] = 'Initializing...'
 
-        # Load config
         with open(config_file, 'r') as f:
             config = yaml.safe_load(f)
 
-        # Build collector config
         tracking = config.get('tracking', {})
         gcsweb_config = config.get('collector', {}).get('gcsweb', {}).copy()
         gcsweb_config['test_suite_filter'] = tracking.get('test_suite_filter', '')
@@ -417,7 +415,6 @@ def run_backfill_background(db_path: str, config_file: str = 'config.yaml'):
         from collectors.gcsweb import GCSWebCollector
         collector = GCSWebCollector(gcsweb_config)
 
-        # Open database
         db = DashboardDatabase(db_path)
         runs = db.get_runs_without_operator_version()
 
@@ -443,12 +440,10 @@ def run_backfill_background(db_path: str, config_file: str = 'config.yaml'):
             bucket = gcsweb_config.get('bucket', 'qe-private-deck')
             run_path = f"/gcs/{bucket}/logs/{job_name}/{build_id}"
 
-            build_log_text = collector._fetch_build_log_text(run_path)
-            if build_log_text:
-                version = collector._extract_operator_version(build_log_text)
-                if version:
-                    db.update_operator_version(job_name, build_id, version)
-                    backfill_status['updated'] += 1
+            version = collector._fetch_operator_version_from_csv(run_path)
+            if version:
+                db.update_operator_version(job_name, build_id, version)
+                backfill_status['updated'] += 1
 
             backfill_status['processed'] = i + 1
             backfill_status['progress'] = (
@@ -456,7 +451,6 @@ def run_backfill_background(db_path: str, config_file: str = 'config.yaml'):
                 f'{backfill_status["updated"]} updated'
             )
 
-            # Rate limit to avoid hammering gcsweb
             time.sleep(rate_limit)
 
         db.close()
@@ -842,11 +836,10 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     def _parse_operator_version_key(version_str):
         """Return a sort key for semantic version comparison.
 
-        Accepts strings like "10.0.0-6dfe513".  Splits on "." and "-"
-        to compare numeric parts as integers so that 10.x > 9.x.
+        Accepts "10.22.1" or "10.0.0-6dfe513".
         """
         try:
-            base, _hash = version_str.rsplit('-', 1)
+            base = version_str.rsplit('-', 1)[0] if '-' in version_str else version_str
             return tuple(int(x) for x in base.split('.'))
         except (ValueError, AttributeError):
             return (0,)
