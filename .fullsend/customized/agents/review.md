@@ -32,6 +32,7 @@ project conventions.
 - No raw SQL in route handlers or collectors
 - WAL mode assumptions are preserved
 - Schema changes are backwards-compatible (new columns with defaults)
+- Database connections in background threads must be closed in a `finally` block or context manager, not just on the happy path
 
 ### Collector Interface Compliance
 - New collectors must implement the full `BaseCollector` ABC:

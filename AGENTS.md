@@ -97,3 +97,8 @@ Most agent work targets the dashboard.
     compare numeric components as integers. Never use lexicographic
     string sorting for versions, since `"9.0.0" > "10.0.0"`
     lexicographically but `10.0.0 > 9.0.0` semantically.
+
+17. **Database lifecycle.** Background functions that open a
+    `DashboardDatabase` must close it in a `finally` block or use a
+    context manager. Never rely on the happy-path `close()` alone --
+    exceptions between open and close will leak the connection.
