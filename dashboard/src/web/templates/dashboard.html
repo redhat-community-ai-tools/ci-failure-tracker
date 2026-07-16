@@ -1109,7 +1109,12 @@
                 return cached.data;
             }
             const response = await fetch(`/api/${endpoint}?${queryString}`);
-            const data = await response.json();
+            let data;
+            try {
+                data = await response.json();
+            } catch (e) {
+                return { error: 'Non-JSON response from server' };
+            }
             if (!response.ok) return data;
             _fetchCache[cacheKey] = { data, time: Date.now() };
             return data;

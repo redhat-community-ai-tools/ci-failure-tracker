@@ -65,14 +65,21 @@ Most agent work targets the dashboard.
 12. **Security.** No hardcoded credentials. Use environment variables for secrets.
     Use parameterized SQLite queries.
 
-13. **Filter parameter flow.** When adding or modifying collector methods that
+13. **API error responses.** All Flask `/api/*` routes must return JSON
+    responses on error (not HTML or plain text). Use `jsonify` with an
+    appropriate HTTP status code for every error path. New API endpoint
+    PRs must include at least one error-path test verifying the endpoint
+    returns valid JSON when given bad input or when an internal error
+    occurs.
+
+14. **Filter parameter flow.** When adding or modifying collector methods that
     accept filtering parameters (date ranges, version lists, platform lists),
     verify every filter parameter is either (a) used in a conditional check
     within the method body, or (b) forwarded to a callee that applies it. Do
     not add filter parameters to method signatures without implementing or
     forwarding the filter logic.
 
-14. **Template-embedded JavaScript testing.** String-presence assertions
+15. **Template-embedded JavaScript testing.** String-presence assertions
     (e.g., checking that a function name appears in rendered HTML) are not
     sufficient tests for JavaScript logic embedded in Jinja templates.
     Tests must verify structural correctness: that cache-check logic

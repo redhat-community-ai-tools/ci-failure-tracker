@@ -241,3 +241,41 @@ class TestFetchCacheStructure:
             "Cache key must incorporate both endpoint and query params "
             "via template literal interpolation"
         )
+
+    def test_fetchdata_handles_non_json_responses(self, client):
+        """fetchData must handle non-JSON server responses without
+        throwing an uncaught SyntaxError.  Either response.ok must be
+        checked before response.json() is called, or response.json()
+        must be wrapped in try/catch so that HTML or other non-JSON
+        responses produce a descriptive error instead of crashing."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        script = _extract_script_body(html)
+        body = _extract_function_body(script, 'fetchData')
+
+        # Approach A: response.ok is checked before response.json()
+        # Find the first occurrence of each after the fetch() call
+        fetch_pos = body.find('await fetch(')
+        assert fetch_pos != -1, "fetchData must call fetch()"
+        after_fetch = body[fetch_pos:]
+
+        ok_check_pos = after_fetch.find('!response.ok')
+        json_call_pos = after_fetch.find('response.json()')
+        ok_before_json = (
+            ok_check_pos != -1
+            and json_call_pos != -1
+            and ok_check_pos < json_call_pos
+        )
+
+        # Approach B: response.json() is wrapped in try/catch
+        try_catch_json = re.search(
+            r'try\s*\{[^}]*response\.json\(\)', body, re.DOTALL
+        )
+        has_try_catch = try_catch_json is not None
+
+        assert ok_before_json or has_try_catch, (
+            "fetchData must protect against non-JSON responses: either "
+            "check response.ok before calling response.json(), or wrap "
+            "response.json() in try/catch to handle SyntaxError from "
+            "HTML error pages"
+        )
