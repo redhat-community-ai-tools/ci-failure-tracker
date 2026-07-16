@@ -26,6 +26,9 @@ project conventions.
 - No unnecessary dependencies added to `requirements.txt`
 - Flask route handlers follow existing patterns in `dashboard/src/web/server.py`
 - Error handling uses try/except with specific exceptions, not bare except
+- Encapsulation. Flag calls to `_`-prefixed methods from outside the owning
+  class or module. Suggest adding a public method to the class instead, or
+  promoting the method to public API if the use case is legitimate.
 
 ### SQLite Safety
 - All database operations go through `dashboard/src/storage/database.py`
