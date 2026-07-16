@@ -885,6 +885,38 @@ class DashboardDatabase:
         cursor.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_runs_without_operator_version(self):
+        """Return job runs that have no operator_version set.
+
+        Returns:
+            List of dicts with job_name and build_id for runs where
+            operator_version IS NULL.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT job_name, build_id FROM job_runs WHERE operator_version IS NULL"
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def update_operator_version(self, job_name, build_id, operator_version):
+        """Update operator_version for a specific job run.
+
+        Args:
+            job_name: The job name to match.
+            build_id: The build ID to match.
+            operator_version: The operator version string to set.
+
+        Returns:
+            Number of rows updated (0 or 1).
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE job_runs SET operator_version = ? WHERE job_name = ? AND build_id = ?",
+            (operator_version, job_name, build_id),
+        )
+        self.conn.commit()
+        return cursor.rowcount
+
     def close(self):
         """Close database connection"""
         self.conn.close()
