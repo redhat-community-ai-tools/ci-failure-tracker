@@ -302,6 +302,19 @@ tracking:
   blocklist:
     - "OCP-60944"  # Example: Removed from test suite
 
+# Test repository configuration (used by the fix-commit pre-classifier)
+# When the AI analyzer encounters a failing test with an OCP-NNNNN ID, it
+# can search this repo's git history for fix commits.  If fix commits are
+# found the failure is pre-classified as an automation bug, skipping AI.
+#
+# Requires the TEST_REPO_GITHUB_TOKEN environment variable to be set to a
+# GitHub personal-access token with read access to the test repository.
+# If the token is not set the pre-classifier is silently skipped.
+test_repo:
+  # GitHub repository in "owner/name" format
+  # Override at runtime via TEST_REPO_GITHUB_REPO env var
+  github_repo: "openshift/openshift-tests-private"
+
 # Database configuration
 database:
   # Path to SQLite database file

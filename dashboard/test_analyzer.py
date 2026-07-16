@@ -1,10 +1,12 @@
 """Tests for AI failure analyzer.
 
-Validates pre-classifiers (SSH, DNS, quota), confidence thresholds,
-is_product_bug derivation, and response parsing.
+Validates pre-classifiers (SSH, DNS, quota, test-repo fix), confidence
+thresholds, is_product_bug derivation, and response parsing.
 """
 
 import json
+from unittest import mock
+
 import pytest
 
 from src.ai.analyzer import (
@@ -12,6 +14,9 @@ from src.ai.analyzer import (
     detect_infra_flake,
     detect_timeout_flake,
     detect_known_flaky_test,
+    detect_test_repo_fix,
+    _extract_test_id,
+    _is_fix_commit,
     _apply_confidence_review,
     _derive_is_product_bug,
     LOW_CONFIDENCE_THRESHOLD,
@@ -594,6 +599,31 @@ class TestAnalyzeFailureIntegration:
         assert 'WINC-1931' in result['suggested_action']
         assert result['cost'] == 0.0
 
+    def test_test_repo_fix_skips_vertex_ai(self):
+        """Fix commits in test repo should pre-classify as automation bug."""
+        messages = [
+            'Fix OCP-42204: Use mirrored nanoserver image (#29205)',
+            'Automate OCP-42204 pod with a projected volume (#2381)',
+        ]
+        analyzer = HybridFailureAnalyzer()
+        with mock.patch(
+            'src.ai.analyzer.requests.get',
+            return_value=_make_search_response(messages),
+        ), mock.patch.dict(
+            'os.environ', {'TEST_REPO_GITHUB_TOKEN': 'fake-token'},
+        ):
+            result = analyzer.analyze_failure(
+                test_name='OCP-42204',
+                error_message='container task not found',
+                log_url='',
+                platform='vsphere',
+                version='4.18',
+            )
+        assert result['pre_classified'] is True
+        assert result['classification'] == 'automation_bug'
+        assert result['pre_classifier'] == 'test_repo_fix_detector'
+        assert result['cost'] == 0.0
+
     def test_no_client_returns_failed(self):
         """Without Vertex AI client, non-infra failures return error."""
         analyzer = HybridFailureAnalyzer()
@@ -669,3 +699,225 @@ class TestDetectKnownFlakyTest:
             pass_rate=70.0,
         )
         assert result is not None
+
+
+class TestExtractTestId:
+    """Tests for OCP test ID extraction."""
+
+    def test_simple_ocp_id(self):
+        assert _extract_test_id('OCP-42204') == 'OCP-42204'
+
+    def test_ocp_id_in_longer_name(self):
+        assert _extract_test_id(
+            'OCP-42204 - Create Windows pod with Projected Volume'
+        ) == 'OCP-42204'
+
+    def test_no_ocp_id(self):
+        assert _extract_test_id('some random test name') is None
+
+    def test_empty_string(self):
+        assert _extract_test_id('') is None
+
+    def test_none_input(self):
+        assert _extract_test_id(None) is None
+
+    def test_multiple_ids_returns_first(self):
+        assert _extract_test_id('OCP-11111 depends on OCP-22222') == 'OCP-11111'
+
+
+class TestIsFixCommit:
+    """Tests for fix-commit pattern matching."""
+
+    def test_fix_prefix(self):
+        assert _is_fix_commit(
+            'Fix OCP-42204: Use mirrored nanoserver image', 'OCP-42204'
+        ) is True
+
+    def test_fix_parenthetical(self):
+        assert _is_fix_commit(
+            'fix(OCP-42204): use pwsh.exe instead of powershell.exe',
+            'OCP-42204',
+        ) is True
+
+    def test_jira_prefix_with_fix(self):
+        assert _is_fix_commit(
+            'WINC-1508: Fix OCP-42204 projected volume template',
+            'OCP-42204',
+        ) is True
+
+    def test_automate_not_fix(self):
+        """Non-fix commits like 'Automate OCP-...' must NOT match."""
+        assert _is_fix_commit(
+            'Automate OCP-42204 pod with a projected volume (#2381)',
+            'OCP-42204',
+        ) is False
+
+    def test_add_not_fix(self):
+        assert _is_fix_commit(
+            'Add OCP-42204 test case for projected volume',
+            'OCP-42204',
+        ) is False
+
+    def test_wrong_test_id(self):
+        assert _is_fix_commit(
+            'Fix OCP-99999: something else', 'OCP-42204'
+        ) is False
+
+    def test_empty_message(self):
+        assert _is_fix_commit('', 'OCP-42204') is False
+
+    def test_none_message(self):
+        assert _is_fix_commit(None, 'OCP-42204') is False
+
+    def test_none_test_id(self):
+        assert _is_fix_commit('Fix OCP-42204: stuff', None) is False
+
+    def test_case_insensitive_fix(self):
+        assert _is_fix_commit(
+            'FIX OCP-42204: uppercase fix', 'OCP-42204'
+        ) is True
+
+
+def _make_search_response(messages):
+    """Build a mock GitHub Search API response from commit messages."""
+    items = [
+        {'commit': {'message': msg}} for msg in messages
+    ]
+    resp = mock.MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {'total_count': len(items), 'items': items}
+    return resp
+
+
+class TestDetectTestRepoFix:
+    """Tests for test-repo fix-commit pre-classifier."""
+
+    def test_fix_commits_found(self):
+        """Fix commits in test repo → automation_bug classification."""
+        messages = [
+            'Fix OCP-42204: Use mirrored nanoserver image (#29205)',
+            'fix(OCP-42204): use pwsh.exe instead of powershell.exe',
+            'Automate OCP-42204 pod with a projected volume (#2381)',
+        ]
+        with mock.patch('src.ai.analyzer.requests.get',
+                        return_value=_make_search_response(messages)):
+            result = detect_test_repo_fix(
+                'OCP-42204', github_token='fake-token',
+            )
+        assert result is not None
+        assert result['classification'] == 'automation_bug'
+        assert result['is_product_bug'] is False
+        assert result['pre_classified'] is True
+        assert result['pre_classifier'] == 'test_repo_fix_detector'
+        assert result['cost'] == 0.0
+
+    def test_no_fix_commits(self):
+        """Only non-fix commits referencing the ID → None (fall through)."""
+        messages = [
+            'Automate OCP-42204 pod with a projected volume (#2381)',
+        ]
+        with mock.patch('src.ai.analyzer.requests.get',
+                        return_value=_make_search_response(messages)):
+            result = detect_test_repo_fix(
+                'OCP-42204', github_token='fake-token',
+            )
+        assert result is None
+
+    def test_no_commits_at_all(self):
+        """No commits referencing the test ID → None."""
+        with mock.patch('src.ai.analyzer.requests.get',
+                        return_value=_make_search_response([])):
+            result = detect_test_repo_fix(
+                'OCP-99999', github_token='fake-token',
+            )
+        assert result is None
+
+    def test_no_ocp_id_in_name(self):
+        """Test name without OCP-NNNNN → None (no API call)."""
+        result = detect_test_repo_fix(
+            'some random test', github_token='fake-token',
+        )
+        assert result is None
+
+    def test_no_token_skips(self):
+        """Missing GitHub token → None (silent skip)."""
+        with mock.patch.dict('os.environ', {}, clear=True):
+            result = detect_test_repo_fix('OCP-42204')
+        assert result is None
+
+    def test_api_error_returns_none(self):
+        """GitHub API error → None (graceful fallback)."""
+        resp = mock.MagicMock()
+        resp.status_code = 403
+        with mock.patch('src.ai.analyzer.requests.get',
+                        return_value=resp):
+            result = detect_test_repo_fix(
+                'OCP-42204', github_token='fake-token',
+            )
+        assert result is None
+
+    def test_network_error_returns_none(self):
+        """Network error → None (graceful fallback)."""
+        with mock.patch('src.ai.analyzer.requests.get',
+                        side_effect=Exception('connection refused')):
+            result = detect_test_repo_fix(
+                'OCP-42204', github_token='fake-token',
+            )
+        assert result is None
+
+    def test_custom_repo(self):
+        """Custom github_repo parameter is used."""
+        messages = [
+            'Fix OCP-11111: something',
+        ]
+        with mock.patch('src.ai.analyzer.requests.get',
+                        return_value=_make_search_response(messages)) as m:
+            result = detect_test_repo_fix(
+                'OCP-11111',
+                github_repo='my-org/my-tests',
+                github_token='fake-token',
+            )
+        assert result is not None
+        call_args = m.call_args
+        assert 'my-org/my-tests' in call_args[1]['params']['q']
+
+    def test_evidence_contains_commit_subjects(self):
+        """Evidence field should contain commit message subjects."""
+        messages = [
+            'Fix OCP-42204: Use mirrored nanoserver image (#29205)',
+        ]
+        with mock.patch('src.ai.analyzer.requests.get',
+                        return_value=_make_search_response(messages)):
+            result = detect_test_repo_fix(
+                'OCP-42204', github_token='fake-token',
+            )
+        assert 'mirrored nanoserver' in result['evidence']
+
+    def test_env_var_token(self):
+        """Token from TEST_REPO_GITHUB_TOKEN env var should be used."""
+        messages = ['Fix OCP-42204: something']
+        with mock.patch.dict(
+            'os.environ', {'TEST_REPO_GITHUB_TOKEN': 'env-token'}
+        ), mock.patch(
+            'src.ai.analyzer.requests.get',
+            return_value=_make_search_response(messages),
+        ) as m:
+            result = detect_test_repo_fix('OCP-42204')
+        assert result is not None
+        auth_header = m.call_args[1]['headers']['Authorization']
+        assert auth_header == 'Bearer env-token'
+
+    def test_env_var_repo(self):
+        """Repo from TEST_REPO_GITHUB_REPO env var should be used."""
+        messages = ['Fix OCP-42204: something']
+        with mock.patch.dict(
+            'os.environ', {'TEST_REPO_GITHUB_REPO': 'env-org/env-repo'}
+        ), mock.patch(
+            'src.ai.analyzer.requests.get',
+            return_value=_make_search_response(messages),
+        ) as m:
+            result = detect_test_repo_fix(
+                'OCP-42204', github_token='fake-token',
+            )
+        assert result is not None
+        assert 'env-org/env-repo' in m.call_args[1]['params']['q']

@@ -3,9 +3,10 @@ AI analyzer with infrastructure pre-classifiers and improved Vertex AI
 prompt engineering.
 
 Pre-classifies known infrastructure failure patterns (SSH flakes, DNS
-failures, cloud quota errors) before sending to Vertex AI. For failures
-that reach the AI, uses structured prompts with historical context and
-chain-of-thought reasoning to improve classification accuracy.
+failures, cloud quota errors) and test-repo fix commits before sending
+to Vertex AI. For failures that reach the AI, uses structured prompts
+with historical context and chain-of-thought reasoning to improve
+classification accuracy.
 """
 
 import os
@@ -407,6 +408,177 @@ def detect_known_flaky_test(
     }
 
 
+_TEST_ID_RE = re.compile(r'(OCP-\d+)')
+
+# Default test repository to search for fix commits
+_DEFAULT_TEST_REPO = 'openshift/openshift-tests-private'
+
+
+def _extract_test_id(test_name: str) -> Optional[str]:
+    """Extract OCP test case ID from a test name.
+
+    Returns the first ``OCP-\\d+`` token found in *test_name*, or
+    ``None`` if the name does not contain one.
+    """
+    if not test_name:
+        return None
+    m = _TEST_ID_RE.search(test_name)
+    return m.group(1) if m else None
+
+
+def _is_fix_commit(message: str, test_id: str) -> bool:
+    """Return True if *message* is a fix commit for *test_id*.
+
+    A commit counts as a fix when:
+    1. It references the test ID (e.g. ``OCP-42204``), **and**
+    2. It contains the word "fix" (case-insensitive) anywhere in the
+       message.
+
+    Commits like ``Automate OCP-42204 ...`` that reference the ID but
+    do not contain "fix" are not treated as fixes.
+    """
+    if not message or not test_id:
+        return False
+    if test_id not in message:
+        return False
+    return bool(re.search(r'\bfix\b', message, re.IGNORECASE))
+
+
+def _search_test_repo_commits(
+    test_id: str,
+    github_repo: str,
+    github_token: str,
+) -> List[str]:
+    """Search *github_repo* for commits referencing *test_id*.
+
+    Uses the GitHub Search API and returns a list of commit messages
+    that match.  Returns an empty list on any error (network, auth,
+    rate-limit).
+    """
+    url = 'https://api.github.com/search/commits'
+    params = {'q': f'repo:{github_repo} {test_id}', 'per_page': '30'}
+    headers = {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': f'Bearer {github_token}',
+    }
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            logger.warning(
+                'GitHub commit search returned %d for %s in %s',
+                resp.status_code, test_id, github_repo,
+            )
+            return []
+        data = resp.json()
+        return [
+            item['commit']['message']
+            for item in data.get('items', [])
+            if item.get('commit', {}).get('message')
+        ]
+    except Exception as exc:
+        logger.warning(
+            'GitHub commit search failed for %s: %s', test_id, exc,
+        )
+        return []
+
+
+def detect_test_repo_fix(
+    test_name: str,
+    github_repo: Optional[str] = None,
+    github_token: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Pre-classify failures whose test has fix commits in the test repo.
+
+    Searches the configured testing repository's git history (via the
+    GitHub Search API) for commits that reference the failing test's
+    OCP ID with a fix-related keyword.  If such commits exist, the
+    failure is classified as an **automation bug** — the test itself
+    has known issues that have been fixed (or are being fixed) in the
+    test repo.
+
+    Returns a pre-built analysis dict if fix commits are found, or
+    ``None`` if not (allowing the pipeline to fall through to AI
+    analysis).
+
+    Environment variables
+    ---------------------
+    TEST_REPO_GITHUB_TOKEN : str
+        GitHub personal-access token with read access to the test
+        repository.  Required; if unset the detector is skipped.
+    TEST_REPO_GITHUB_REPO : str
+        ``owner/name`` of the test repository (default:
+        ``openshift/openshift-tests-private``).
+    """
+    test_id = _extract_test_id(test_name)
+    if not test_id:
+        return None
+
+    token = github_token or os.environ.get('TEST_REPO_GITHUB_TOKEN', '')
+    if not token:
+        return None
+
+    repo = (
+        github_repo
+        or os.environ.get('TEST_REPO_GITHUB_REPO', '')
+        or _DEFAULT_TEST_REPO
+    )
+
+    commit_messages = _search_test_repo_commits(test_id, repo, token)
+    if not commit_messages:
+        return None
+
+    fix_messages = [m for m in commit_messages if _is_fix_commit(m, test_id)]
+    if not fix_messages:
+        return None
+
+    # Build concise evidence from the first few fix commit subjects
+    evidence_lines = []
+    for msg in fix_messages[:3]:
+        subject = msg.split('\n', 1)[0][:120]
+        evidence_lines.append(subject)
+    evidence = '; '.join(evidence_lines)
+
+    logger.info(
+        'Pre-classified %s as automation bug — %d fix commit(s) '
+        'found in %s',
+        test_id, len(fix_messages), repo,
+    )
+
+    return {
+        'root_cause': (
+            f'Test {test_id} has {len(fix_messages)} fix commit(s) '
+            f'in the testing repository ({repo}). The failure is '
+            f'likely an automation bug — the test code has known '
+            f'issues that have been addressed by test-repo fixes.'
+        ),
+        'component': 'test-automation',
+        'confidence': 80,
+        'failure_type': 'automation_bug',
+        'classification': 'automation_bug',
+        'platform_specific': False,
+        'affected_platforms': [],
+        'evidence': evidence,
+        'suggested_action': (
+            f'Check whether the relevant fix has been backported to '
+            f'the release branch under test. '
+            f'{len(fix_messages)} fix commit(s) found in {repo}.'
+        ),
+        'issue_title': f'Automation Bug: {test_id} has fix commits '
+                       f'in test repo',
+        'issue_description': (
+            f'Test {test_id} was flagged as an automation bug because '
+            f'{len(fix_messages)} fix commit(s) were found in {repo}. '
+            f'Verify the fix has been cherry-picked to the target '
+            f'release branch.'
+        ),
+        'is_product_bug': False,
+        'pre_classified': True,
+        'pre_classifier': 'test_repo_fix_detector',
+        'cost': 0.0,
+        'analysis_mode': 'pre-classifier',
+    }
+
+
 def _apply_confidence_review(analysis: Dict[str, Any]) -> Dict[str, Any]:
     """
     Flag low-confidence results for human review.
@@ -544,6 +716,13 @@ class HybridFailureAnalyzer:
         if flaky_result:
             logger.info(f"Pre-classified {test_name} by test name as known flaky (skipping Vertex AI)")
             return flaky_result
+
+        # Step 1e: Check test repo git history for fix commits
+        # (catches tests that have been fixed in the testing repo)
+        fix_result = detect_test_repo_fix(test_name)
+        if fix_result:
+            logger.info(f"Pre-classified {test_name} as automation bug via test repo fix commits (skipping Vertex AI)")
+            return fix_result
 
         # Step 2: Use Vertex AI for analysis
         logger.info(f"Analyzing {test_name} with Vertex AI")
