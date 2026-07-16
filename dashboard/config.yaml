@@ -305,6 +305,12 @@ tracking:
   blocklist:
     - "OCP-60944"  # Example: Removed from test suite
 
+# Operator version backfill configuration
+backfill:
+  # Delay in seconds between backfill log fetches.
+  # Defaults to 0.3 in dashboard/src/web/server.py when this section is absent.
+  rate_limit: 0.3
+
 # Database configuration
 database:
   # Path to SQLite database file

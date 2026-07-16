@@ -70,6 +70,8 @@ Most issues target the dashboard. Key directories:
 - SQLite operations go through `dashboard/src/storage/database.py`.
 - New collectors must implement the `BaseCollector` ABC from `dashboard/src/collectors/base.py`.
 - Config changes must be backwards-compatible (new keys with defaults).
+- Any new config key introduced via `config.get()` must add a corresponding
+  documented `dashboard/config.yaml` entry in the same commit.
 
 ## Testing
 
