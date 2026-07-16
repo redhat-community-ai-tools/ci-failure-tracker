@@ -793,7 +793,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             })
         except Exception as e:
             logger.error(f"Build health query failed: {e}", exc_info=True)
-            return jsonify({'error': str(e)}), 500
+            return jsonify({'error': 'An internal error has occurred.'}), 500
 
     @app.route('/api/platform-tests')
     def api_platform_tests():
