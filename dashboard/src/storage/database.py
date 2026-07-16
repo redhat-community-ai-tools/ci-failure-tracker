@@ -151,6 +151,7 @@ class DashboardDatabase:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_version ON job_runs(version)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_test_results_timestamp ON test_results(timestamp)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_test_results_test_name ON test_results(test_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_test_results_cross_platform ON test_results(test_name, version, status, timestamp)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_daily_metrics_date ON daily_metrics(date)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_test_metrics_test_name ON test_metrics(test_name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_analyses_test_name ON ai_analyses(test_name)")

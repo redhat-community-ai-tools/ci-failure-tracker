@@ -1155,7 +1155,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 test_name, version
             )
         except Exception:
-            pass
+            logger.debug("Failed to fetch recent_failures for cross-platform correlation", exc_info=True)
 
         # Analyze with pre-classifier + AI
         try:
