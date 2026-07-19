@@ -552,21 +552,19 @@ class TestBuildHealthSourceUrlPlainSemver:
 
         database.close()
 
-    def test_plain_semver_gets_releases_tag_url(self, client_plain_semver):
-        """Plain semver version gets a releases/tag URL."""
+    def test_plain_semver_gets_no_source_url(self, client_plain_semver):
+        """Plain semver version gets no source URL."""
         resp = client_plain_semver.get('/api/build-health?version=4.22&days=7')
         data = resp.get_json()
         version_data = data['operator_versions'][0]
-        assert 'source_url' in version_data
-        expected = 'https://github.com/openshift/windows-machine-config-operator/releases/tag/v10.22.1'
-        assert version_data['source_url'] == expected
+        assert version_data['source_url'] is None
 
-    def test_plain_semver_no_commit_url(self, client_plain_semver):
-        """Plain semver does NOT get a /commit/ URL."""
+    def test_plain_semver_source_url_is_none(self, client_plain_semver):
+        """Plain semver source_url is None, not a broken link."""
         resp = client_plain_semver.get('/api/build-health?version=4.22&days=7')
         data = resp.get_json()
         version_data = data['operator_versions'][0]
-        assert '/commit/' not in version_data['source_url']
+        assert version_data['source_url'] is None
 
 
 class TestBuildHealthDateMerging:
