@@ -869,7 +869,9 @@ class DashboardDatabase:
                 platform,
                 COUNT(*) as total_runs,
                 SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) as passed_runs,
-                SUM(CASE WHEN status != 'passed' THEN 1 ELSE 0 END) as failed_runs
+                SUM(CASE WHEN status != 'passed' THEN 1 ELSE 0 END) as failed_runs,
+                MIN(timestamp) as first_seen,
+                MAX(timestamp) as last_seen
             FROM job_runs
             WHERE operator_version IS NOT NULL
             AND timestamp >= datetime('now', ? || ' days')
