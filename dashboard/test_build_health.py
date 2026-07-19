@@ -553,18 +553,18 @@ class TestBuildHealthSourceUrlPlainSemver:
         database.close()
 
     def test_plain_semver_gets_no_source_url(self, client_plain_semver):
-        """Plain semver version gets no source URL."""
+        """Plain semver version has no source_url key in the response."""
         resp = client_plain_semver.get('/api/build-health?version=4.22&days=7')
         data = resp.get_json()
         version_data = data['operator_versions'][0]
-        assert version_data['source_url'] is None
+        assert 'source_url' not in version_data
 
-    def test_plain_semver_source_url_is_none(self, client_plain_semver):
-        """Plain semver source_url is None, not a broken link."""
+    def test_plain_semver_source_url_absent(self, client_plain_semver):
+        """Plain semver response omits source_url entirely."""
         resp = client_plain_semver.get('/api/build-health?version=4.22&days=7')
         data = resp.get_json()
         version_data = data['operator_versions'][0]
-        assert version_data['source_url'] is None
+        assert 'source_url' not in version_data
 
 
 class TestBuildHealthDateMerging:
