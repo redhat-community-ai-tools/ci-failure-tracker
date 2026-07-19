@@ -1110,6 +1110,9 @@
             }
             const response = await fetch(`/api/${endpoint}?${queryString}`);
             const contentType = response.headers.get('content-type') || '';
+            if (response.status === 403 && !contentType.includes('application/json')) {
+                throw new Error('Session expired. Please refresh the page to re-authenticate.');
+            }
             if (!contentType.includes('application/json')) {
                 throw new Error(`Expected JSON from /api/${endpoint} but received ${contentType || 'unknown content type'} (HTTP ${response.status})`);
             }

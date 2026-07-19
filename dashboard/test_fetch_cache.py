@@ -241,3 +241,115 @@ class TestFetchCacheStructure:
             "Cache key must incorporate both endpoint and query params "
             "via template literal interpolation"
         )
+
+
+class TestSessionExpiredHandling:
+    """Verify that fetchData detects OAuth proxy 403 responses and shows
+    a session-expired message instead of a confusing content-type error.
+
+    When the OpenShift OAuth proxy returns HTTP 403 with an HTML body
+    (session/cookie expired), the user should see clear re-authentication
+    guidance rather than 'Expected JSON but received text/html'.
+    """
+
+    def test_403_non_json_check_exists(self, client):
+        """fetchData must check for response.status === 403 combined with
+        a non-JSON content-type.  This detects the OAuth proxy's HTML 403
+        page that is returned when the user's session expires."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        script = _extract_script_body(html)
+        body = _extract_function_body(script, 'fetchData')
+
+        check_403 = re.search(
+            r'response\.status\s*===\s*403\s*&&\s*!contentType\.includes\('
+            r"['\"]application/json['\"]\)",
+            body,
+        )
+        assert check_403, (
+            "fetchData must check for response.status === 403 with "
+            "non-JSON content-type to detect expired OAuth sessions"
+        )
+
+    def test_403_check_precedes_generic_content_type_check(self, client):
+        """The 403 session-expired check must appear before the generic
+        content-type mismatch check.  If the order were reversed, a 403
+        from the OAuth proxy would hit the generic error path and show
+        a confusing 'Expected JSON but received text/html' message."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        script = _extract_script_body(html)
+        body = _extract_function_body(script, 'fetchData')
+
+        check_403_pos = re.search(
+            r'response\.status\s*===\s*403', body
+        )
+        generic_check_pos = re.search(
+            r"if\s*\(\s*!contentType\.includes\(\s*['\"]application/json"
+            r"['\"]\s*\)\s*\)",
+            body,
+        )
+
+        assert check_403_pos, (
+            "fetchData must have a 403 status check"
+        )
+        assert generic_check_pos, (
+            "fetchData must have a generic content-type check"
+        )
+        assert check_403_pos.start() < generic_check_pos.start(), (
+            "The 403 session-expired check must appear before the "
+            "generic content-type check so expired sessions get a "
+            "helpful message instead of a confusing content-type error"
+        )
+
+    def test_403_error_contains_session_expired_message(self, client):
+        """The error thrown for a 403 with non-JSON content must contain
+        session-expired guidance so the user knows to refresh the page
+        to re-authenticate."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        script = _extract_script_body(html)
+        body = _extract_function_body(script, 'fetchData')
+
+        # Find the block that handles 403 + non-JSON
+        check_403 = re.search(
+            r'response\.status\s*===\s*403\s*&&\s*!contentType\.includes\('
+            r"['\"]application/json['\"]\)",
+            body,
+        )
+        assert check_403, (
+            "fetchData must have a 403 + non-JSON check"
+        )
+
+        # The throw statement following the 403 check must mention
+        # session expiry and re-authentication
+        block_after = body[check_403.start():check_403.start() + 300]
+        assert 'Session expired' in block_after, (
+            "The 403 error message must mention 'Session expired'"
+        )
+        assert 're-authenticate' in block_after, (
+            "The 403 error message must mention 're-authenticate' "
+            "so the user knows to refresh the page"
+        )
+
+    def test_403_json_response_bypasses_session_expired_check(self, client):
+        """A 403 response with application/json content-type should NOT
+        trigger the session-expired check.  This distinguishes OAuth
+        proxy 403s (HTML body) from application-level 403s (JSON body)
+        that the Flask backend might return in the future."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        script = _extract_script_body(html)
+        body = _extract_function_body(script, 'fetchData')
+
+        # The 403 check must include a content-type guard so JSON 403s
+        # fall through to normal error handling
+        check_403 = re.search(
+            r'response\.status\s*===\s*403\s*&&\s*!contentType\.includes\('
+            r"['\"]application/json['\"]\)",
+            body,
+        )
+        assert check_403, (
+            "The 403 check must require non-JSON content-type so that "
+            "application-level JSON 403 responses are handled normally"
+        )
