@@ -1891,13 +1891,23 @@
             `}).join('');
         }
 
+        function formatShortDate(isoString) {
+            if (!isoString) return '';
+            var d = new Date(isoString);
+            if (isNaN(d.getTime())) return isoString;
+            var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            return months[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
+        }
+
         function renderVersionCard(ver, isLatest) {
             var versionLabel = ver.operator_version;
             var ocpLabel = ver.ocp_version ? ' <span style="color: #666; font-size: 14px; font-weight: 400;">(OCP ' + ver.ocp_version + ')</span>' : '';
             var sourceLink = '';
             if (ver.source_url) {
-                var commitHash = versionLabel.split('-')[1] || '';
-                sourceLink = ' <a href="' + ver.source_url + '" target="_blank" style="color: #2563eb; font-size: 14px;">' + commitHash.substring(0, 7) + '</a>';
+                var linkLabel = versionLabel.indexOf('-') !== -1
+                    ? versionLabel.split('-')[1].substring(0, 7)
+                    : 'v' + versionLabel;
+                sourceLink = ' <a href="' + ver.source_url + '" target="_blank" style="color: #2563eb; font-size: 14px;">' + linkLabel + '</a>';
             }
 
             var releasableHtml = ver.releasable
@@ -1906,9 +1916,25 @@
 
             var latestBadge = isLatest ? ' <span style="background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 8px; font-size: 12px; font-weight: 600;">LATEST</span>' : '';
 
+            // Format date labels
+            var dateLabel = '';
+            if (ver.first_seen || ver.last_seen) {
+                var parts = [];
+                if (ver.first_seen) {
+                    parts.push('First seen: ' + formatShortDate(ver.first_seen));
+                }
+                if (ver.last_seen) {
+                    parts.push('Last seen: ' + formatShortDate(ver.last_seen));
+                }
+                dateLabel = '<div style="color: #666; font-size: 13px; margin-top: 4px;">' + parts.join(' &mdash; ') + '</div>';
+            }
+
             var html = '<div class="card" style="margin-bottom: 20px;">';
             html += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">';
+            html += '<div>';
             html += '<h3 style="margin: 0;">' + versionLabel + ocpLabel + latestBadge + sourceLink + '</h3>';
+            html += dateLabel;
+            html += '</div>';
             html += '<div>' + releasableHtml + ' <span style="color: #666; font-size: 13px; margin-left: 8px;">' + ver.pass_rate + '% pass rate &middot; ' + ver.total_runs + ' runs</span></div>';
             html += '</div>';
 

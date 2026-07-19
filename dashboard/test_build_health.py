@@ -270,6 +270,47 @@ class TestGetBuildHealth:
         assert azure['passed_runs'] == 0  # status was FAILED
         assert azure['failed_runs'] == 1
 
+    def test_returns_first_seen_and_last_seen(self, db_with_data):
+        """Each row includes first_seen and last_seen timestamps."""
+        rows = db_with_data.get_build_health(version='4.22', days=7)
+        for r in rows:
+            assert 'first_seen' in r
+            assert 'last_seen' in r
+            assert r['first_seen'] is not None
+            assert r['last_seen'] is not None
+
+    def test_first_seen_last_seen_span(self, tmp_path):
+        """first_seen/last_seen reflect MIN/MAX timestamps."""
+        from datetime import datetime, timedelta
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        early = datetime.now() - timedelta(days=3)
+        late = datetime.now()
+        runs = [
+            JobRun(
+                job_name='job-aws-1', build_id='a1',
+                status=TestStatus.PASSED, timestamp=early,
+                duration_seconds=100, version='4.22', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.0.0-aaa111',
+            ),
+            JobRun(
+                job_name='job-aws-2', build_id='a2',
+                status=TestStatus.PASSED, timestamp=late,
+                duration_seconds=100, version='4.22', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.0.0-aaa111',
+            ),
+        ]
+        database.insert_job_runs(runs)
+        rows = database.get_build_health(version='4.22', days=7)
+        assert len(rows) == 1
+        assert rows[0]['first_seen'] == early.isoformat()
+        assert rows[0]['last_seen'] == late.isoformat()
+        database.close()
+
 
 # ---------------------------------------------------------------------------
 # API endpoint tests
@@ -354,6 +395,16 @@ class TestBuildHealthAPI:
         version_data = data['operator_versions'][0]
         assert 'source_url' in version_data
         assert 'abc1234' in version_data['source_url']
+
+    def test_build_health_first_seen_last_seen(self, client):
+        """API response includes first_seen and last_seen fields."""
+        resp = client.get('/api/build-health?version=4.22&days=7')
+        data = resp.get_json()
+        version_data = data['operator_versions'][0]
+        assert 'first_seen' in version_data
+        assert 'last_seen' in version_data
+        assert version_data['first_seen'] is not None
+        assert version_data['last_seen'] is not None
 
     def test_build_health_source_url_from_config(self, tmp_path):
         """source_url uses the source_repo_url value from config."""
@@ -466,6 +517,124 @@ class TestBuildHealthReleasability:
         resp = client_with_failure.get('/api/build-health?version=4.22&days=7')
         data = resp.get_json()
         assert data['operator_versions'][0]['pass_rate'] == 50.0
+
+
+class TestBuildHealthSourceUrlPlainSemver:
+    """Tests for source_url with plain semver (no commit hash)."""
+
+    @pytest.fixture
+    def client_plain_semver(self, tmp_path):
+        """Create client with plain semver operator version (no hash)."""
+        from datetime import datetime
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        runs = [
+            JobRun(
+                job_name='job-aws', build_id='1',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.22', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.22.1',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        config_path = str(tmp_path / 'config.yaml')
+        with open(config_path, 'w') as f:
+            f.write('tracking:\n  versions: ["4.22"]\n  platforms: ["aws"]\n  blocklist: []\n')
+
+        app = create_app(db_path, config_file=config_path)
+        app.config['TESTING'] = True
+        with app.test_client() as client:
+            yield client
+
+        database.close()
+
+    def test_plain_semver_gets_releases_tag_url(self, client_plain_semver):
+        """Plain semver version gets a releases/tag URL."""
+        resp = client_plain_semver.get('/api/build-health?version=4.22&days=7')
+        data = resp.get_json()
+        version_data = data['operator_versions'][0]
+        assert 'source_url' in version_data
+        expected = 'https://github.com/openshift/windows-machine-config-operator/releases/tag/v10.22.1'
+        assert version_data['source_url'] == expected
+
+    def test_plain_semver_no_commit_url(self, client_plain_semver):
+        """Plain semver does NOT get a /commit/ URL."""
+        resp = client_plain_semver.get('/api/build-health?version=4.22&days=7')
+        data = resp.get_json()
+        version_data = data['operator_versions'][0]
+        assert '/commit/' not in version_data['source_url']
+
+
+class TestBuildHealthDateMerging:
+    """Tests for first_seen/last_seen merging across platforms."""
+
+    @pytest.fixture
+    def client_multi_platform_dates(self, tmp_path):
+        """Create client with runs on different platforms at different times."""
+        from datetime import datetime, timedelta
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        early = datetime.now() - timedelta(days=5)
+        mid = datetime.now() - timedelta(days=2)
+        late = datetime.now()
+
+        runs = [
+            JobRun(
+                job_name='job-aws', build_id='1',
+                status=TestStatus.PASSED, timestamp=early,
+                duration_seconds=100, version='4.22', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.0.0-abc1234',
+            ),
+            JobRun(
+                job_name='job-gcp', build_id='2',
+                status=TestStatus.PASSED, timestamp=mid,
+                duration_seconds=100, version='4.22', platform='gcp',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.0.0-abc1234',
+            ),
+            JobRun(
+                job_name='job-azure', build_id='3',
+                status=TestStatus.PASSED, timestamp=late,
+                duration_seconds=100, version='4.22', platform='azure',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.0.0-abc1234',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        config_path = str(tmp_path / 'config.yaml')
+        with open(config_path, 'w') as f:
+            f.write('tracking:\n  versions: ["4.22"]\n  platforms: ["aws","gcp","azure"]\n  blocklist: []\n')
+
+        app = create_app(db_path, config_file=config_path)
+        app.config['TESTING'] = True
+        with app.test_client() as client:
+            yield client, early, late
+
+        database.close()
+
+    def test_first_seen_is_earliest_across_platforms(self, client_multi_platform_dates):
+        """first_seen is the minimum timestamp across all platforms."""
+        client, early, late = client_multi_platform_dates
+        resp = client.get('/api/build-health?version=4.22&days=7')
+        data = resp.get_json()
+        version_data = data['operator_versions'][0]
+        assert version_data['first_seen'] == early.isoformat()
+
+    def test_last_seen_is_latest_across_platforms(self, client_multi_platform_dates):
+        """last_seen is the maximum timestamp across all platforms."""
+        client, early, late = client_multi_platform_dates
+        resp = client.get('/api/build-health?version=4.22&days=7')
+        data = resp.get_json()
+        version_data = data['operator_versions'][0]
+        assert version_data['last_seen'] == late.isoformat()
 
 
 class TestSemanticVersionSorting:

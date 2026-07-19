@@ -886,6 +886,8 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                         'total_runs': 0,
                         'passed_runs': 0,
                         'failed_runs': 0,
+                        'first_seen': None,
+                        'last_seen': None,
                     }
 
                 entry = ocp_groups[ocp_ver][ov]
@@ -897,6 +899,14 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 entry['total_runs'] += row['total_runs']
                 entry['passed_runs'] += row['passed_runs']
                 entry['failed_runs'] += row['failed_runs']
+
+                # Merge first_seen / last_seen across platforms
+                row_first = row.get('first_seen')
+                row_last = row.get('last_seen')
+                if row_first and (entry['first_seen'] is None or row_first < entry['first_seen']):
+                    entry['first_seen'] = row_first
+                if row_last and (entry['last_seen'] is None or row_last > entry['last_seen']):
+                    entry['last_seen'] = row_last
 
             # For each OCP version, pick only the latest operator version
             latest_per_ocp = []
@@ -924,6 +934,10 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                     commit_hash = ov.split('-', 1)[1]
                     data['source_url'] = (
                         f'{source_repo_url}/commit/{commit_hash}'
+                    )
+                else:
+                    data['source_url'] = (
+                        f'{source_repo_url}/releases/tag/v{ov}'
                     )
 
             latest = latest_per_ocp[0]['operator_version'] if latest_per_ocp else None
