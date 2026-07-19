@@ -48,7 +48,10 @@ Most agent work targets the dashboard.
    Domain-specific matching patterns (regex for log parsing, step name
    lists, URL templates) must be defined in `config.yaml` with built-in
    defaults in the code, so that format changes can be addressed via
-   config updates rather than code changes.
+   config updates rather than code changes. Internal implementation
+   details with sensible hardcoded defaults (e.g., rate-limit delays,
+   retry counts, buffer sizes) do not require config.yaml entries
+   unless they are expected to be operator-tunable.
 
 10. **Config job-name verification.** When adding or modifying job names in
     `config.yaml`, first run `git log -p -- dashboard/config.yaml` to see
