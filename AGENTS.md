@@ -97,3 +97,8 @@ Most agent work targets the dashboard.
     compare numeric components as integers. Never use lexicographic
     string sorting for versions, since `"9.0.0" > "10.0.0"`
     lexicographically but `10.0.0 > 9.0.0` semantically.
+
+17. **Docstring accuracy.** When modifying a function to change its
+    parameters, return values, or behavior, update the docstring to
+    match. Do not leave stale documentation that omits new fields or
+    describes removed behavior.

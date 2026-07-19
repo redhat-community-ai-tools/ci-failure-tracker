@@ -858,7 +858,8 @@ class DashboardDatabase:
 
         Returns:
             List of dicts with keys: operator_version, version (OCP),
-            platform, total_runs, passed_runs, failed_runs
+            platform, total_runs, passed_runs, failed_runs,
+            first_seen, last_seen
         """
         cursor = self.conn.cursor()
 
