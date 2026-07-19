@@ -935,10 +935,6 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                     data['source_url'] = (
                         f'{source_repo_url}/commit/{commit_hash}'
                     )
-                else:
-                    data['source_url'] = (
-                        f'{source_repo_url}/releases/tag/v{ov}'
-                    )
 
             latest = latest_per_ocp[0]['operator_version'] if latest_per_ocp else None
 
