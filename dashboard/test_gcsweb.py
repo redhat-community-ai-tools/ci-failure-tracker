@@ -822,3 +822,33 @@ class TestExtractTestNameLeadingHyphen:
         test_id, desc = c._extract_test_name(raw)
         assert test_id == "OCP-66670"
         assert desc == "Cluster-wide proxy trusted-ca configmap tests"
+
+    def test_bracket_adjacent_hyphen_no_space(self, collector):
+        """Issue #134: bracket tag directly followed by hyphen (no space)
+        must not leave a leading hyphen in the description."""
+        raw = (
+            "OCP-65980 [node-proxy]-Cluster-wide proxy "
+            "acceptance test [Serial][Disruptive]"
+        )
+        test_id, desc = collector._extract_test_name(raw)
+        assert test_id == "OCP-65980"
+        assert desc == "Cluster-wide proxy acceptance test"
+
+    def test_bracket_with_space_still_works(self, collector):
+        """Regression guard: bracket tag with normal space separator
+        still produces clean description."""
+        raw = (
+            "OCP-65980 [node-proxy] Cluster-wide proxy "
+            "acceptance test [Serial]"
+        )
+        test_id, desc = collector._extract_test_name(raw)
+        assert test_id == "OCP-65980"
+        assert desc == "Cluster-wide proxy acceptance test"
+
+    def test_bracket_adjacent_hyphen_preserves_internal(self, collector):
+        """Negative: hyphens within description body are preserved
+        even when bracket is adjacent to hyphen."""
+        raw = "OCP-65980 [node-proxy]-east-west connectivity test"
+        test_id, desc = collector._extract_test_name(raw)
+        assert test_id == "OCP-65980"
+        assert desc == "east-west connectivity test"

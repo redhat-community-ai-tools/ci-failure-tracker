@@ -427,12 +427,12 @@ class GCSWebCollector(BaseCollector):
             description = re.sub(r'^Smokerun-[^\s]+\s+', '', description)
 
             # Remove [wmco] or similar prefixes at the start
-            description = re.sub(r'^\[[\w-]+\]\s+', '', description)
+            description = re.sub(r'^\[[\w-]+\][:\-\s]*', '', description)
 
             # Remove all bracketed tags like [Slow], [Disruptive], [Serial]
-            description = re.sub(r'\s*\[[\w-]+\]', '', description)
+            description = re.sub(r'[:\-\s]*\[[\w-]+\]', '', description)
 
-            return (test_id, description.strip() if description else test_id)
+            return (test_id, description.strip(':- \t') if description else test_id)
 
         return (raw_name.strip(), raw_name.strip())
 
