@@ -242,16 +242,17 @@ These tests will be hidden from the dashboard even if they appear in ReportPorta
 
 ## Reporting Dashboard Problems
 
-If you encounter a bug or issue with the dashboard itself (broken UI, incorrect data, errors), you can file a Jira ticket directly from the dashboard:
+If you encounter a bug or issue with the dashboard itself (broken UI, incorrect data, errors), you can file a GitHub issue directly from the dashboard:
 
 1. Click the **"Report a Problem"** button in the top-right corner of the header
-2. Fill in a **Summary** (short title for the issue)
-3. Add a **Description** (what happened, what you expected, steps to reproduce)
-4. Click **Submit**
+2. If GitHub OAuth is configured and you are not logged in, you will be redirected to GitHub login first
+3. Fill in a **Summary** (short title for the issue) and a **Description** (what happened, what you expected, steps to reproduce)
+4. Click **Submit** -- the dashboard opens a pre-filled GitHub issue in a new tab
+5. Review the issue on GitHub and click **"Submit new issue"**
 
-A Jira bug is created automatically in the configured project with a `[Dashboard]` prefix. On success, the modal shows the issue key as a clickable link to the new ticket.
+The issue is created under your own GitHub account with a `[Dashboard]` prefix in the title. You are automatically subscribed to notifications on any follow-up comments or status changes.
 
-**Requirements:** The dashboard must have Jira integration configured (`JIRA_USER`, `JIRA_API_TOKEN`, and `JIRA_URL` environment variables). If Jira is not configured, the submit will return an error.
+**Requirements:** The `GITHUB_REPO` environment variable must be set to the target repository (e.g. `org/repo-name`). Optionally, set `GITHUB_NOTIFY_USERS` (comma-separated GitHub usernames) to @mention admins on every new issue. For GitHub OAuth login, set `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, and `FLASK_SECRET_KEY` environment variables.
 
 ## Support
 

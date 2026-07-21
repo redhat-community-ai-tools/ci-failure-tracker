@@ -204,20 +204,12 @@ The issue is created under the user's own GitHub account -- they are automatical
 - Label: `bug`
 - Admin notifications: `/cc @user1 @user2` appended if `GITHUB_NOTIFY_USERS` is configured
 
-**Configuration (`config.yaml`):**
+**Configuration (environment variables):**
 
-```yaml
-github:
-  repo: "org/repo-name"
-  notify_users: ["admin1", "admin2"]
-```
-
-| Key | Description |
-|-----|-------------|
-| `github.repo` | Target repo for issues (e.g. `redhat-community-ai-tools/ci-failure-tracker`) |
-| `github.notify_users` | GitHub usernames to @mention on every new issue (admin notifications) |
-
-Environment variables `GITHUB_REPO` and `GITHUB_NOTIFY_USERS` (comma-separated) override config.yaml values when set.
+| Variable | Description |
+|----------|-------------|
+| `GITHUB_REPO` | Target repo for issues (e.g. `redhat-community-ai-tools/ci-failure-tracker`) |
+| `GITHUB_NOTIFY_USERS` | Comma-separated GitHub usernames to @mention on every new issue (admin notifications) |
 
 **GitHub OAuth (optional):**
 
