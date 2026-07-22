@@ -86,3 +86,19 @@ Has a computed `pass_rate` property.
 - Use `concurrent.futures.ThreadPoolExecutor` for parallel fetching
 - Normalize all timestamps to UTC
 - Map CI-specific status strings to `TestStatus` enum
+
+## Shared Logic Patterns
+
+Several methods are duplicated across collectors with near-identical
+implementation. When fixing a bug in any of these, **always check all
+collectors** for the same issue:
+
+| Method | Collectors | Purpose |
+|--------|------------|---------|
+| `_extract_test_name()` | gcsweb, prow_gcs, reportportal | Parse OCP test IDs and descriptions from raw JUnit names |
+| `_parse_junit_xml()` | gcsweb, prow_gcs | Parse `<testcase>` elements into TestResult |
+| `_extract_metadata()` / `_extract_version_platform()` | gcsweb, prow_gcs, reportportal | Extract version and platform from job names |
+| `_map_status()` | gcsweb, reportportal | Map source-specific status strings to TestStatus enum |
+
+Consider extracting shared methods into `BaseCollector` if the
+implementations converge. Until then, keep implementations in sync.

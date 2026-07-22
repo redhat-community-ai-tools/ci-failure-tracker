@@ -97,3 +97,9 @@ Most agent work targets the dashboard.
     compare numeric components as integers. Never use lexicographic
     string sorting for versions, since `"9.0.0" > "10.0.0"`
     lexicographically but `10.0.0 > 9.0.0` semantically.
+
+17. **Cross-collector consistency.** When fixing a method that exists in
+    multiple collectors (e.g., `_extract_test_name()`, `_parse_junit_xml()`,
+    `_extract_metadata()`), apply the fix to all collectors that share
+    the same logic. Check `gcsweb.py`, `prow_gcs.py`, and
+    `reportportal.py` for parallel implementations before submitting.
