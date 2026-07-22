@@ -193,16 +193,14 @@ class TestRunBackfillBackground:
                 '  blocklist: []\n'
             )
 
-        def mock_fetch_build_log_text(run_path):
+        def mock_fetch_operator_version_from_csv(run_path):
             if 'job-a' in run_path:
-                return '"version": "10.0.0-aaa111"\nsome log output'
-            if 'job-b' in run_path:
-                return 'no version info here'
+                return '10.0.0-aaa111'
             return None
 
         with patch(
-            'collectors.gcsweb.GCSWebCollector._fetch_build_log_text',
-            side_effect=mock_fetch_build_log_text,
+            'collectors.gcsweb.GCSWebCollector._fetch_operator_version_from_csv',
+            side_effect=mock_fetch_operator_version_from_csv,
         ), patch('src.web.server.time.sleep'):
             run_backfill_background(db_path, config_file=config_path)
 
@@ -262,7 +260,7 @@ class TestRunBackfillBackground:
         database.close()
 
     def test_backfill_skips_null_log(self, tmp_path):
-        """Runs where build log fetch returns None are skipped."""
+        """Runs where CSV version extraction returns None are skipped."""
         from src.web.server import run_backfill_background
 
         db_path = str(tmp_path / 'test.db')
@@ -294,7 +292,7 @@ class TestRunBackfillBackground:
             )
 
         with patch(
-            'collectors.gcsweb.GCSWebCollector._fetch_build_log_text',
+            'collectors.gcsweb.GCSWebCollector._fetch_operator_version_from_csv',
             return_value=None,
         ), patch('src.web.server.time.sleep'):
             run_backfill_background(db_path, config_file=config_path)

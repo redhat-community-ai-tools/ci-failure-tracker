@@ -1,8 +1,6 @@
-"""Tests for Build Health feature: WMCO operator version extraction and API.
+"""Tests for Build Health feature: WMCO operator version and API.
 
 Covers:
-- Operator version extraction from build log text (positive and negative cases)
-- Configurable extraction patterns via config
 - Database storage and retrieval of operator_version
 - /api/build-health endpoint response shape and logic
 - Semantic version sorting
@@ -15,110 +13,9 @@ import tempfile
 
 import pytest
 
-from src.collectors.gcsweb import GCSWebCollector
 from src.collectors.base import JobRun, TestStatus
 from src.storage.database import DashboardDatabase
 from src.web.server import create_app
-
-
-@pytest.fixture
-def collector():
-    """Create a GCSWebCollector with minimal config."""
-    return GCSWebCollector({'url': 'https://example.com', 'bucket': 'test'})
-
-
-# ---------------------------------------------------------------------------
-# Operator version extraction tests
-# ---------------------------------------------------------------------------
-
-class TestExtractOperatorVersion:
-    """Tests for _extract_operator_version."""
-
-    def test_json_style_version(self, collector):
-        """Log containing '"version": "10.0.0-6dfe513"' is extracted."""
-        text = 'some preamble\n"version": "10.0.0-6dfe513"\nmore text'
-        assert collector._extract_operator_version(text) == '10.0.0-6dfe513'
-
-    def test_prose_style_version(self, collector):
-        """Log containing 'operator version 9.0.0-abc1234' is extracted."""
-        text = 'Starting up...\noperator version 9.0.0-abc1234\nReady.'
-        assert collector._extract_operator_version(text) == '9.0.0-abc1234'
-
-    def test_prose_case_insensitive(self, collector):
-        """Prose pattern works case-insensitively."""
-        text = 'Operator Version 8.1.0-deadbeef'
-        assert collector._extract_operator_version(text) == '8.1.0-deadbeef'
-
-    def test_no_version_returns_none(self, collector):
-        """Log with no WMCO version string returns None."""
-        text = 'Just some random log output\nno version info here\n'
-        assert collector._extract_operator_version(text) is None
-
-    def test_ocp_version_not_matched(self, collector):
-        """OCP version like '4.22' is NOT matched (negative case)."""
-        text = 'OCP version 4.22 is running\ncluster ready'
-        assert collector._extract_operator_version(text) is None
-
-    def test_semver_without_hash_not_matched(self, collector):
-        """Semver without commit hash like '10.0.0' is NOT matched."""
-        text = '"version": "10.0.0"'
-        assert collector._extract_operator_version(text) is None
-
-    def test_non_hex_hash_not_matched(self, collector):
-        """Version with non-hex hash like '10.0.0-xyz!!!' is NOT matched."""
-        text = '"version": "10.0.0-xyz!!!"'
-        assert collector._extract_operator_version(text) is None
-
-    def test_json_style_with_spaces(self, collector):
-        """JSON pattern with extra spaces around colon."""
-        text = '"version" :  "7.5.2-aabbcc"'
-        assert collector._extract_operator_version(text) == '7.5.2-aabbcc'
-
-    def test_first_match_wins(self, collector):
-        """When multiple versions appear, the first JSON match wins."""
-        text = '"version": "10.0.0-aaa111"\noperator version 9.0.0-bbb222'
-        assert collector._extract_operator_version(text) == '10.0.0-aaa111'
-
-    def test_empty_string(self, collector):
-        """Empty string returns None."""
-        assert collector._extract_operator_version('') is None
-
-
-class TestConfigurablePatterns:
-    """Tests for operator_version.patterns config."""
-
-    def test_custom_pattern_used(self):
-        """Custom pattern from config is used instead of defaults."""
-        config = {
-            'url': 'https://example.com',
-            'bucket': 'test',
-            'operator_version': {
-                'patterns': [r'build:\s*v(\d+\.\d+\.\d+-[0-9a-f]+)'],
-            },
-        }
-        c = GCSWebCollector(config)
-        text = 'build: v5.0.0-cafe123'
-        assert c._extract_operator_version(text) == '5.0.0-cafe123'
-
-    def test_custom_pattern_no_false_positive(self):
-        """Custom pattern does not match text suited to default patterns."""
-        config = {
-            'url': 'https://example.com',
-            'bucket': 'test',
-            'operator_version': {
-                'patterns': [r'build:\s*v(\d+\.\d+\.\d+-[0-9a-f]+)'],
-            },
-        }
-        c = GCSWebCollector(config)
-        # Default JSON-style pattern should NOT match when config overrides
-        text = '"version": "10.0.0-6dfe513"'
-        assert c._extract_operator_version(text) is None
-
-    def test_default_patterns_when_no_config(self):
-        """Defaults are used when operator_version config is absent."""
-        c = GCSWebCollector({'url': 'https://example.com', 'bucket': 'test'})
-        text = '"version": "10.0.0-6dfe513"'
-        assert c._extract_operator_version(text) == '10.0.0-6dfe513'
 
 
 # ---------------------------------------------------------------------------
