@@ -90,6 +90,18 @@ TIMEOUT_FLAKE_PATTERNS = [
     re.compile(
         r'ContainerCreating',
     ),
+    re.compile(
+        r'(?:deployment|daemonset|pod|operator)\s+\S+\s+is not ready',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'WMCO deployment.*is not ready',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'is not (?:ready|available|running)\b',
+        re.IGNORECASE,
+    ),
 ]
 
 DNS_PATTERNS = [
