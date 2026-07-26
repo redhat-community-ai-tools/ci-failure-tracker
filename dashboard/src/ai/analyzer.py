@@ -79,6 +79,17 @@ TIMEOUT_FLAKE_PATTERNS = [
         r'Expected:.*"Running".*Got:.*"Stopped',
         re.IGNORECASE | re.DOTALL,
     ),
+    re.compile(
+        r'waiting to start:\s*ContainerCreating',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'is waiting to start',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'ContainerCreating',
+    ),
 ]
 
 DNS_PATTERNS = [
@@ -106,6 +117,8 @@ ASSERTION_PATTERNS = [
 
 KNOWN_FLAKY_TEST_PATTERNS = [
     re.compile(r'(?:certificate|CA|cert|kubelet)\s+(?:CA\s+)?rotation', re.IGNORECASE),
+    re.compile(r'(?:got |unexpectedly )?restarted (?:after|during) (?:CA |cert(?:ificate)? )?rotation', re.IGNORECASE),
+    re.compile(r'Windows (?:worker|node).*restart', re.IGNORECASE),
 ]
 
 
@@ -353,18 +366,18 @@ def detect_known_flaky_test(
     test_name: str,
     test_description: str,
     pass_rate: Optional[float] = None,
+    error_message: str = '',
 ) -> Optional[Dict[str, Any]]:
     """
-    Pre-classify by TEST NAME when the error text is garbage or missing.
+    Pre-classify by TEST NAME or error message for known flaky patterns.
 
-    Some tests (cert rotation, CA rotation) produce corrupted output but
-    are known transient flakes. Match against the test name/description
-    instead of the error message.
+    Some tests (cert rotation, CA rotation) produce corrupted output or
+    assert on known-flaky behavior (node restart after rotation). Match
+    against the test name/description/error instead of relying solely on
+    timeout patterns. No pass_rate gate -- if the test matches a known
+    flaky pattern by name, it is pre-classified regardless of pass rate.
     """
-    if pass_rate is None or pass_rate < 50.0:
-        return None
-
-    combined = f"{test_name} {test_description}"
+    combined = f"{test_name} {test_description} {error_message}"
     matches = [
         p.pattern for p in KNOWN_FLAKY_TEST_PATTERNS if p.search(combined)
     ]
@@ -577,6 +590,92 @@ def _derive_is_product_bug(analysis: Dict[str, Any]) -> Dict[str, Any]:
     return analysis
 
 
+def _check_test_repo_recent_changes(
+    test_name: str,
+    repo: str = 'openshift/openshift-tests-private',
+    path: str = 'test/extended/winc',
+    lookback_days: int = 90,
+) -> Optional[Dict[str, Any]]:
+    """Check if a test was recently modified in the upstream test repo.
+
+    Uses GitHub search API to find commits mentioning the test ID
+    (e.g. OCP-42204) in the test repo. Recent changes suggest the test
+    itself was buggy and got fixed -- meaning the failure is more likely
+    an automation_bug than a product_bug.
+
+    Returns dict with commit info if recent changes found, None otherwise.
+    """
+    github_token = os.environ.get('GITHUB_TOKEN')
+    if not github_token:
+        return None
+
+    # Extract OCP test ID from test name (e.g. "OCP-42204" from various formats)
+    test_id_match = re.search(r'OCP-\d+', test_name, re.IGNORECASE)
+    if not test_id_match:
+        return None
+    test_id = test_id_match.group(0)
+
+    try:
+        from datetime import datetime, timedelta
+        since_date = (
+            datetime.utcnow() - timedelta(days=lookback_days)
+        ).strftime('%Y-%m-%d')
+
+        headers = {
+            'Authorization': f'token {github_token}',
+            'Accept': 'application/vnd.github.v3+json',
+        }
+
+        # Search commits mentioning this test ID in the repo
+        search_url = (
+            f'https://api.github.com/search/commits'
+            f'?q={test_id}+repo:{repo}+path:{path}'
+            f'&sort=committer-date&order=desc&per_page=5'
+        )
+        headers_search = dict(headers)
+        headers_search['Accept'] = 'application/vnd.github.cloak-preview+json'
+
+        resp = requests.get(search_url, headers=headers_search, timeout=10)
+        if resp.status_code != 200:
+            logger.debug(
+                f"GitHub commit search returned {resp.status_code} for {test_id}"
+            )
+            return None
+
+        data = resp.json()
+        if data.get('total_count', 0) == 0:
+            return None
+
+        recent_commits = []
+        for item in data.get('items', []):
+            commit_date = item.get('commit', {}).get('committer', {}).get('date', '')
+            if commit_date >= since_date:
+                recent_commits.append({
+                    'sha': item.get('sha', '')[:8],
+                    'message': item.get('commit', {}).get('message', '').split('\n')[0][:120],
+                    'date': commit_date[:10],
+                    'url': item.get('html_url', ''),
+                })
+
+        if not recent_commits:
+            return None
+
+        logger.info(
+            f"Found {len(recent_commits)} recent commit(s) for {test_id} "
+            f"in {repo}/{path}"
+        )
+        return {
+            'test_id': test_id,
+            'repo': repo,
+            'path': path,
+            'commits': recent_commits,
+        }
+
+    except Exception as e:
+        logger.debug(f"GitHub test repo check failed: {e}")
+        return None
+
+
 class HybridFailureAnalyzer:
     """
     Real AI failure analyzer using Google Vertex AI.
@@ -666,7 +765,9 @@ class HybridFailureAnalyzer:
 
         # Step 1d: Check test name for known flaky test categories
         # (catches cert rotation tests even when error text is corrupted)
-        flaky_result = detect_known_flaky_test(test_name, test_description, pass_rate)
+        flaky_result = detect_known_flaky_test(
+            test_name, test_description, pass_rate, error_message
+        )
         if flaky_result:
             logger.info(f"Pre-classified {test_name} by test name as known flaky (skipping Vertex AI)")
             return flaky_result
@@ -683,11 +784,16 @@ class HybridFailureAnalyzer:
                 )
                 return cross_platform_result
 
+        # Step 1f: Check if test was recently modified in the test repo
+        # (recent commits suggest automation_bug, not product_bug)
+        test_repo_changes = _check_test_repo_recent_changes(test_name)
+
         # Step 2: Use Vertex AI for analysis
         logger.info(f"Analyzing {test_name} with Vertex AI")
         api_result = self._try_api_analysis(
             test_name, error_message, log_url, platform, version,
-            pass_rate=pass_rate
+            pass_rate=pass_rate,
+            test_repo_changes=test_repo_changes,
         )
 
         if api_result:
@@ -719,7 +825,8 @@ class HybridFailureAnalyzer:
         log_url: str,
         platform: str,
         version: str,
-        pass_rate: Optional[float] = None
+        pass_rate: Optional[float] = None,
+        test_repo_changes: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Analyze failure using Vertex AI with structured prompt."""
         try:
@@ -749,10 +856,30 @@ class HybridFailureAnalyzer:
                         "bug or systemic issue)"
                     )
 
+            # Build test repo context string
+            repo_context = ""
+            if test_repo_changes:
+                commits = test_repo_changes['commits']
+                repo_context = (
+                    f"\n\n## IMPORTANT: Recent Test Code Changes\n"
+                    f"The test code for {test_repo_changes['test_id']} "
+                    f"was recently modified in "
+                    f"`{test_repo_changes['repo']}`:\n"
+                )
+                for c in commits[:3]:
+                    repo_context += f"- {c['date']}: {c['message']}\n"
+                repo_context += (
+                    "\nThis strongly suggests the test itself had a "
+                    "bug that was fixed. Unless the error clearly "
+                    "points to product code (WMCO, kubelet, "
+                    "hybrid-overlay), classify as **automation_bug**."
+                )
+
             # Build prompt with chain-of-thought reasoning
             prompt = self._build_analysis_prompt(
                 test_name, error_message, logs_excerpt,
-                platform, version, history_context
+                platform, version, history_context,
+                repo_context=repo_context,
             )
 
             # Call Claude API
@@ -783,7 +910,8 @@ class HybridFailureAnalyzer:
         logs_excerpt: str,
         platform: str,
         version: str,
-        history_context: str
+        history_context: str,
+        repo_context: str = '',
     ) -> str:
         """Build the structured analysis prompt for Vertex AI."""
         return f"""Analyze this Windows Containers OpenShift CI test failure step by step.
@@ -791,7 +919,7 @@ class HybridFailureAnalyzer:
 ## Test Context
 - **Test:** {test_name}
 - **Platform:** {platform}
-- **Version:** {version}{history_context}
+- **Version:** {version}{history_context}{repo_context}
 
 ## Error Message
 ```
@@ -862,6 +990,9 @@ Use this domain context to distinguish preconditions from product assertions:
   infrastructure issues, not product bugs.
 - **hybrid-overlay-node certificate rotation** is a known flaky area.
   Service stop/restart during cert rotation is often a timing issue.
+  **Windows node restarts during CA/cert rotation are KNOWN transient
+  flakes (WINC-1931), NOT product bugs.** Even if the assertion says
+  "got restarted after CA rotation", classify as **transient**.
 - **CSI driver daemonset readiness** (e.g. "csi-driver-node-windows
   daemonset is not ready after waiting") is a persistent issue across
   multiple platforms (Azure, vSphere). Low pass rates across platforms
@@ -883,6 +1014,23 @@ Use this domain context to distinguish preconditions from product assertions:
   - For persistent failures: name the specific component owner and
     suggest filing/updating a specific Jira issue
 
+## CRITICAL: Product Bug Classification Bar
+
+**product_bug requires STRONG evidence.** You must see a clear
+assertion failure where the product code (WMCO, kubelet,
+hybrid-overlay, CSI driver) returned a wrong value, crashed, or
+violated its API contract. If the failure could be explained by
+timing, test setup, environment, or infrastructure, it is NOT a
+product bug. When in doubt between product_bug and automation_bug,
+choose automation_bug. When in doubt between product_bug and
+transient, choose transient.
+
+Do NOT classify as product_bug solely because:
+- A node restarted (restarts during cert rotation are known flakes)
+- A container runtime task was not found (environment instability)
+- A timeout occurred (timeouts are timing issues, not product defects)
+- The error message mentions a product component name
+
 ## Key Distinctions
 
 - SSH/bastion failures (exit status 255, connection refused on port 22)
@@ -893,16 +1041,20 @@ Use this domain context to distinguish preconditions from product assertions:
 - Test assertion comparing wrong expected value → **automation_bug**
 - Pod CrashLoopBackOff with product container logs showing a panic →
   **product_bug**
+- Windows node restarted during CA/cert rotation → **transient**,
+  reference WINC-1931. This is a known flake, never product_bug.
+- Container task/process not found during exec → **automation_bug**
+  or **transient** (runtime instability), never product_bug.
 - Timeout waiting for a condition that intermittently takes too long →
-  **transient** (if pass rate is high) or **product_bug** (if pass rate
-  is low and timeout is generous)
+  **transient** (if pass rate is high) or **automation_bug** (if pass
+  rate is low -- the test timeout is too short or setup is wrong)
 - Precondition timeout (waiting for Provisioning phase, waiting for
   machine/node readiness before test logic) → **transient**
 - CSI driver daemonset not ready on Windows nodes across multiple
   platforms with low pass rate → **automation_bug** or **product_bug**,
   persistent systemic issue needing a Jira ticket
 - Any failure with pass rate <50%: this is persistent, NOT transient.
-  Classify as product_bug or automation_bug, never transient.
+  Classify as automation_bug or product_bug, never transient.
 
 ## Required Output
 

@@ -648,21 +648,25 @@ class TestDetectKnownFlakyTest:
         )
         assert result is None
 
-    def test_low_pass_rate_not_classified(self):
+    def test_low_pass_rate_still_classified(self):
+        """Known flaky tests are classified regardless of pass rate."""
         result = detect_known_flaky_test(
             'OCP-50924',
             'Windows instances react to kubelet CA rotation',
             pass_rate=30.0,
         )
-        assert result is None
+        assert result is not None
+        assert result['classification'] == 'transient'
 
-    def test_no_pass_rate_not_classified(self):
+    def test_no_pass_rate_still_classified(self):
+        """Known flaky tests are classified even without pass rate."""
         result = detect_known_flaky_test(
             'OCP-50924',
             'Windows instances react to kubelet CA rotation',
             pass_rate=None,
         )
-        assert result is None
+        assert result is not None
+        assert result['classification'] == 'transient'
 
     def test_name_contains_rotation_keyword(self):
         result = detect_known_flaky_test(
