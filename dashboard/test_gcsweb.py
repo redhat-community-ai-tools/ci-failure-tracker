@@ -33,7 +33,24 @@ def collector_with_wmco_map():
         'bucket': 'test',
         'branch_version_map': {'main': '5.0'},
         'wmco_version_map': {'10': '4', '11': '5'},
-        'fbc_default_version': '4.22',
+        'fbc_default_version': '5.0',
+    })
+
+
+@pytest.fixture
+def collector_with_public_gcsweb():
+    """Create a GCSWebCollector with public gcsweb config."""
+    return GCSWebCollector({
+        'url': 'https://gcsweb-private.example.com',
+        'bucket': 'private-bucket',
+        'branch_version_map': {'main': '5.0'},
+        'wmco_version_map': {'10': '4', '11': '5'},
+        'fbc_default_version': '5.0',
+        'postsubmit_gcsweb': {
+            'url': 'https://gcsweb-public.example.com',
+            'bucket': 'public-bucket',
+            'deck_url': 'https://prow.example.com',
+        },
     })
 
 
@@ -467,7 +484,7 @@ class TestExtractMetadataNewPatterns:
         )
         # No v\d+-\d+ or release-X.Y; fbc_default_version takes precedence
         # over branch_version_map for FBC postsubmit jobs.
-        assert meta['version'] == '4.22'
+        assert meta['version'] == '5.0'
         assert meta['platform'] == 'aws'
 
     def test_fbc_default_version_not_applied_to_periodic(self, collector_with_wmco_map):
@@ -852,3 +869,223 @@ class TestExtractTestNameLeadingHyphen:
         test_id, desc = collector._extract_test_name(raw)
         assert test_id == "OCP-65980"
         assert desc == "east-west connectivity test"
+
+
+class TestPublicGCSWebSource:
+    """Tests for public gcsweb instance support (issue #140).
+
+    Validates that the collector resolves wildcard patterns against
+    both the private and public gcsweb instances, and uses the correct
+    base URL, bucket, and Deck URL for jobs from the public bucket.
+    """
+
+    def test_get_base_url_private_path(self, collector_with_public_gcsweb):
+        """Private bucket paths use the private gcsweb URL."""
+        url = collector_with_public_gcsweb._get_base_url(
+            '/gcs/private-bucket/logs/some-job/')
+        assert url == 'https://gcsweb-private.example.com'
+
+    def test_get_base_url_public_path(self, collector_with_public_gcsweb):
+        """Public bucket paths use the public gcsweb URL."""
+        url = collector_with_public_gcsweb._get_base_url(
+            '/gcs/public-bucket/logs/some-job/')
+        assert url == 'https://gcsweb-public.example.com'
+
+    def test_get_base_url_no_public_config(self, collector):
+        """Without postsubmit_gcsweb, all paths use the primary URL."""
+        url = collector._get_base_url('/gcs/origin-ci-test/logs/job/')
+        assert url == 'https://example.com'
+
+    def test_get_bucket_for_public_job(self, collector_with_public_gcsweb):
+        """Jobs in _public_jobs use the public bucket."""
+        collector_with_public_gcsweb._public_jobs.add('fbc-job-1')
+        bucket = collector_with_public_gcsweb._get_bucket_for_job(
+            'fbc-job-1')
+        assert bucket == 'public-bucket'
+
+    def test_get_bucket_for_private_job(self, collector_with_public_gcsweb):
+        """Jobs not in _public_jobs use the private bucket."""
+        bucket = collector_with_public_gcsweb._get_bucket_for_job(
+            'private-job-1')
+        assert bucket == 'private-bucket'
+
+    def test_get_deck_url_for_public_bucket(
+            self, collector_with_public_gcsweb):
+        """Public bucket maps to the public Deck URL."""
+        deck = collector_with_public_gcsweb._get_deck_url_for_bucket(
+            'public-bucket')
+        assert deck == 'https://prow.example.com'
+
+    def test_get_deck_url_for_private_bucket(
+            self, collector_with_public_gcsweb):
+        """Private bucket maps to the private Deck URL."""
+        deck = collector_with_public_gcsweb._get_deck_url_for_bucket(
+            'private-bucket')
+        assert 'qe-private-deck' in deck
+
+    def test_resolve_patterns_queries_public_bucket(
+            self, collector_with_public_gcsweb):
+        """Wildcard patterns are resolved against both buckets."""
+        private_links = [
+            ('/gcs/private-bucket/logs/periodic-ci-winc-aws/',
+             'periodic-ci-winc-aws/'),
+        ]
+        public_links = [
+            ('/gcs/public-bucket/logs/'
+             'branch-ci-openshift-wmco-fbc-main-aws-winc/',
+             'branch-ci-openshift-wmco-fbc-main-aws-winc/'),
+            ('/gcs/public-bucket/logs/'
+             'branch-ci-openshift-wmco-fbc-main-gcp-winc/',
+             'branch-ci-openshift-wmco-fbc-main-gcp-winc/'),
+        ]
+
+        def mock_list(path):
+            if 'private-bucket' in path:
+                return private_links
+            if 'public-bucket' in path:
+                return public_links
+            return []
+
+        with patch.object(collector_with_public_gcsweb,
+                          '_list_directory', side_effect=mock_list):
+            result = collector_with_public_gcsweb._resolve_patterns(
+                ['branch-ci-openshift-wmco-fbc-main-*-winc'])
+
+        assert 'branch-ci-openshift-wmco-fbc-main-aws-winc' in result
+        assert 'branch-ci-openshift-wmco-fbc-main-gcp-winc' in result
+        assert len(result) == 2
+
+    def test_resolve_patterns_tracks_public_jobs(
+            self, collector_with_public_gcsweb):
+        """Jobs resolved from the public bucket are tracked."""
+        public_links = [
+            ('/gcs/public-bucket/logs/fbc-main-aws-winc/',
+             'fbc-main-aws-winc/'),
+        ]
+
+        def mock_list(path):
+            if 'public-bucket' in path:
+                return public_links
+            return []
+
+        with patch.object(collector_with_public_gcsweb,
+                          '_list_directory', side_effect=mock_list):
+            collector_with_public_gcsweb._resolve_patterns(
+                ['fbc-main-*-winc'])
+
+        assert 'fbc-main-aws-winc' in \
+            collector_with_public_gcsweb._public_jobs
+
+    def test_resolve_patterns_no_public_without_config(self, collector):
+        """Without postsubmit_gcsweb, only the primary bucket is queried."""
+        primary_links = [
+            ('/gcs/test/logs/periodic-ci-winc-aws/',
+             'periodic-ci-winc-aws/'),
+        ]
+
+        with patch.object(collector, '_list_directory',
+                          return_value=primary_links) as mock_list:
+            collector._resolve_patterns(['periodic-ci-*'])
+
+        # _list_directory should only be called once (primary bucket)
+        mock_list.assert_called_once_with('/gcs/test/logs/')
+
+    def test_build_job_url_public_path(self, collector_with_public_gcsweb):
+        """Job URL for a public bucket path uses the public Deck URL."""
+        url = collector_with_public_gcsweb._build_job_url(
+            '/gcs/public-bucket/logs/fbc-main-aws-winc/12345')
+        assert url == (
+            'https://prow.example.com'
+            '/view/gs/public-bucket/logs/fbc-main-aws-winc/12345')
+
+    def test_build_job_url_private_path(self, collector_with_public_gcsweb):
+        """Job URL for a private bucket path uses the private Deck URL."""
+        url = collector_with_public_gcsweb._build_job_url(
+            '/gcs/private-bucket/logs/periodic-job/12345')
+        assert 'qe-private-deck' in url
+        assert 'private-bucket' in url
+
+    def test_list_job_runs_uses_public_bucket(
+            self, collector_with_public_gcsweb):
+        """_list_job_runs constructs path with public bucket for
+        public jobs."""
+        collector_with_public_gcsweb._public_jobs.add('fbc-main-aws-winc')
+
+        with patch.object(collector_with_public_gcsweb,
+                          '_list_directory',
+                          return_value=[]) as mock_list:
+            start = datetime.now() - timedelta(days=7)
+            end = datetime.now()
+            collector_with_public_gcsweb._list_job_runs(
+                'fbc-main-aws-winc', start, end)
+
+        mock_list.assert_called_once_with(
+            '/gcs/public-bucket/logs/fbc-main-aws-winc/')
+
+    def test_list_job_runs_uses_private_bucket_for_private_jobs(
+            self, collector_with_public_gcsweb):
+        """_list_job_runs constructs path with private bucket for
+        non-public jobs."""
+        with patch.object(collector_with_public_gcsweb,
+                          '_list_directory',
+                          return_value=[]) as mock_list:
+            start = datetime.now() - timedelta(days=7)
+            end = datetime.now()
+            collector_with_public_gcsweb._list_job_runs(
+                'periodic-ci-winc-aws', start, end)
+
+        mock_list.assert_called_once_with(
+            '/gcs/private-bucket/logs/periodic-ci-winc-aws/')
+
+    def test_fbc_version_50(self, collector_with_public_gcsweb):
+        """FBC postsubmit without version segment uses 5.0."""
+        meta = collector_with_public_gcsweb._extract_metadata(
+            'branch-ci-openshift-windows-machine-config-operator-'
+            'fbc-main-aws-ipi-ovn-winc')
+        assert meta['version'] == '5.0'
+        assert meta['platform'] == 'aws'
+
+    def test_fbc_version_50_all_platforms(
+            self, collector_with_public_gcsweb):
+        """All 7 FBC postsubmit job names should resolve to 5.0."""
+        jobs = [
+            'branch-ci-openshift-windows-machine-config-operator-'
+            'fbc-main-aws-ipi-ovn-winc',
+            'branch-ci-openshift-windows-machine-config-operator-'
+            'fbc-main-aws-upi-ovn-winc',
+            'branch-ci-openshift-windows-machine-config-operator-'
+            'fbc-main-azure-ipi-ovn-winc',
+            'branch-ci-openshift-windows-machine-config-operator-'
+            'fbc-main-gcp-ipi-ovn-winc',
+            'branch-ci-openshift-windows-machine-config-operator-'
+            'fbc-main-nutanix-ipi-ovn-winc',
+            'branch-ci-openshift-windows-machine-config-operator-'
+            'fbc-main-vsphere-ipi-ovn-winc',
+            'branch-ci-openshift-windows-machine-config-operator-'
+            'fbc-main-vsphere-ipi-proxy-ovn-winc',
+        ]
+        for job in jobs:
+            meta = collector_with_public_gcsweb._extract_metadata(job)
+            assert meta['version'] == '5.0', f'{job} -> {meta}'
+
+    def test_negative_non_fbc_not_tracked_as_public(
+            self, collector_with_public_gcsweb):
+        """Non-FBC jobs resolved from private bucket must not appear
+        in _public_jobs."""
+        private_links = [
+            ('/gcs/private-bucket/logs/periodic-ci-winc-aws/',
+             'periodic-ci-winc-aws/'),
+        ]
+
+        def mock_list(path):
+            if 'private-bucket' in path:
+                return private_links
+            return []
+
+        with patch.object(collector_with_public_gcsweb,
+                          '_list_directory', side_effect=mock_list):
+            collector_with_public_gcsweb._resolve_patterns(
+                ['periodic-ci-*'])
+
+        assert 'periodic-ci-winc-aws' not in \
+            collector_with_public_gcsweb._public_jobs
