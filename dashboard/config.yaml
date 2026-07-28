@@ -181,17 +181,11 @@ collector:
       - "periodic-ci-openshift-openshift-tests-private-main-amd64-nightly-nutanix-ipi-ovn-winc-f7"
       - "periodic-ci-openshift-openshift-tests-private-main-amd64-nightly-vsphere-ipi-ovn-winc-f7"
 
-    # Postsubmit FBC jobs (exact names, no wildcards).
-    # Wildcard patterns time out on the public bucket (test-platform-results
-    # has thousands of jobs, listing logs/ takes >120s).
-    postsubmit_job_names:
-      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-aws-ipi-ovn-winc"
-      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-aws-upi-ovn-winc"
-      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-azure-ipi-ovn-winc"
-      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-gcp-ipi-ovn-winc"
-      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-nutanix-ipi-ovn-winc"
-      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-vsphere-ipi-ovn-winc"
-      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-vsphere-ipi-proxy-ovn-winc"
+    # Postsubmit FBC job discovery via GCS JSON API prefix listing.
+    # Resolves matching job names at startup without listing the
+    # entire logs/ directory (which times out on large public buckets).
+    postsubmit_job_prefixes:
+      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-"
 
     # PR log sources: scan pr-logs/ for rehearse and PR jobs
     pr_log_sources:

@@ -60,12 +60,19 @@ class GCSWebCollector(BaseCollector):
         # Set of job names resolved from the public bucket.
         self._public_jobs: set = set()
 
-        # Pre-register exact postsubmit job names as public so they
-        # use the correct bucket/URL without wildcard resolution
-        # (listing logs/ on large public buckets times out).
+        # Pre-register exact postsubmit job names as public.
         for job in config.get('postsubmit_job_names', []):
             if self._postsubmit_gcsweb:
                 self._public_jobs.add(job)
+
+        # Resolve prefix-based postsubmit job discovery via GCS JSON API.
+        # This avoids listing the entire logs/ directory (times out on
+        # large public buckets) by using prefix+delimiter filtering.
+        if self._postsubmit_gcsweb:
+            for prefix in config.get('postsubmit_job_prefixes', []):
+                discovered = self._resolve_prefix(
+                    self._postsubmit_gcsweb['bucket'], prefix)
+                self._public_jobs.update(discovered)
 
         self.session = requests.Session()
         headers = {'User-Agent': 'CI-Dashboard-Collector/1.0'}
@@ -78,6 +85,34 @@ class GCSWebCollector(BaseCollector):
             logger.warning("[gcsweb] No API token found - private gcsweb instances will return 403")
 
         self.session.headers.update(headers)
+
+    @staticmethod
+    def _resolve_prefix(bucket: str, prefix: str) -> List[str]:
+        """Discover job names in a GCS bucket matching a prefix.
+
+        Uses the GCS JSON API with prefix+delimiter to list only matching
+        job directories, avoiding a full listing of the logs/ directory.
+        """
+        url = (f"https://storage.googleapis.com/storage/v1/b/{bucket}/o"
+               f"?prefix=logs/{prefix}&delimiter=/")
+        try:
+            resp = requests.get(url, timeout=30)
+            resp.raise_for_status()
+            prefixes = resp.json().get('prefixes', [])
+            jobs = [p.removeprefix('logs/').rstrip('/') for p in prefixes]
+            if jobs:
+                logger.info(f"[gcsweb] Prefix '{prefix}' resolved "
+                            f"{len(jobs)} job(s) from {bucket}")
+            return jobs
+        except Exception as exc:
+            logger.warning(f"[gcsweb] Prefix resolution failed for "
+                           f"'{prefix}' in {bucket}: {exc}")
+            return []
+
+    @property
+    def postsubmit_jobs(self) -> List[str]:
+        """Return the set of discovered public postsubmit job names."""
+        return sorted(self._public_jobs)
 
     @property
     def name(self) -> str:

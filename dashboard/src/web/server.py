@@ -261,9 +261,10 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
             # Include postsubmit job patterns (wildcards) if configured
             postsubmit_patterns = gcsweb_cfg.get('postsubmit_job_patterns', [])
             all_job_names.extend(postsubmit_patterns)
-            # Include exact postsubmit job names (no wildcard resolution needed)
-            postsubmit_names = gcsweb_cfg.get('postsubmit_job_names', [])
-            all_job_names.extend(postsubmit_names)
+            # Include postsubmit jobs discovered by the collector
+            # (from postsubmit_job_names and postsubmit_job_prefixes)
+            if hasattr(collector, 'postsubmit_jobs'):
+                all_job_names.extend(collector.postsubmit_jobs)
             if version_filter:
                 branch_map = config.get('tracking', {}).get('branch_version_map', {})
                 reverse_map = {v: k for k, v in branch_map.items()}
