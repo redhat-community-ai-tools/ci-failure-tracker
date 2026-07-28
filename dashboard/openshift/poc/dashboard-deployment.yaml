@@ -4,6 +4,8 @@ metadata:
   name: winc-dashboard-poc
   labels:
     app: winc-dashboard-poc
+  annotations:
+    image.openshift.io/triggers: '[{"from":{"kind":"ImageStreamTag","name":"winc-dashboard-poc:latest"},"fieldPath":"spec.template.spec.containers[?(@.name==\"dashboard\")].image"}]'
 spec:
   replicas: 1
   selector:
@@ -17,6 +19,7 @@ spec:
       containers:
         - name: dashboard
           image: image-registry.openshift-image-registry.svc:5000/winc-dashboard-poc/winc-dashboard-poc:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
               protocol: TCP
@@ -98,13 +101,3 @@ spec:
         - name: vertex-ai-sa
           secret:
             secretName: vertex-ai-service-account
-  triggers:
-    - type: ConfigChange
-    - type: ImageChange
-      imageChangeParams:
-        automatic: true
-        containerNames:
-          - dashboard
-        from:
-          kind: ImageStreamTag
-          name: winc-dashboard-poc:latest
