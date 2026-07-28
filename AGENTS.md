@@ -97,3 +97,10 @@ Most agent work targets the dashboard.
     compare numeric components as integers. Never use lexicographic
     string sorting for versions, since `"9.0.0" > "10.0.0"`
     lexicographically but `10.0.0 > 9.0.0` semantically.
+
+17. **Secure error responses.** Never interpolate exception content (`str(e)`,
+    `{e}`, `e.args`) into HTTP/API responses. Return a static, generic error
+    message to the client (e.g., `'Failed to create Jira issue'`) and log
+    the full exception server-side via `logger.error()` or `logger.exception()`.
+    This prevents CodeQL CWE-209 "Information exposure through an exception"
+    findings and avoids review rework.
