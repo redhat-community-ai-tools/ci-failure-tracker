@@ -480,6 +480,47 @@ def run_backfill_background(db_path: str, config_file: str = 'config.yaml'):
         backfill_status['running'] = False
 
 
+def _get_platform_stats(db, test_name, version, days=7):
+    """Get per-platform pass/fail counts for a test.
+
+    Returns a list of dicts: [{'platform': ..., 'failed': ..., 'total': ...}]
+    or an empty list if no data is available.
+    """
+    try:
+        rows = db.execute_query("""
+            SELECT platform,
+                   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+                   COUNT(*) AS total
+            FROM test_results
+            WHERE test_name = ?
+              AND version = ?
+              AND timestamp >= datetime('now', ? || ' days')
+            GROUP BY platform
+            ORDER BY platform
+        """, (test_name, version, f'-{days}'))
+        return [dict(r) for r in rows] if rows else []
+    except Exception:
+        logger.exception("Error fetching platform stats")
+        return []
+
+
+def _build_artifacts_url(job_url):
+    """Construct a gcsweb artifacts URL from a Prow job URL.
+
+    Returns the URL string or an empty string if the job URL is not
+    a recognised Prow format.
+    """
+    if not job_url:
+        return ""
+    gcsweb_base = (
+        "https://gcsweb-qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com"
+    )
+    if '/view/gs/qe-private-deck/' in job_url:
+        gcs_path = job_url.split('/view/gs/qe-private-deck/')[-1]
+        return f"{gcsweb_base}/gcs/qe-private-deck/{gcs_path}/artifacts/"
+    return ""
+
+
 def create_app(db_path: str, config: dict = None, config_file: str = 'config.yaml'):
     """
     Create Flask application
@@ -1086,6 +1127,20 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 'message': f'Found existing issue: {issue_key}'
             })
 
+        # Enrich with AI analysis from database
+        ai_analysis = db.get_ai_analysis(test_name, version)
+
+        # Get per-platform pass/fail stats
+        platform_stats = _get_platform_stats(db, test_name, version)
+        if platform_stats:
+            # Recompute aggregate runs/failures from actual data
+            runs = sum(ps['total'] for ps in platform_stats)
+            failures = sum(ps['failed'] for ps in platform_stats)
+            failure_rate = ((runs - failures) / runs * 100) if runs else 0.0
+
+        # Build gcsweb artifacts URL from job_url
+        artifacts_url = _build_artifacts_url(job_url)
+
         # Create new issue
         try:
             issue_key = jira.create_issue(
@@ -1097,7 +1152,10 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 job_url=job_url,
                 failure_rate=failure_rate,
                 runs=runs,
-                failures=failures
+                failures=failures,
+                ai_analysis=ai_analysis,
+                platform_stats=platform_stats,
+                artifacts_url=artifacts_url,
             )
         except RuntimeError as e:
             logger.error("Failed to create Jira issue: %s", e)
