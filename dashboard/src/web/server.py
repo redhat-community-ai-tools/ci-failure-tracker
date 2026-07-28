@@ -1096,7 +1096,8 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 failures=failures
             )
         except RuntimeError as e:
-            return jsonify({'error': f'Failed to create Jira issue: {e}'}), 500
+            logger.error("Failed to create Jira issue: %s", e)
+            return jsonify({'error': 'Failed to create Jira issue'}), 500
         except Exception:
             logger.exception("Unexpected error creating Jira issue")
             return jsonify({'error': 'Failed to create Jira issue'}), 500
