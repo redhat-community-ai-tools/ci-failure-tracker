@@ -79,9 +79,16 @@ class JiraIntegration:
         if not self.enabled:
             return None
 
-        # JQL query to find issues with this test name
-        # Add time restriction to avoid "unbounded query" error
-        jql = f'project = {self.config.project_key} AND summary ~ "{test_name}" AND resolution = Unresolved AND created > -90d'
+        # JQL query to find issues with this test name in summary or description.
+        # Search both fields to catch manually-filed issues whose summary uses
+        # the error message instead of the test ID (the test ID still appears
+        # in the description).
+        # Add time restriction to avoid "unbounded query" error.
+        jql = (
+            f'project = {self.config.project_key}'
+            f' AND (summary ~ "{test_name}" OR description ~ "{test_name}")'
+            f' AND resolution = Unresolved AND created > -90d'
+        )
 
         try:
             logger.info(f"Searching for existing Jira: {jql}")
