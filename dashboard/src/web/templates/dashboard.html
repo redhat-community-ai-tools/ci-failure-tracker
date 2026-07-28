@@ -1491,8 +1491,8 @@
                 const content = document.getElementById('aiAnalysisContent');
 
                 if (data.ai_analysis) {
+                    const analysis = data.ai_analysis;
                     if (section && content) {
-                        const analysis = data.ai_analysis;
                         const className = classNames[analysis.failure_type] || analysis.failure_type || 'Unknown';
                         const classColor = classColors[analysis.failure_type] || '#6b7280';
 
