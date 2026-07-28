@@ -154,7 +154,10 @@ class JiraIntegration:
         job_url: str = None,
         failure_rate: float = 0.0,
         runs: int = 0,
-        failures: int = 0
+        failures: int = 0,
+        ai_analysis: dict = None,
+        platform_stats: list = None,
+        artifacts_url: str = None
     ) -> Optional[str]:
         """
         Create a new Jira issue for test failure.
@@ -170,6 +173,10 @@ class JiraIntegration:
             failure_rate: Failure rate percentage
             runs: Total runs
             failures: Number of failures
+            ai_analysis: AI analysis dict with root_cause, failure_type, etc.
+            platform_stats: Per-platform breakdown list of dicts
+                with keys: platform, failed, total
+            artifacts_url: Link to gcsweb test artifacts
 
         Returns:
             Jira issue key if created, None otherwise
@@ -190,45 +197,137 @@ class JiraIntegration:
             logger.info(f"Existing Jira found: {existing.get('key')}")
             return existing.get('key')
 
-        # Create issue summary and description
-        platforms_str = ', '.join(platforms) if platforms else 'multiple platforms'
-        summary = f"{test_name}: Test failure on {platforms_str} {version}"
+        # Build per-platform breakdown string
+        if platform_stats:
+            parts = []
+            for ps in platform_stats:
+                parts.append(
+                    f"{ps['platform']} ({ps['failed']}/{ps['total']} failed)"
+                )
+            platforms_str = ', '.join(parts)
+        elif platforms:
+            platforms_str = ', '.join(platforms)
+        else:
+            platforms_str = 'multiple platforms'
+
+        # Build summary with error context
+        error_summary = self._extract_error_summary(error_message)
+        if ai_analysis and ai_analysis.get('root_cause'):
+            # Use AI root cause for a more descriptive title
+            root_cause_short = ai_analysis['root_cause'][:80]
+            summary = (
+                f"{test_name}: {root_cause_short} "
+                f"on {', '.join(platforms) if platforms else 'multiple platforms'} "
+                f"{version}"
+            )
+        elif error_summary:
+            summary = (
+                f"{test_name}: {error_summary} "
+                f"on {', '.join(platforms) if platforms else 'multiple platforms'} "
+                f"{version}"
+            )
+        else:
+            summary = (
+                f"{test_name}: Test failure "
+                f"on {', '.join(platforms) if platforms else 'multiple platforms'} "
+                f"{version}"
+            )
+        # Jira summary field limit is 255 chars
+        if len(summary) > 255:
+            summary = summary[:252] + "..."
 
         # Dashboard link
         dashboard_url = os.environ.get('DASHBOARD_URL', 'https://winc-dashboard-poc-winc-dashboard-poc.apps.build10.ci.devcluster.openshift.com')
 
-        # Minimal Atlassian Document Format (ADF) - avoid CONTENT_LIMIT_EXCEEDED
-        # Truncate error message to first 500 chars
-        error_msg_short = (error_message[:500] + "...") if error_message and len(error_message) > 500 else (error_message or "No error message")
+        # Truncate error message to first 2000 chars
+        error_msg_short = (error_message[:2000] + "...") if error_message and len(error_message) > 2000 else (error_message or "No error message")
+
+        # Build ADF content blocks
+        adf_content = []
+
+        # Test metadata paragraph
+        metadata_texts = [
+            {"type": "text", "text": f"Test: {test_name}\n"},
+            {"type": "text", "text": f"Version: {version}\n"},
+            {"type": "text", "text": f"Affected Platforms: {platforms_str}\n"},
+            {"type": "text", "text": f"Pass Rate: {failure_rate:.1f}% ({runs - failures}/{runs} runs passed)"},
+        ]
+        adf_content.append({
+            "type": "paragraph",
+            "content": metadata_texts
+        })
+
+        # AI analysis section (if available)
+        if ai_analysis and ai_analysis.get('root_cause'):
+            ai_texts = [
+                {"type": "text", "text": "Root Cause (AI analysis): ",
+                 "marks": [{"type": "strong"}]},
+                {"type": "text", "text": ai_analysis['root_cause']},
+            ]
+            if ai_analysis.get('failure_type'):
+                ai_texts.append(
+                    {"type": "text",
+                     "text": f"\nFailure Type: {ai_analysis['failure_type']}"}
+                )
+            if ai_analysis.get('suggested_action'):
+                ai_texts.append(
+                    {"type": "text",
+                     "text": f"\nSuggested Action: {ai_analysis['suggested_action']}"}
+                )
+            adf_content.append({
+                "type": "paragraph",
+                "content": ai_texts
+            })
+
+        # Error message paragraph
+        adf_content.append({
+            "type": "paragraph",
+            "content": [
+                {"type": "text", "text": "Error: ",
+                 "marks": [{"type": "strong"}]},
+                {"type": "text", "text": error_msg_short}
+            ]
+        })
+
+        # Job link paragraph (if available)
+        if job_url:
+            adf_content.append({
+                "type": "paragraph",
+                "content": [
+                    {"type": "text", "text": "Prow Job: "},
+                    {"type": "text", "text": job_url,
+                     "marks": [{"type": "link",
+                                "attrs": {"href": job_url}}]}
+                ]
+            })
+
+        # Artifacts link paragraph (if available)
+        if artifacts_url:
+            adf_content.append({
+                "type": "paragraph",
+                "content": [
+                    {"type": "text", "text": "Artifacts: "},
+                    {"type": "text", "text": artifacts_url,
+                     "marks": [{"type": "link",
+                                "attrs": {"href": artifacts_url}}]}
+                ]
+            })
+
+        # Dashboard link paragraph
+        adf_content.append({
+            "type": "paragraph",
+            "content": [
+                {"type": "text", "text": "Dashboard: "},
+                {"type": "text", "text": dashboard_url,
+                 "marks": [{"type": "link",
+                            "attrs": {"href": dashboard_url}}]}
+            ]
+        })
 
         description = {
             "version": 1,
             "type": "doc",
-            "content": [
-                {
-                    "type": "paragraph",
-                    "content": [
-                        {"type": "text", "text": f"Test: {test_name}\n"},
-                        {"type": "text", "text": f"Version: {version}\n"},
-                        {"type": "text", "text": f"Affected Platforms: {platforms_str}\n"},
-                        {"type": "text", "text": f"Failure Rate: {failure_rate:.1f}% ({failures}/{runs} runs)"}
-                    ]
-                },
-                {
-                    "type": "paragraph",
-                    "content": [
-                        {"type": "text", "text": "Error: ", "marks": [{"type": "strong"}]},
-                        {"type": "text", "text": error_msg_short}
-                    ]
-                },
-                {
-                    "type": "paragraph",
-                    "content": [
-                        {"type": "text", "text": "Dashboard: "},
-                        {"type": "text", "text": dashboard_url, "marks": [{"type": "link", "attrs": {"href": dashboard_url}}]}
-                    ]
-                }
-            ]
+            "content": adf_content
         }
 
         try:
@@ -297,6 +396,28 @@ class JiraIntegration:
         except Exception as e:
             logger.error(f"Error creating Jira: {e}")
             raise RuntimeError(f"Error creating Jira: {e}") from e
+
+    @staticmethod
+    def _extract_error_summary(error_message: str) -> str:
+        """Extract a short summary from an error message for use in titles.
+
+        Returns the first meaningful line of the error, trimmed to 80 chars.
+        """
+        if not error_message:
+            return ""
+        for line in error_message.splitlines():
+            line = line.strip()
+            # Skip blank lines and common log prefix lines
+            if not line:
+                continue
+            if line.startswith(("I0", "E0", "W0")):
+                # Timestamp-prefixed log lines — skip
+                continue
+            # Return first substantive line, trimmed
+            if len(line) > 80:
+                return line[:77] + "..."
+            return line
+        return ""
 
     def get_issue_url(self, issue_key: str) -> str:
         """Get URL for a Jira issue"""
