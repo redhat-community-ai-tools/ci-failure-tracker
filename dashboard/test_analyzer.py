@@ -12,6 +12,7 @@ from src.ai.analyzer import (
     detect_infra_flake,
     detect_timeout_flake,
     detect_known_flaky_test,
+    detect_version_mismatch,
     detect_cross_platform_failure,
     _error_signature,
     _apply_confidence_review,
@@ -596,6 +597,38 @@ class TestAnalyzeFailureIntegration:
         assert 'WINC-1931' in result['suggested_action']
         assert result['cost'] == 0.0
 
+    def test_version_mismatch_skips_vertex_ai(self):
+        """Version mismatch should be pre-classified as automation_bug."""
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            test_name='OCP-33612',
+            error_message=(
+                'failed to check Windows v1.35.3 and Linux v1.36.2 '
+                'kubelet version should be the same'
+            ),
+            log_url='',
+            platform='aws',
+            version='5.0',
+        )
+        assert result['pre_classified'] is True
+        assert result['classification'] == 'automation_bug'
+        assert result['cost'] == 0.0
+        assert result['pre_classifier'] == 'version_mismatch_detector'
+        assert result['is_product_bug'] is False
+
+    def test_version_mismatch_not_false_positive(self):
+        """Non-version-mismatch failure should NOT be caught."""
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            test_name='OCP-55555',
+            error_message='kubelet version v1.36.2 started successfully',
+            log_url='',
+            platform='aws',
+            version='5.0',
+        )
+        # Should fall through (not pre-classified as version mismatch)
+        assert result.get('pre_classifier') != 'version_mismatch_detector'
+
     def test_no_client_returns_failed(self):
         """Without Vertex AI client, non-infra failures return error."""
         analyzer = HybridFailureAnalyzer()
@@ -675,6 +708,116 @@ class TestDetectKnownFlakyTest:
             pass_rate=70.0,
         )
         assert result is not None
+
+
+class TestDetectVersionMismatch:
+    """Tests for version mismatch pre-classifier."""
+
+    def test_kubelet_version_mismatch(self):
+        """OCP-33612: kubelet version mismatch on FBC branch."""
+        msg = (
+            "failed to check Windows v1.35.3 and Linux v1.36.2 "
+            "kubelet version should be the same"
+        )
+        result = detect_version_mismatch(msg)
+        assert result is not None
+        assert result['classification'] == 'automation_bug'
+        assert result['is_product_bug'] is False
+        assert result['pre_classifier'] == 'version_mismatch_detector'
+        assert result['confidence'] == 90
+        assert result['cost'] == 0.0
+
+    def test_generic_version_mismatch(self):
+        """Any 'version should be the same' mismatch should match."""
+        msg = (
+            "failed to check some component v2.0.0 and other "
+            "v3.0.0 version should be the same"
+        )
+        result = detect_version_mismatch(msg)
+        assert result is not None
+        assert result['classification'] == 'automation_bug'
+
+    def test_case_insensitive(self):
+        """Pattern should match case-insensitively."""
+        msg = (
+            "Failed To Check Windows v1.35.3 And Linux v1.36.2 "
+            "Kubelet Version Should Be The Same"
+        )
+        result = detect_version_mismatch(msg)
+        assert result is not None
+
+    def test_provisioning_phase_not_matched(self):
+        """Provisioning phase failure should NOT match version
+        mismatch pattern."""
+        msg = (
+            "failed to check Windows machine should be in "
+            "Provisioning phase"
+        )
+        result = detect_version_mismatch(msg)
+        assert result is None
+
+    def test_kubelet_started_not_matched(self):
+        """Success message mentioning kubelet version should NOT
+        match."""
+        msg = "kubelet version v1.36.2 started successfully"
+        result = detect_version_mismatch(msg)
+        assert result is None
+
+    def test_generic_failure_not_matched(self):
+        """Non-version-related failure should NOT match."""
+        msg = "pod crashed with OOMKilled"
+        result = detect_version_mismatch(msg)
+        assert result is None
+
+    def test_empty_message(self):
+        result = detect_version_mismatch("")
+        assert result is None
+
+    def test_none_message(self):
+        result = detect_version_mismatch(None)
+        assert result is None
+
+    def test_result_fields_complete(self):
+        """Verify all expected fields are present in the result."""
+        msg = (
+            "failed to check Windows v1.35.3 and Linux v1.36.2 "
+            "kubelet version should be the same"
+        )
+        result = detect_version_mismatch(msg)
+        assert result is not None
+        assert 'root_cause' in result
+        assert 'component' in result
+        assert 'confidence' in result
+        assert 'failure_type' in result
+        assert 'classification' in result
+        assert 'platform_specific' in result
+        assert 'affected_platforms' in result
+        assert 'evidence' in result
+        assert 'suggested_action' in result
+        assert 'issue_title' in result
+        assert 'issue_description' in result
+        assert result['pre_classified'] is True
+        assert result['analysis_mode'] == 'pre-classifier'
+
+    def test_custom_patterns(self):
+        """Custom patterns should override built-in defaults."""
+        import re
+        custom = [re.compile(r'custom version check failed')]
+        result = detect_version_mismatch(
+            "custom version check failed", patterns=custom
+        )
+        assert result is not None
+        assert result['pre_classifier'] == 'version_mismatch_detector'
+
+    def test_custom_patterns_no_match(self):
+        """Custom patterns that don't match should return None."""
+        import re
+        custom = [re.compile(r'custom version check failed')]
+        result = detect_version_mismatch(
+            "failed to check version should be the same",
+            patterns=custom,
+        )
+        assert result is None
 
 
 class TestErrorSignature:

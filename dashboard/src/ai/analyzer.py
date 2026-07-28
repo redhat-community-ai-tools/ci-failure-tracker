@@ -133,6 +133,15 @@ KNOWN_FLAKY_TEST_PATTERNS = [
     re.compile(r'Windows (?:worker|node).*restart', re.IGNORECASE),
 ]
 
+# Built-in default for version mismatch pre-classifier.
+# Override via config.yaml ai.version_mismatch_patterns (AGENTS.md rule 9).
+VERSION_MISMATCH_PATTERNS = [
+    re.compile(
+        r'failed to check .* version should be the same',
+        re.IGNORECASE,
+    ),
+]
+
 
 def _fetch_logs(log_url: str) -> str:
     """Fetch build logs from URL, return empty string on failure."""
@@ -428,6 +437,80 @@ def detect_known_flaky_test(
         'is_product_bug': False,
         'pre_classified': True,
         'pre_classifier': 'known_flaky_test_detector',
+        'cost': 0.0,
+        'analysis_mode': 'pre-classifier',
+    }
+
+
+def detect_version_mismatch(
+    error_message: str,
+    patterns: Optional[List[re.Pattern]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Pre-classify version mismatch assertion failures.
+
+    Kubelet version mismatch tests (e.g. OCP-33612) compare Windows and
+    Linux kubelet versions. On development/FBC branches these versions
+    naturally diverge, so the mismatch is expected -- not a product bug.
+
+    Args:
+        error_message: Error text from the test failure.
+        patterns: Optional list of compiled regex patterns to match.
+            Defaults to VERSION_MISMATCH_PATTERNS.
+
+    Returns:
+        Pre-built analysis dict if a version mismatch pattern is
+        detected, None otherwise.
+    """
+    if not error_message:
+        return None
+
+    check_patterns = patterns if patterns is not None else VERSION_MISMATCH_PATTERNS
+    matches = [
+        p.pattern for p in check_patterns if p.search(error_message)
+    ]
+    if not matches:
+        return None
+
+    logger.info(
+        "Pre-classified as version mismatch assertion "
+        f"(patterns={len(matches)})"
+    )
+
+    return {
+        'root_cause': (
+            'Kubelet version mismatch between Windows and Linux '
+            'nodes. On development/FBC branches, Windows and Linux '
+            'kubelet versions naturally diverge. This is expected '
+            'version skew, not a product bug.'
+        ),
+        'component': 'test-automation (version assertion)',
+        'confidence': 90,
+        'failure_type': 'automation_bug',
+        'classification': 'automation_bug',
+        'platform_specific': False,
+        'affected_platforms': [],
+        'evidence': '; '.join(matches[:3]),
+        'suggested_action': (
+            'Version skew expected on development/FBC branch. '
+            'Not a product bug. No action needed unless the '
+            'mismatch appears on a release branch where versions '
+            'should be aligned.'
+        ),
+        'issue_title': (
+            'Automation Bug: Expected version mismatch on '
+            'development branch'
+        ),
+        'issue_description': (
+            'Kubelet version comparison test failed because '
+            'Windows and Linux kubelet versions diverge on '
+            'development/FBC branches. This is expected behavior '
+            'during development, not a product defect. The test '
+            'assertion is only valid on release branches where '
+            'versions are pinned.'
+        ),
+        'is_product_bug': False,
+        'pre_classified': True,
+        'pre_classifier': 'version_mismatch_detector',
         'cost': 0.0,
         'analysis_mode': 'pre-classifier',
     }
@@ -784,7 +867,17 @@ class HybridFailureAnalyzer:
             logger.info(f"Pre-classified {test_name} by test name as known flaky (skipping Vertex AI)")
             return flaky_result
 
-        # Step 1e: Check cross-platform failure correlation
+        # Step 1e: Check version mismatch assertions
+        # (kubelet version skew on dev/FBC branches is expected)
+        version_mismatch_result = detect_version_mismatch(error_message)
+        if version_mismatch_result:
+            logger.info(
+                f"Pre-classified {test_name} as version mismatch "
+                "(skipping Vertex AI)"
+            )
+            return version_mismatch_result
+
+        # Step 1f: Check cross-platform failure correlation
         if recent_failures is not None:
             cross_platform_result = detect_cross_platform_failure(
                 error_message, recent_failures
@@ -796,7 +889,7 @@ class HybridFailureAnalyzer:
                 )
                 return cross_platform_result
 
-        # Step 1f: Check if test was recently modified in the test repo
+        # Step 1g: Check if test was recently modified in the test repo
         # (recent commits suggest automation_bug, not product_bug)
         test_repo_changes = _check_test_repo_recent_changes(test_name)
 
@@ -1011,6 +1104,12 @@ Use this domain context to distinguish preconditions from product assertions:
   indicate a systemic test or product issue, not a platform-specific
   bug. Classify as **automation_bug** if the test setup/install logic
   is flawed, or **product_bug** if the CSI driver itself fails.
+- **Kubelet version mismatch tests** (e.g. OCP-33612, "failed to check
+  Windows vX.Y.Z and Linux vA.B.C kubelet version should be the same")
+  fail on FBC/development branches because Windows and Linux kubelet
+  versions diverge during development. This is expected version skew,
+  **not a product bug**. Classify as **automation_bug**. The test
+  assertion is only valid on release branches where versions are pinned.
 - **When pass rate is low (<50%), the failure is persistent, not
   transient.** Do NOT suggest "retry" or "monitor." Instead identify
   the specific component bug and recommend filing or updating a Jira
@@ -1065,6 +1164,8 @@ Do NOT classify as product_bug solely because:
 - CSI driver daemonset not ready on Windows nodes across multiple
   platforms with low pass rate → **automation_bug** or **product_bug**,
   persistent systemic issue needing a Jira ticket
+- Kubelet version mismatch on dev/FBC branch ("version should be the
+  same") → **automation_bug**. Expected version skew, not product_bug.
 - Any failure with pass rate <50%: this is persistent, NOT transient.
   Classify as automation_bug or product_bug, never transient.
 

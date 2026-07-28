@@ -325,6 +325,14 @@ web:
   port: 8080
   debug: false
 
+# AI analyzer pre-classifier patterns (override built-in defaults)
+ai:
+  # Version mismatch assertion patterns.
+  # Errors matching these patterns are classified as automation_bug
+  # (expected version skew on dev/FBC branches, not a product bug).
+  version_mismatch_patterns:
+    - "failed to check .* version should be the same"
+
 # Collection schedule (for automated runs)
 schedule:
   # Run data collection automatically
