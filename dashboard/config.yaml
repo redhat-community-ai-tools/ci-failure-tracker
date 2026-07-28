@@ -209,10 +209,10 @@ collector:
 
     # Public gcsweb instance for postsubmit jobs from public repos.
     # FBC postsubmit jobs (openshift/windows-machine-config-operator-fbc)
-    # are in the public origin-ci-test bucket, not qe-private-deck.
+    # are in the public test-platform-results bucket, not qe-private-deck.
     postsubmit_gcsweb:
       url: "https://gcsweb-ci.apps.ci.l2s4.p1.openshiftapps.com"
-      bucket: "origin-ci-test"
+      bucket: "test-platform-results"
       deck_url: "https://prow.ci.openshift.org"
 
     # How many recent builds to fetch per job (reduced for initial testing)
