@@ -104,3 +104,16 @@ Most agent work targets the dashboard.
     the full exception server-side via `logger.error()` or `logger.exception()`.
     This prevents CodeQL CWE-209 "Information exposure through an exception"
     findings and avoids review rework.
+
+18. **AI classification claims.** When an issue claims the AI analyzer
+    incorrectly classifies a failure type (e.g., product_bug vs
+    automation_bug), the triage agent must verify the claim before
+    labeling ready-to-code. Verification means: (a) examine the actual
+    test code or failure message to understand what the test validates,
+    (b) check the analyzer's existing classification logic in
+    `dashboard/src/ai/analyzer.py` to understand why it classified the
+    way it did, and (c) note any referenced Jira tickets or sibling
+    issues that provide context on the real root cause. If verification
+    is inconclusive, add a `needs-info` label instead of `ready-to-code`
+    and explain the uncertainty in the triage summary. A pre-classifier
+    that suppresses correct classifications is worse than no change.
