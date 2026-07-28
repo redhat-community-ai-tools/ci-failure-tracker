@@ -144,3 +144,73 @@ class TestCreateIssueErrorPropagation:
                 test_description="desc",
                 version="4.22",
             )
+
+
+class TestSearchExistingIssueDedup:
+    """Tests that search_existing_issue finds duplicates when the test ID
+    appears in the summary, description, or neither."""
+
+    @patch('src.integrations.jira_integration.requests.post')
+    def test_finds_issue_by_summary(self, mock_post, jira):
+        """Regression: test ID in summary should still match."""
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                'issues': [{
+                    'key': 'WINC-2010',
+                    'fields': {
+                        'summary': 'OCP-33612: Test failure on aws 4.22',
+                    },
+                }],
+            },
+        )
+
+        result = jira.search_existing_issue("OCP-33612", "4.22")
+        assert result is not None
+        assert result['key'] == 'WINC-2010'
+
+    @patch('src.integrations.jira_integration.requests.post')
+    def test_finds_issue_by_description(self, mock_post, jira):
+        """Bug fix: test ID only in description should also match."""
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                'issues': [{
+                    'key': 'WINC-2009',
+                    'fields': {
+                        'summary': 'Failed to check kubelet version',
+                    },
+                }],
+            },
+        )
+
+        result = jira.search_existing_issue("OCP-33612", "4.22")
+        assert result is not None
+        assert result['key'] == 'WINC-2009'
+
+    @patch('src.integrations.jira_integration.requests.post')
+    def test_returns_none_when_no_match(self, mock_post, jira):
+        """No match in summary or description should return None."""
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {'issues': []},
+        )
+
+        result = jira.search_existing_issue("OCP-99999", "4.22")
+        assert result is None
+
+    @patch('src.integrations.jira_integration.requests.post')
+    def test_jql_searches_summary_and_description(self, mock_post, jira):
+        """JQL must contain both summary~ and description~ with OR."""
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {'issues': []},
+        )
+
+        jira.search_existing_issue("OCP-33612", "4.22")
+
+        call_kwargs = mock_post.call_args
+        sent_jql = call_kwargs.kwargs.get('json', {}).get('jql', '')
+        assert 'summary ~ "OCP-33612"' in sent_jql
+        assert 'description ~ "OCP-33612"' in sent_jql
+        assert ' OR ' in sent_jql
