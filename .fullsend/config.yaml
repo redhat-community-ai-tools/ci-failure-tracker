@@ -4,6 +4,7 @@
 # This file configures fullsend for per-repo installation mode.
 # See ADR 0033 for details.
 version: "1"
+target_branch: master
 roles:
     - triage
     - coder
