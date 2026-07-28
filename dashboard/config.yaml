@@ -204,8 +204,16 @@ collector:
 
     # Default OCP version for FBC postsubmit jobs that have no v10-XX
     # variant in the job name (e.g., fbc-main-aws-winc).  These jobs
-    # currently target OCP 4.22 regardless of branch_version_map.
-    fbc_default_version: "4.22"
+    # target OCP 5.0 (ci-operator config uses version: "5.0").
+    fbc_default_version: "5.0"
+
+    # Public gcsweb instance for postsubmit jobs from public repos.
+    # FBC postsubmit jobs (openshift/windows-machine-config-operator-fbc)
+    # are in the public origin-ci-test bucket, not qe-private-deck.
+    postsubmit_gcsweb:
+      url: "https://gcsweb-ci.apps.ci.l2s4.p1.openshiftapps.com"
+      bucket: "origin-ci-test"
+      deck_url: "https://prow.ci.openshift.org"
 
     # How many recent builds to fetch per job (reduced for initial testing)
     max_builds_per_job: 20

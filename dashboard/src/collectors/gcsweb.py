@@ -54,6 +54,12 @@ class GCSWebCollector(BaseCollector):
         self.GCSWEB_BASE_URL = config.get('url', 'https://gcsweb-qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com')
         self.BUCKET = config.get('bucket', 'qe-private-deck')
 
+        # Optional public gcsweb instance for postsubmit jobs from
+        # public repos (e.g. origin-ci-test bucket).
+        self._postsubmit_gcsweb = config.get('postsubmit_gcsweb')
+        # Set of job names resolved from the public bucket.
+        self._public_jobs: set = set()
+
         self.session = requests.Session()
         headers = {'User-Agent': 'CI-Dashboard-Collector/1.0'}
 
@@ -126,6 +132,37 @@ class GCSWebCollector(BaseCollector):
             return 'presubmit'
         return 'periodic'
 
+    def _get_base_url(self, path: str) -> str:
+        """Return the gcsweb base URL for a GCS path.
+
+        Paths containing the public bucket prefix use the public gcsweb
+        instance when configured; all others use the primary instance.
+        """
+        if self._postsubmit_gcsweb:
+            pub_bucket = self._postsubmit_gcsweb['bucket']
+            if f'/gcs/{pub_bucket}/' in path:
+                return self._postsubmit_gcsweb['url']
+        return self.GCSWEB_BASE_URL
+
+    def _get_bucket_for_job(self, job_name: str) -> str:
+        """Return the GCS bucket for a job name.
+
+        Jobs resolved from the public bucket use that bucket; all
+        others use the primary (private) bucket.
+        """
+        if self._postsubmit_gcsweb and job_name in self._public_jobs:
+            return self._postsubmit_gcsweb['bucket']
+        return self.BUCKET
+
+    def _get_deck_url_for_bucket(self, bucket: str) -> str:
+        """Return the Deck base URL for a given GCS bucket."""
+        if (self._postsubmit_gcsweb
+                and bucket == self._postsubmit_gcsweb.get('bucket')):
+            return self._postsubmit_gcsweb.get(
+                'deck_url', 'https://prow.ci.openshift.org')
+        return ('https://qe-private-deck-ci.apps.ci.l2s4.p1'
+                '.openshiftapps.com')
+
     def _extract_metadata(self, job_name: str) -> Dict[str, str]:
         """Extract version and platform from job name"""
         metadata = {'version': 'unknown', 'platform': 'unknown'}
@@ -181,7 +218,7 @@ class GCSWebCollector(BaseCollector):
 
         Returns: List of (link_path, link_text) tuples
         """
-        url = f"{self.GCSWEB_BASE_URL}{path}"
+        url = f"{self._get_base_url(path)}{path}"
 
         try:
             response = self.session.get(url, timeout=120)
@@ -210,7 +247,8 @@ class GCSWebCollector(BaseCollector):
 
         Returns list of run info: [{'job_name': ..., 'build_id': ..., 'path': ...}, ...]
         """
-        job_path = f"/gcs/{self.BUCKET}/logs/{job_name}/"
+        bucket = self._get_bucket_for_job(job_name)
+        job_path = f"/gcs/{bucket}/logs/{job_name}/"
         links = self._list_directory(job_path)
 
         runs = []
@@ -256,7 +294,7 @@ class GCSWebCollector(BaseCollector):
         returns 200 OK with its directory-browser UI instead of 404
         when a file does not exist).
         """
-        url = f"{self.GCSWEB_BASE_URL}{path}"
+        url = f"{self._get_base_url(path)}{path}"
 
         try:
             response = self.session.get(url, timeout=30)
@@ -296,7 +334,7 @@ class GCSWebCollector(BaseCollector):
         after_artifacts = xml_path[artifacts_idx + len('/artifacts/'):]
         step_name = after_artifacts.split('/')[0]
         step_dir = xml_path[:artifacts_idx] + '/artifacts/' + step_name
-        return f"{self.GCSWEB_BASE_URL}{step_dir}/build-log.txt"
+        return f"{self._get_base_url(xml_path)}{step_dir}/build-log.txt"
 
     def _find_xml_recursive(self, path: str, results: list, depth: int, max_depth: int):
         """Recursively search for XML test result files in artifacts.
@@ -326,9 +364,11 @@ class GCSWebCollector(BaseCollector):
 
         # Fallback job_url for callers that don't provide one
         if not job_url:
+            bucket = self._get_bucket_for_job(job_name)
+            deck_url = self._get_deck_url_for_bucket(bucket)
             job_url = (
-                f"https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com"
-                f"/view/gs/{self.BUCKET}/logs/{job_name}/{build_id}"
+                f"{deck_url}"
+                f"/view/gs/{bucket}/logs/{job_name}/{build_id}"
             )
 
         # Find all testcase elements directly to avoid visiting the same
@@ -480,6 +520,12 @@ class GCSWebCollector(BaseCollector):
         """
         Resolve wildcard patterns to actual job names by listing the logs directory.
         Exact names (no wildcards) are passed through unchanged.
+
+        When a public gcsweb instance is configured via
+        ``postsubmit_gcsweb``, wildcard patterns are also resolved
+        against its logs directory.  Jobs found in the public bucket
+        are tracked in ``self._public_jobs`` so that subsequent
+        methods use the correct base URL and bucket.
         """
         exact = []
         wildcards = []
@@ -504,7 +550,32 @@ class GCSWebCollector(BaseCollector):
                     matched.add(job_dir)
                     break
 
-        logger.info(f"[gcsweb] Wildcard patterns matched {len(matched)} job(s)")
+        logger.info(f"[gcsweb] Wildcard patterns matched {len(matched)} job(s) "
+                     f"in primary bucket")
+
+        # Also resolve against the public bucket when configured.
+        if self._postsubmit_gcsweb:
+            pub_bucket = self._postsubmit_gcsweb['bucket']
+            pub_logs_path = f"/gcs/{pub_bucket}/logs/"
+            pub_jobs = self._list_directory(pub_logs_path)
+
+            pub_matched = set()
+            for link_path, link_text in pub_jobs:
+                job_dir = link_text.rstrip('/')
+                for pattern in wildcards:
+                    if fnmatch.fnmatch(job_dir, pattern):
+                        pub_matched.add(job_dir)
+                        break
+
+            if pub_matched:
+                logger.info(
+                    f"[gcsweb] Wildcard patterns matched "
+                    f"{len(pub_matched)} job(s) in public bucket")
+                self._public_jobs.update(pub_matched)
+                matched.update(pub_matched)
+
+        logger.info(f"[gcsweb] Wildcard patterns matched {len(matched)} "
+                     f"job(s) total")
         return exact + sorted(matched)
 
     def _list_recent_prs(self, repo: str, max_prs: int = 30) -> List[str]:
@@ -776,16 +847,20 @@ class GCSWebCollector(BaseCollector):
 
         Works for both ``logs/`` and ``pr-logs/`` paths by stripping the
         ``/gcs/{bucket}/`` prefix and appending to the Deck base URL.
+        Automatically selects the correct Deck instance for public vs
+        private buckets.
         """
-        prefix = f"/gcs/{self.BUCKET}/"
-        if run_path.startswith(prefix):
-            relative = run_path[len(prefix):]
+        # Extract bucket from path: /gcs/{bucket}/...
+        bucket_match = re.match(r'^/gcs/([^/]+)/', run_path)
+        if bucket_match:
+            bucket = bucket_match.group(1)
+            relative = run_path[len(f'/gcs/{bucket}/'):]
         else:
+            bucket = self.BUCKET
             relative = run_path.lstrip('/')
-        return (
-            f"https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com"
-            f"/view/gs/{self.BUCKET}/{relative}"
-        )
+
+        deck_url = self._get_deck_url_for_bucket(bucket)
+        return f"{deck_url}/view/gs/{bucket}/{relative}"
 
     def _process_run_single_pass(
         self,
