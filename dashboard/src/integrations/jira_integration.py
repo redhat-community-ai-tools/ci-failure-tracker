@@ -277,15 +277,19 @@ class JiraIntegration:
                         issue_key = data.get('key')
                         logger.info(f"Created Jira (after redirect): {issue_key}")
                         return issue_key
-                logger.error(f"Redirect failed: {response.status_code} - {response.text}")
-                return None
+                error_msg = f"Redirect failed: {response.status_code} - {response.text}"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
             else:
-                logger.error(f"Jira creation failed: {response.status_code} - {response.text}")
-                return None
+                error_msg = f"Jira creation failed: {response.status_code} - {response.text}"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
 
+        except RuntimeError:
+            raise
         except Exception as e:
             logger.error(f"Error creating Jira: {e}")
-            return None
+            raise RuntimeError(f"Error creating Jira: {e}") from e
 
     def get_issue_url(self, issue_key: str) -> str:
         """Get URL for a Jira issue"""

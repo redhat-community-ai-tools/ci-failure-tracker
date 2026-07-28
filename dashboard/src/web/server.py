@@ -1083,17 +1083,24 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             })
 
         # Create new issue
-        issue_key = jira.create_issue(
-            test_name=test_name,
-            test_description=test_description,
-            version=version,
-            platforms=platforms,
-            error_message=error_message,
-            job_url=job_url,
-            failure_rate=failure_rate,
-            runs=runs,
-            failures=failures
-        )
+        try:
+            issue_key = jira.create_issue(
+                test_name=test_name,
+                test_description=test_description,
+                version=version,
+                platforms=platforms,
+                error_message=error_message,
+                job_url=job_url,
+                failure_rate=failure_rate,
+                runs=runs,
+                failures=failures
+            )
+        except RuntimeError as e:
+            logger.error("Failed to create Jira issue: %s", e)
+            return jsonify({'error': 'Failed to create Jira issue'}), 500
+        except Exception:
+            logger.exception("Unexpected error creating Jira issue")
+            return jsonify({'error': 'Failed to create Jira issue'}), 500
 
         if issue_key:
             issue_url = jira.get_issue_url(issue_key)
