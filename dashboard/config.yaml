@@ -181,10 +181,17 @@ collector:
       - "periodic-ci-openshift-openshift-tests-private-main-amd64-nightly-nutanix-ipi-ovn-winc-f7"
       - "periodic-ci-openshift-openshift-tests-private-main-amd64-nightly-vsphere-ipi-ovn-winc-f7"
 
-    # Postsubmit FBC jobs (also use logs/ path)
-    # WMCO version format: v10-21 = OCP 4.21, v11-0 = OCP 5.0
-    postsubmit_job_patterns:
-      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-*-winc"
+    # Postsubmit FBC jobs (exact names, no wildcards).
+    # Wildcard patterns time out on the public bucket (test-platform-results
+    # has thousands of jobs, listing logs/ takes >120s).
+    postsubmit_job_names:
+      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-aws-ipi-ovn-winc"
+      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-aws-upi-ovn-winc"
+      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-azure-ipi-ovn-winc"
+      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-gcp-ipi-ovn-winc"
+      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-nutanix-ipi-ovn-winc"
+      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-vsphere-ipi-ovn-winc"
+      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-vsphere-ipi-proxy-ovn-winc"
 
     # PR log sources: scan pr-logs/ for rehearse and PR jobs
     pr_log_sources:
@@ -212,7 +219,7 @@ collector:
     # are in the public origin-ci-test bucket, not qe-private-deck.
     postsubmit_gcsweb:
       url: "https://gcsweb-ci.apps.ci.l2s4.p1.openshiftapps.com"
-      bucket: "origin-ci-test"
+      bucket: "test-platform-results"
       deck_url: "https://prow.ci.openshift.org"
 
     # How many recent builds to fetch per job (reduced for initial testing)

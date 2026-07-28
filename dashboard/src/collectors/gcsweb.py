@@ -55,10 +55,17 @@ class GCSWebCollector(BaseCollector):
         self.BUCKET = config.get('bucket', 'qe-private-deck')
 
         # Optional public gcsweb instance for postsubmit jobs from
-        # public repos (e.g. origin-ci-test bucket).
+        # public repos (e.g. test-platform-results bucket).
         self._postsubmit_gcsweb = config.get('postsubmit_gcsweb')
         # Set of job names resolved from the public bucket.
         self._public_jobs: set = set()
+
+        # Pre-register exact postsubmit job names as public so they
+        # use the correct bucket/URL without wildcard resolution
+        # (listing logs/ on large public buckets times out).
+        for job in config.get('postsubmit_job_names', []):
+            if self._postsubmit_gcsweb:
+                self._public_jobs.add(job)
 
         self.session = requests.Session()
         headers = {'User-Agent': 'CI-Dashboard-Collector/1.0'}
