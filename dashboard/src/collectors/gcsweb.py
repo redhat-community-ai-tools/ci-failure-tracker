@@ -9,6 +9,7 @@ Private instances require an API token via API_KEY environment variable.
 import os
 import re
 import json
+import time
 import fnmatch
 import logging
 import xml.etree.ElementTree as ET
@@ -119,25 +120,47 @@ class GCSWebCollector(BaseCollector):
         return "gcsweb"
 
     def health_check(self) -> bool:
-        """Check if gcsweb is accessible. Sets self.health_error with details on failure."""
+        """Check if gcsweb is accessible. Sets self.health_error with details on failure.
+
+        Retries up to 3 times on HTTP 403 to avoid false positives from
+        transient errors (stale connections, rate limiting, server hiccups).
+        Only reports token expiry after all retries are exhausted.
+        """
         self.health_error = None
-        try:
-            url = f"{self.GCSWEB_BASE_URL}/gcs/{self.BUCKET}/"
-            response = self.session.get(url, timeout=30)
-            if response.status_code == 403:
-                self.health_error = (
-                    "GCSWeb returned HTTP 403 - API token expired or missing. "
-                    "Renew at: https://oauth-openshift.apps.ci.l2s4.p1.openshiftapps.com/oauth/token/request "
-                    "then set API_KEY environment variable on the deployment."
-                )
+        max_retries = 3
+        url = f"{self.GCSWEB_BASE_URL}/gcs/{self.BUCKET}/"
+
+        for attempt in range(max_retries):
+            try:
+                response = self.session.get(url, timeout=30)
+                if response.status_code == 403:
+                    if attempt < max_retries - 1:
+                        logger.warning(
+                            "[gcsweb] Health check got HTTP 403 "
+                            "(attempt %d/%d), retrying...",
+                            attempt + 1, max_retries)
+                        time.sleep(2)
+                        continue
+                    self.health_error = (
+                        "GCSWeb returned HTTP 403 - API token expired "
+                        "or missing. "
+                        "Renew at: https://oauth-openshift.apps.ci.l2s4"
+                        ".p1.openshiftapps.com/oauth/token/request "
+                        "then set API_KEY environment variable on the "
+                        "deployment."
+                    )
+                    return False
+                if response.status_code != 200:
+                    self.health_error = (
+                        f"GCSWeb returned HTTP {response.status_code}"
+                        f" - check URL: {self.GCSWEB_BASE_URL}")
+                    return False
+                return True
+            except Exception as e:
+                self.health_error = f"Cannot reach GCSWeb: {e}"
                 return False
-            if response.status_code != 200:
-                self.health_error = f"GCSWeb returned HTTP {response.status_code} - check URL: {self.GCSWEB_BASE_URL}"
-                return False
-            return True
-        except Exception as e:
-            self.health_error = f"Cannot reach GCSWeb: {e}"
-            return False
+
+        return False
 
     def _map_status(self, status: str) -> TestStatus:
         """Map Prow status to normalized TestStatus"""

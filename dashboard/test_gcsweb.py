@@ -1089,3 +1089,117 @@ class TestPublicGCSWebSource:
 
         assert 'periodic-ci-winc-aws' not in \
             collector_with_public_gcsweb._public_jobs
+
+
+class TestHealthCheckRetry:
+    """Tests for health_check retry logic on transient HTTP 403.
+
+    Validates that a single 403 does not immediately report token
+    expiry (issue #161 false positive), and that persistent 403s
+    still report the correct error after all retries are exhausted.
+    """
+
+    def test_health_check_succeeds_on_first_try(self, collector):
+        """Health check passes immediately when the first request
+        returns 200."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        with patch.object(collector.session, 'get',
+                          return_value=mock_response):
+            result = collector.health_check()
+
+        assert result is True
+        assert collector.health_error is None
+
+    def test_health_check_retries_on_transient_403(self, collector):
+        """Health check succeeds when the first request returns 403
+        but a retry returns 200."""
+        resp_403 = MagicMock()
+        resp_403.status_code = 403
+        resp_200 = MagicMock()
+        resp_200.status_code = 200
+
+        with patch.object(collector.session, 'get',
+                          side_effect=[resp_403, resp_200]):
+            with patch('src.collectors.gcsweb.time.sleep'):
+                result = collector.health_check()
+
+        assert result is True
+        assert collector.health_error is None
+
+    def test_health_check_fails_after_all_retries_exhausted(
+            self, collector):
+        """Health check fails with token-expiry message only after
+        all 3 retries return 403."""
+        resp_403 = MagicMock()
+        resp_403.status_code = 403
+
+        with patch.object(collector.session, 'get',
+                          return_value=resp_403):
+            with patch('src.collectors.gcsweb.time.sleep'):
+                result = collector.health_check()
+
+        assert result is False
+        assert '403' in collector.health_error
+        assert 'token' in collector.health_error.lower()
+
+    def test_health_check_succeeds_on_last_retry(self, collector):
+        """Health check succeeds when the last retry (3rd attempt)
+        returns 200."""
+        resp_403 = MagicMock()
+        resp_403.status_code = 403
+        resp_200 = MagicMock()
+        resp_200.status_code = 200
+
+        with patch.object(collector.session, 'get',
+                          side_effect=[resp_403, resp_403, resp_200]):
+            with patch('src.collectors.gcsweb.time.sleep'):
+                result = collector.health_check()
+
+        assert result is True
+        assert collector.health_error is None
+
+    def test_health_check_no_retry_on_non_403_error(self, collector):
+        """Non-403 HTTP errors should fail immediately without
+        retrying."""
+        resp_500 = MagicMock()
+        resp_500.status_code = 500
+
+        with patch.object(collector.session, 'get',
+                          return_value=resp_500) as mock_get:
+            result = collector.health_check()
+
+        assert result is False
+        assert '500' in collector.health_error
+        # Should only be called once -- no retry for 500
+        mock_get.assert_called_once()
+
+    def test_health_check_no_retry_on_connection_error(self, collector):
+        """Connection errors should fail immediately without
+        retrying."""
+        with patch.object(collector.session, 'get',
+                          side_effect=Exception('Connection refused')) \
+                as mock_get:
+            result = collector.health_check()
+
+        assert result is False
+        assert 'Connection refused' in collector.health_error
+        mock_get.assert_called_once()
+
+    def test_health_check_logs_retry_attempts(self, collector, caplog):
+        """Retry attempts are logged as warnings."""
+        resp_403 = MagicMock()
+        resp_403.status_code = 403
+
+        with patch.object(collector.session, 'get',
+                          return_value=resp_403):
+            with patch('src.collectors.gcsweb.time.sleep'):
+                with caplog.at_level(logging.WARNING,
+                                     logger='src.collectors.gcsweb'):
+                    collector.health_check()
+
+        retry_msgs = [m for m in caplog.messages
+                      if 'retrying' in m.lower()]
+        # 2 retry warnings (attempts 1 and 2; attempt 3 is the
+        # final failure, no retry log)
+        assert len(retry_msgs) == 2
