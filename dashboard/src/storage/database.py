@@ -904,11 +904,12 @@ class DashboardDatabase:
         runs = [dict(row) for row in cursor.fetchall()]
 
         # Batch lookup of failed tests to avoid N+1 queries
+        # This is needed both for excluding incomplete runs and for checking excluded test IDs
         failed_run_keys = [(run['job_name'], run['build_id'])
                           for run in runs if run['status'] != 'passed']
 
         failed_tests_by_run = {}
-        if failed_run_keys and excluded_test_ids:
+        if failed_run_keys:
             # Build query with placeholders for all (job_name, build_id) pairs
             placeholders = ','.join(['(?,?)'] * len(failed_run_keys))
             batch_params = [item for pair in failed_run_keys for item in pair]
@@ -928,22 +929,27 @@ class DashboardDatabase:
                 failed_tests_by_run[key].append(row['test_name'])
 
         # Post-process to exclude runs that failed only due to excluded tests
+        # Also skip failed runs with no test results (incomplete data)
         processed_runs = []
         for run in runs:
             status = run['status']
-            if status != 'passed' and excluded_test_ids:
-                # Check if this run failed only due to excluded tests
+            if status != 'passed':
                 run_key = (run['job_name'], run['build_id'])
                 failed_tests = failed_tests_by_run.get(run_key, [])
 
-                # If no failed tests recorded, treat as real failure
-                # Use prefix matching: test names can have suffixes (e.g., OCP-65980:author:...)
-                if failed_tests and all(
-                    any(test.startswith(exc_id) for exc_id in excluded_test_ids)
-                    for test in failed_tests
-                ):
-                    # Treat as passed for releasability purposes
-                    status = 'passed'
+                # Skip failed runs with no test results (incomplete/corrupted data)
+                if not failed_tests:
+                    continue
+
+                # Check if this run failed only due to excluded tests
+                if excluded_test_ids:
+                    # Use prefix matching: test names can have suffixes (e.g., OCP-65980:author:...)
+                    if all(
+                        any(test.startswith(exc_id) for exc_id in excluded_test_ids)
+                        for test in failed_tests
+                    ):
+                        # Treat as passed for releasability purposes
+                        status = 'passed'
 
             processed_runs.append({**run, 'processed_status': status})
 
