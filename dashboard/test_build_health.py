@@ -717,6 +717,256 @@ class TestSemanticVersionSorting:
 # Error handling tests
 # ---------------------------------------------------------------------------
 
+class TestBuildHealthExcludedJobKeywords:
+    """Tests for excluding disconnected/proxy jobs from build health."""
+
+    @pytest.fixture
+    def db(self, tmp_path):
+        """Create a temporary database."""
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+        yield database
+        database.close()
+
+    def test_excludes_disconnected_and_proxy_jobs(self, db):
+        """Disconnected and proxy jobs are excluded from build health."""
+        from datetime import datetime
+
+        runs = [
+            JobRun(
+                job_name='periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-vsphere-ipi-ovn-zstream-f14-winc',
+                build_id='1',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='vsphere',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+            JobRun(
+                job_name='periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-vsphere-ipi-disconnected-winc',
+                build_id='2',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='vsphere',
+                total_tests=10, passed_tests=5, failed_tests=5,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+            JobRun(
+                job_name='periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-vsphere-ipi-proxy-winc',
+                build_id='3',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='vsphere',
+                total_tests=10, passed_tests=3, failed_tests=7,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+        ]
+        db.insert_job_runs(runs)
+
+        results = db.get_build_health(
+            version='4.21', days=7,
+            excluded_job_keywords=['disconnected', 'proxy'],
+        )
+        vsphere = [r for r in results if r['platform'] == 'vsphere']
+        assert len(vsphere) == 1
+        assert vsphere[0]['total_runs'] == 1
+        assert vsphere[0]['passed_runs'] == 1
+        assert vsphere[0]['failed_runs'] == 0
+
+    def test_no_exclusion_when_keywords_empty(self, db):
+        """All jobs are included when excluded_job_keywords is empty."""
+        from datetime import datetime
+
+        runs = [
+            JobRun(
+                job_name='periodic-ci-vsphere-ipi-disconnected-winc',
+                build_id='10',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='vsphere',
+                total_tests=10, passed_tests=5, failed_tests=5,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+        ]
+        db.insert_job_runs(runs)
+
+        results = db.get_build_health(
+            version='4.21', days=7, excluded_job_keywords=[],
+        )
+        assert len(results) == 1
+        assert results[0]['total_runs'] == 1
+
+    def test_no_exclusion_when_keywords_none(self, db):
+        """All jobs are included when excluded_job_keywords is None."""
+        from datetime import datetime
+
+        runs = [
+            JobRun(
+                job_name='periodic-ci-vsphere-ipi-proxy-winc',
+                build_id='11',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='vsphere',
+                total_tests=10, passed_tests=5, failed_tests=5,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+        ]
+        db.insert_job_runs(runs)
+
+        results = db.get_build_health(version='4.21', days=7)
+        assert len(results) == 1
+        assert results[0]['total_runs'] == 1
+
+    def test_exclusion_is_case_insensitive(self, db):
+        """Keywords match case-insensitively in job names."""
+        from datetime import datetime
+
+        runs = [
+            JobRun(
+                job_name='periodic-ci-VSPHERE-IPI-DISCONNECTED-winc',
+                build_id='20',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='vsphere',
+                total_tests=10, passed_tests=5, failed_tests=5,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+        ]
+        db.insert_job_runs(runs)
+
+        results = db.get_build_health(
+            version='4.21', days=7,
+            excluded_job_keywords=['disconnected'],
+        )
+        assert len(results) == 0
+
+    def test_normal_jobs_not_excluded(self, db):
+        """Normal jobs that don't match any keyword are kept."""
+        from datetime import datetime
+
+        runs = [
+            JobRun(
+                job_name='periodic-ci-vsphere-ipi-ovn-winc-f14',
+                build_id='30',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='vsphere',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+            JobRun(
+                job_name='periodic-ci-aws-ipi-ovn-winc-f7',
+                build_id='31',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+        ]
+        db.insert_job_runs(runs)
+
+        results = db.get_build_health(
+            version='4.21', days=7,
+            excluded_job_keywords=['disconnected', 'proxy'],
+        )
+        assert len(results) == 2
+        platforms = {r['platform'] for r in results}
+        assert platforms == {'vsphere', 'aws'}
+
+
+class TestBuildHealthExcludedJobKeywordsAPI:
+    """Tests for excluded_job_keywords via the /api/build-health endpoint."""
+
+    @pytest.fixture
+    def client_with_excluded_jobs(self, tmp_path):
+        """Create client with normal + disconnected + proxy job runs."""
+        from datetime import datetime
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        runs = [
+            JobRun(
+                job_name='periodic-ci-vsphere-ipi-ovn-winc-f14',
+                build_id='1',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='vsphere',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+            JobRun(
+                job_name='periodic-ci-vsphere-ipi-disconnected-winc',
+                build_id='2',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='vsphere',
+                total_tests=10, passed_tests=5, failed_tests=5,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+            JobRun(
+                job_name='periodic-ci-vsphere-ipi-proxy-winc',
+                build_id='3',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='vsphere',
+                total_tests=10, passed_tests=3, failed_tests=7,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        config_path = str(tmp_path / 'config.yaml')
+        with open(config_path, 'w') as f:
+            f.write(
+                'tracking:\n'
+                '  versions: ["4.21"]\n'
+                '  platforms: ["vsphere"]\n'
+                '  blocklist: []\n'
+                'build_health:\n'
+                '  excluded_job_keywords:\n'
+                '    - "disconnected"\n'
+                '    - "proxy"\n'
+            )
+
+        app = create_app(db_path, config_file=config_path)
+        app.config['TESTING'] = True
+        with app.test_client() as client:
+            yield client
+
+        database.close()
+
+    def test_api_excludes_disconnected_proxy(self, client_with_excluded_jobs):
+        """API response excludes disconnected/proxy jobs from counts."""
+        resp = client_with_excluded_jobs.get(
+            '/api/build-health?version=4.21&days=7'
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        version_data = data['operator_versions'][0]
+        vsphere = version_data['platforms']['vsphere']
+        assert vsphere['total_runs'] == 1
+        assert vsphere['passed_runs'] == 1
+        assert vsphere['failed_runs'] == 0
+
+    def test_api_releasable_after_exclusion(self, client_with_excluded_jobs):
+        """Build is releasable when only excluded jobs have failures."""
+        resp = client_with_excluded_jobs.get(
+            '/api/build-health?version=4.21&days=7'
+        )
+        data = resp.get_json()
+        assert data['operator_versions'][0]['releasable'] is True
+
+
+class TestExcludedKeywordsLoadedFromConfig:
+    """Config-driven test: assert excluded_job_keywords from config.yaml."""
+
+    def test_excluded_keywords_in_config(self):
+        """Config file contains expected excluded_job_keywords."""
+        import yaml
+        import os
+
+        config_path = os.path.join(
+            os.path.dirname(__file__), 'config.yaml',
+        )
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+
+        keywords = config['build_health']['excluded_job_keywords']
+        assert 'disconnected' in keywords
+        assert 'proxy' in keywords
+
+
 class TestBuildHealthErrorHandling:
     """Tests for /api/build-health error handling."""
 

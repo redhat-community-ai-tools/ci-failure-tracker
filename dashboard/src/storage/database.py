@@ -845,16 +845,24 @@ class DashboardDatabase:
                 })
         return results
 
-    def get_build_health(self, version=None, days=30):
+    def get_build_health(self, version=None, days=30,
+                         excluded_job_keywords=None):
         """Get build health summary grouped by operator (WMCO) version.
 
         Returns per-platform pass/fail breakdown for each operator version,
         including the OCP version each run belongs to.  Only job runs that
         have a non-null operator_version are included.
 
+        Jobs whose names contain any of the *excluded_job_keywords* are
+        filtered out so that infrastructure-specific runs (disconnected,
+        proxy) do not affect releasability.
+
         Args:
             version: Optional OCP version filter (e.g. "4.22")
             days: Number of days to look back
+            excluded_job_keywords: Optional list of substrings. Job names
+                containing any of these keywords (case-insensitive) are
+                excluded from the results.
 
         Returns:
             List of dicts with keys: operator_version, version (OCP),
@@ -877,6 +885,11 @@ class DashboardDatabase:
             AND timestamp >= datetime('now', ? || ' days')
         """
         params = [f'-{days}']
+
+        if excluded_job_keywords:
+            for keyword in excluded_job_keywords:
+                query += " AND LOWER(job_name) NOT LIKE ?"
+                params.append(f'%{keyword.lower()}%')
 
         if version:
             query += " AND version = ?"

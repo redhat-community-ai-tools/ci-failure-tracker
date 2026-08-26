@@ -260,6 +260,17 @@ tracking:
   blocklist:
     - "OCP-60944"  # Example: Removed from test suite
 
+# Build Health configuration
+build_health:
+  # Job name keywords to exclude from releasability calculation.
+  # Jobs matching any of these keywords (case-insensitive substring match)
+  # are excluded from Build Health pass/fail counts. They test specific
+  # infrastructure scenarios (disconnected registries, proxies) whose
+  # failures do not indicate the WMCO build itself is broken.
+  excluded_job_keywords:
+    - "disconnected"
+    - "proxy"
+
 # Database configuration
 database:
   # Path to SQLite database file
