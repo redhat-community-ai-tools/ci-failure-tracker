@@ -131,7 +131,7 @@ collector:
     # Resolves matching job names at startup without listing the
     # entire logs/ directory (which times out on large public buckets).
     postsubmit_job_prefixes:
-      - "branch-ci-openshift-windows-machine-config-operator-fbc-main-"
+      - "branch-ci-openshift-windows-machine-config-operator-fbc-"
 
     # PR log sources: scan pr-logs/ for rehearse and PR jobs
     pr_log_sources:

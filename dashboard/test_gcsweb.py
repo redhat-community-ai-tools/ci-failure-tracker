@@ -1203,3 +1203,96 @@ class TestHealthCheckRetry:
         # 2 retry warnings (attempts 1 and 2; attempt 3 is the
         # final failure, no retry log)
         assert len(retry_msgs) == 2
+
+
+class TestFbcPrefixBreadth:
+    """Tests for FBC postsubmit prefix matching breadth (issue #167).
+
+    The postsubmit_job_prefixes entry uses 'fbc-' (not 'fbc-main-')
+    so that version-specific FBC branches (fbc-4.21-, fbc-5.0-) are
+    auto-discovered alongside fbc-main- jobs.
+
+    Includes negative test cases per AGENTS.md rule 8.
+    """
+
+    FBC_PREFIX = (
+        "branch-ci-openshift-windows-machine-config-operator-fbc-"
+    )
+
+    def test_fbc_main_jobs_match(self):
+        """Existing fbc-main jobs still match the broader prefix."""
+        jobs = [
+            "branch-ci-openshift-windows-machine-config-operator-"
+            "fbc-main-aws-ipi-ovn-winc",
+            "branch-ci-openshift-windows-machine-config-operator-"
+            "fbc-main-azure-ipi-ovn-winc",
+            "branch-ci-openshift-windows-machine-config-operator-"
+            "fbc-main-gcp-ipi-ovn-winc",
+            "branch-ci-openshift-windows-machine-config-operator-"
+            "fbc-main-vsphere-ipi-ovn-winc",
+            "branch-ci-openshift-windows-machine-config-operator-"
+            "fbc-main-nutanix-ipi-ovn-winc",
+            "branch-ci-openshift-windows-machine-config-operator-"
+            "fbc-main-vsphere-ipi-proxy-ovn-winc",
+        ]
+        for job in jobs:
+            assert job.startswith(self.FBC_PREFIX), (
+                f"fbc-main job should match broader prefix: {job}")
+
+    def test_fbc_version_specific_branches_match(self):
+        """Future version-specific FBC branches match the prefix."""
+        jobs = [
+            "branch-ci-openshift-windows-machine-config-operator-"
+            "fbc-4.21-aws-ipi-ovn-winc",
+            "branch-ci-openshift-windows-machine-config-operator-"
+            "fbc-5.0-gcp-ipi-ovn-winc",
+            "branch-ci-openshift-windows-machine-config-operator-"
+            "fbc-4.22-azure-ipi-ovn-winc",
+        ]
+        for job in jobs:
+            assert job.startswith(self.FBC_PREFIX), (
+                f"version-specific FBC branch should match: {job}")
+
+    def test_non_fbc_postsubmit_does_not_match(self):
+        """Negative: non-FBC postsubmit jobs must not match."""
+        non_fbc_jobs = [
+            "branch-ci-openshift-windows-machine-config-operator-"
+            "master-aws-ipi-ovn-winc",
+            "branch-ci-openshift-windows-machine-config-operator-"
+            "release-4.21-aws-ipi-ovn-winc",
+        ]
+        for job in non_fbc_jobs:
+            assert not job.startswith(self.FBC_PREFIX), (
+                f"non-FBC job should NOT match: {job}")
+
+    def test_non_wmco_fbc_does_not_match(self):
+        """Negative: FBC jobs from other operators must not match."""
+        other_fbc = (
+            "branch-ci-openshift-other-operator-fbc-main-aws-winc"
+        )
+        assert not other_fbc.startswith(self.FBC_PREFIX), (
+            f"non-WMCO FBC job should NOT match: {other_fbc}")
+
+    def test_version_specific_fbc_metadata_extraction(
+            self, collector_with_wmco_map):
+        """FBC postsubmit from a version branch with v10-21 variant
+        still resolves to OCP 4.21."""
+        meta = collector_with_wmco_map._extract_metadata(
+            "branch-ci-openshift-windows-machine-config-operator-"
+            "fbc-4.21-v10-21-aws-ipi-ovn-winc"
+        )
+        assert meta['version'] == '4.21'
+        assert meta['platform'] == 'aws'
+
+    def test_version_specific_fbc_no_variant_uses_default(
+            self, collector_with_wmco_map):
+        """FBC postsubmit from a version branch without v10-XX
+        variant uses fbc_default_version."""
+        meta = collector_with_wmco_map._extract_metadata(
+            "branch-ci-openshift-windows-machine-config-operator-"
+            "fbc-4.21-aws-ipi-ovn-winc"
+        )
+        # No v\d+-\d+ segment and no release-X.Y, so
+        # fbc_default_version applies.
+        assert meta['version'] == '5.0'
+        assert meta['platform'] == 'aws'
