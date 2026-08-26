@@ -1097,6 +1097,7 @@
 
                 refreshWeeklyReport();
             } else if (tabName === 'build-health') {
+                invalidateFetchCache();
                 refreshBuildHealth();
             }
         }
@@ -1726,6 +1727,9 @@
         async function refreshDashboard() {
             const days = parseInt(document.getElementById('timeRange').value);
             const version = document.getElementById('versionFilter').value;
+
+            // Clear cached responses so filter changes trigger fresh API calls
+            invalidateFetchCache();
 
             // Show loading overlay
             document.getElementById('loadingOverlay').classList.add('active');
