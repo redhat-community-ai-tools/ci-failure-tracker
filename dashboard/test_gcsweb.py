@@ -1296,3 +1296,251 @@ class TestFbcPrefixBreadth:
         # fbc_default_version applies.
         assert meta['version'] == '5.0'
         assert meta['platform'] == 'aws'
+
+
+class TestSessionRouting:
+    """Tests for _get_session routing public vs private paths.
+
+    Validates that public GCS paths use the unauthenticated session
+    (no Authorization header) while private paths use the authenticated
+    session (with Bearer token).  Covers issue #165 scenario 1.
+    """
+
+    def test_get_session_routes_public_to_unauthenticated(
+            self, collector_with_public_gcsweb):
+        """Public bucket paths return _public_session with no Auth header."""
+        public_path = "/gcs/public-bucket/logs/some-job/123/"
+        session = collector_with_public_gcsweb._get_session(public_path)
+        assert session is collector_with_public_gcsweb._public_session
+        assert "Authorization" not in session.headers
+
+    def test_get_session_routes_private_to_authenticated(
+            self, collector_with_public_gcsweb):
+        """Private bucket paths return self.session (with Bearer token)."""
+        private_path = "/gcs/private-bucket/logs/some-periodic-job/123/"
+        session = collector_with_public_gcsweb._get_session(private_path)
+        assert session is collector_with_public_gcsweb.session
+
+    def test_public_session_never_has_auth_header(
+            self, collector_with_public_gcsweb):
+        """Token isolation: the public session must never carry an
+        Authorization header regardless of what the private session has."""
+        # Ensure private session has a token
+        collector_with_public_gcsweb.session.headers['Authorization'] = \
+            'Bearer test-token-123'
+        public_session = collector_with_public_gcsweb._public_session
+        assert "Authorization" not in public_session.headers
+
+
+class TestTokenExpiryWarning:
+    """Tests for _warn_token_expired and 401/403 handling.
+
+    Validates that _warn_token_expired logs exactly once, that the
+    _token_expired_warned flag prevents duplicate warnings, and that
+    _list_directory / _fetch_file return gracefully on private 401/403.
+    Covers issue #165 scenarios 3 and 5.
+    """
+
+    def test_warn_token_expired_logs_once(
+            self, collector_with_public_gcsweb, caplog):
+        """First call to _warn_token_expired logs; second call does not."""
+        c = collector_with_public_gcsweb
+        assert c._token_expired_warned is False
+
+        with caplog.at_level(logging.ERROR, logger='src.collectors.gcsweb'):
+            c._warn_token_expired(403, 'https://gcsweb-private/some-path')
+
+        assert c._token_expired_warned is True
+        first_count = len(caplog.records)
+        assert first_count >= 1
+
+        # Second call must not add any new log records
+        c._warn_token_expired(403, 'https://gcsweb-private/another-path')
+        assert len(caplog.records) == first_count
+
+    def test_warn_token_expired_handles_401(
+            self, collector_with_public_gcsweb, caplog):
+        """_warn_token_expired works for HTTP 401 as well."""
+        c = collector_with_public_gcsweb
+        with caplog.at_level(logging.ERROR, logger='src.collectors.gcsweb'):
+            c._warn_token_expired(401, 'https://gcsweb-private/path')
+
+        assert c._token_expired_warned is True
+        assert any('401' in msg for msg in caplog.messages)
+
+    def test_list_directory_returns_empty_on_private_403(
+            self, collector_with_public_gcsweb, caplog):
+        """_list_directory returns [] on a 403 for a private path and
+        calls _warn_token_expired."""
+        c = collector_with_public_gcsweb
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+
+        private_path = "/gcs/private-bucket/logs/some-job/"
+        with patch.object(c.session, 'get', return_value=mock_response):
+            with caplog.at_level(logging.ERROR,
+                                 logger='src.collectors.gcsweb'):
+                result = c._list_directory(private_path)
+
+        assert result == []
+        assert c._token_expired_warned is True
+        assert any('token' in msg.lower() for msg in caplog.messages)
+
+    def test_list_directory_returns_empty_on_private_401(
+            self, collector_with_public_gcsweb):
+        """_list_directory returns [] on a 401 for a private path."""
+        c = collector_with_public_gcsweb
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+
+        private_path = "/gcs/private-bucket/logs/some-job/"
+        with patch.object(c.session, 'get', return_value=mock_response):
+            result = c._list_directory(private_path)
+
+        assert result == []
+        assert c._token_expired_warned is True
+
+    def test_fetch_file_returns_none_on_private_403(
+            self, collector_with_public_gcsweb, caplog):
+        """_fetch_file returns None on a 403 for a private path and
+        calls _warn_token_expired."""
+        c = collector_with_public_gcsweb
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+
+        private_path = "/gcs/private-bucket/logs/job/123/finished.json"
+        with patch.object(c.session, 'get', return_value=mock_response):
+            with caplog.at_level(logging.ERROR,
+                                 logger='src.collectors.gcsweb'):
+                result = c._fetch_file(private_path)
+
+        assert result is None
+        assert c._token_expired_warned is True
+
+    def test_fetch_file_returns_none_on_private_401(
+            self, collector_with_public_gcsweb):
+        """_fetch_file returns None on a 401 for a private path."""
+        c = collector_with_public_gcsweb
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+
+        private_path = "/gcs/private-bucket/logs/job/123/finished.json"
+        with patch.object(c.session, 'get', return_value=mock_response):
+            result = c._fetch_file(private_path)
+
+        assert result is None
+        assert c._token_expired_warned is True
+
+    def test_public_403_does_not_trigger_token_warning(
+            self, collector_with_public_gcsweb, caplog):
+        """Negative: 403 on a public path must NOT trigger
+        _warn_token_expired. Public paths don't use tokens, so a 403
+        there has a different cause (AGENTS.md rule 8)."""
+        c = collector_with_public_gcsweb
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_response.raise_for_status.side_effect = Exception('403 Forbidden')
+
+        public_path = "/gcs/public-bucket/logs/some-job/"
+        with patch.object(c._public_session, 'get',
+                          return_value=mock_response):
+            with caplog.at_level(logging.WARNING,
+                                 logger='src.collectors.gcsweb'):
+                result = c._list_directory(public_path)
+
+        assert result == []
+        # Must NOT have triggered token expiry warning
+        assert c._token_expired_warned is False
+        assert not any('token' in msg.lower() and 'expired' in msg.lower()
+                       for msg in caplog.messages)
+
+    def test_public_fetch_file_403_does_not_trigger_token_warning(
+            self, collector_with_public_gcsweb):
+        """Negative: 403 on a public path via _fetch_file must NOT
+        trigger _warn_token_expired."""
+        c = collector_with_public_gcsweb
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_response.raise_for_status.side_effect = Exception('403 Forbidden')
+
+        public_path = "/gcs/public-bucket/logs/job/123/finished.json"
+        with patch.object(c._public_session, 'get',
+                          return_value=mock_response):
+            result = c._fetch_file(public_path)
+
+        assert result is None
+        assert c._token_expired_warned is False
+
+
+class TestPublicContinuity:
+    """Tests for public collection continuing when private token expires.
+
+    Validates that after a private 403, public gcsweb paths still
+    succeed via the unauthenticated session.  Covers issue #165
+    scenario 4.
+    """
+
+    def test_public_collection_continues_when_private_token_expired(
+            self, collector_with_public_gcsweb):
+        """After a 403 on a private path, requests to public paths
+        still succeed via _public_session."""
+        c = collector_with_public_gcsweb
+
+        # Simulate a 403 on a private path
+        mock_403 = MagicMock()
+        mock_403.status_code = 403
+
+        private_path = "/gcs/private-bucket/logs/private-job/"
+        with patch.object(c.session, 'get', return_value=mock_403):
+            private_result = c._list_directory(private_path)
+
+        assert private_result == []
+        assert c._token_expired_warned is True
+
+        # Now verify public path still works via _public_session
+        mock_200 = MagicMock()
+        mock_200.status_code = 200
+        mock_200.text = (
+            '<html><body>'
+            '<a href="/gcs/public-bucket/logs/fbc-job/123/">123/</a>'
+            '</body></html>'
+        )
+        mock_200.raise_for_status = MagicMock()
+
+        public_path = "/gcs/public-bucket/logs/fbc-job/"
+        with patch.object(c._public_session, 'get',
+                          return_value=mock_200):
+            public_result = c._list_directory(public_path)
+
+        # Public listing should have returned parsed links
+        assert len(public_result) == 1
+        assert public_result[0][1] == '123/'
+
+    def test_fetch_file_public_succeeds_after_private_403(
+            self, collector_with_public_gcsweb):
+        """_fetch_file on a public path succeeds even after a private
+        403 has set the token-expired flag."""
+        c = collector_with_public_gcsweb
+
+        # Trigger token expiry on private path
+        mock_403 = MagicMock()
+        mock_403.status_code = 403
+
+        with patch.object(c.session, 'get', return_value=mock_403):
+            c._fetch_file("/gcs/private-bucket/logs/job/1/finished.json")
+
+        assert c._token_expired_warned is True
+
+        # Public fetch still works
+        mock_200 = MagicMock()
+        mock_200.status_code = 200
+        mock_200.headers = {'Content-Type': 'application/json'}
+        mock_200.content = b'{"result": "SUCCESS"}'
+        mock_200.raise_for_status = MagicMock()
+
+        with patch.object(c._public_session, 'get',
+                          return_value=mock_200):
+            result = c._fetch_file(
+                "/gcs/public-bucket/logs/fbc-job/1/finished.json")
+
+        assert result == b'{"result": "SUCCESS"}'
