@@ -578,6 +578,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     config_platforms = []
     source_repo_url = 'https://github.com/openshift/windows-machine-config-operator'
     excluded_job_keywords = []
+    excluded_test_ids = []
     try:
         with open(config_file, 'r') as f:
             yaml_config = yaml.safe_load(f)
@@ -588,9 +589,10 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 'source_repo_url',
                 'https://github.com/openshift/windows-machine-config-operator',
             )
-            excluded_job_keywords = yaml_config.get(
-                'build_health', {},
-            ).get('excluded_job_keywords', [])
+            # Load build_health exclusions
+            build_health_config = yaml_config.get('build_health', {})
+            excluded_job_keywords = build_health_config.get('excluded_job_keywords', [])
+            excluded_test_ids = build_health_config.get('excluded_test_ids', [])
     except Exception as e:
         print(f"Warning: Could not load tracking config: {e}")
 
@@ -940,8 +942,10 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             version = request.args.get('version') or None
 
             rows = db.get_build_health(
-                version=version, days=days,
+                version=version,
+                days=days,
                 excluded_job_keywords=excluded_job_keywords,
+                excluded_test_ids=excluded_test_ids
             )
 
             if not rows:
