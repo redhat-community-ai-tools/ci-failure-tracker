@@ -198,6 +198,59 @@ class TestFetchCacheStructure:
             "refreshDashboard() so the refresh fetches fresh data"
         )
 
+    def test_cache_invalidated_in_refresh_dashboard(self, client):
+        """refreshDashboard must invalidate the fetch cache before
+        making API calls, so that filter changes (version, time range)
+        trigger fresh network requests instead of returning stale
+        cached data."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        script = _extract_script_body(html)
+        body = _extract_function_body(script, 'refreshDashboard')
+
+        invalidate_pos = body.find('invalidateFetchCache()')
+        fetch_pos = body.find('fetchData(')
+
+        assert invalidate_pos != -1, (
+            "refreshDashboard must call invalidateFetchCache()"
+        )
+        assert fetch_pos != -1, (
+            "refreshDashboard must call fetchData()"
+        )
+        assert invalidate_pos < fetch_pos, (
+            "invalidateFetchCache() must precede fetchData() calls "
+            "so filter changes always produce fresh API responses"
+        )
+
+    def test_cache_invalidated_on_build_health_tab_switch(self, client):
+        """Switching to the build-health tab must invalidate the fetch
+        cache before refreshing, so stale data from a previous filter
+        selection is not served."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        script = _extract_script_body(html)
+        body = _extract_function_body(script, 'showTab')
+
+        bh_branch = body.find("'build-health'")
+        assert bh_branch != -1, (
+            "showTab must have a build-health branch"
+        )
+        bh_section = body[bh_branch:]
+        inv_pos = bh_section.find('invalidateFetchCache()')
+        refresh_pos = bh_section.find('refreshBuildHealth()')
+        assert inv_pos != -1, (
+            "showTab build-health branch must call "
+            "invalidateFetchCache()"
+        )
+        assert refresh_pos != -1, (
+            "showTab build-health branch must call "
+            "refreshBuildHealth()"
+        )
+        assert inv_pos < refresh_pos, (
+            "invalidateFetchCache() must precede refreshBuildHealth() "
+            "so the tab switch always shows fresh data"
+        )
+
     def test_cache_write_stores_data_and_timestamp(self, client):
         """The cache entry must include both the response data and a
         timestamp so the TTL check can determine freshness.  Missing
