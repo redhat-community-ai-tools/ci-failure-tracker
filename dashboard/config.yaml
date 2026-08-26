@@ -115,71 +115,17 @@ collector:
 
     # WINC job names from ../release repo (exact names from Prow)
     job_names:
-      # 4.18 WINC jobs
-      - "periodic-ci-openshift-openshift-tests-private-release-4.18-amd64-nightly-aws-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.18-amd64-nightly-azure-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.18-amd64-nightly-gcp-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.18-amd64-nightly-nutanix-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.18-amd64-nightly-vsphere-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.18-amd64-nightly-vsphere-ipi-disconnected-ovn-winc-f28"
-
-      # 4.19 WINC jobs
-      - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-aws-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-azure-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-gcp-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-nutanix-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-vsphere-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-vsphere-ipi-proxy-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-vsphere-ipi-disconnected-ovn-winc-f28"
-
-      # 4.20 WINC jobs (aws/gcp/vsphere renamed to zstream per release#81832)
-      - "periodic-ci-openshift-openshift-tests-private-release-4.20-amd64-nightly-aws-ipi-ovn-winc-zstream-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.20-amd64-nightly-azure-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.20-amd64-nightly-gcp-ipi-ovn-winc-zstream-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.20-amd64-nightly-nutanix-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.20-amd64-nightly-vsphere-ipi-ovn-winc-zstream-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.20-amd64-nightly-vsphere-ipi-disconnected-ovn-winc-f28"
-
-      # 4.21 WINC jobs
-      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-aws-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-azure-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-gcp-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-nutanix-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-vsphere-ipi-ovn-winc-f14"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-vsphere-ipi-disconnected-ovn-winc-f28"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.21-amd64-nightly-4.21-upgrade-from-stable-4.20-aws-ipi-ovn-winc-f14"
-
-      # 4.22 WINC jobs
-      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-aws-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-aws-upi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-azure-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-gcp-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-nutanix-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-vsphere-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-vsphere-ipi-proxy-ovn-winc-f28"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-vsphere-ipi-disconnected-ovn-winc-f28"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nightly-4.22-upgrade-from-stable-4.21-aws-ipi-ovn-winc-f7"
-
-      # 4.23 WINC jobs
-      - "periodic-ci-openshift-openshift-tests-private-release-4.23-amd64-nightly-aws-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.23-amd64-nightly-azure-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.23-amd64-nightly-gcp-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.23-amd64-nightly-nutanix-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-4.23-amd64-nightly-vsphere-ipi-ovn-winc-f7"
-
-      # 5.0 WINC jobs
-      - "periodic-ci-openshift-openshift-tests-private-release-5.0-amd64-nightly-aws-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-5.0-amd64-nightly-azure-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-5.0-amd64-nightly-gcp-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-5.0-amd64-nightly-nutanix-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-release-5.0-amd64-nightly-vsphere-ipi-ovn-winc-f7"
-
-      # main branch WINC jobs (maps to 5.0 via branch_version_map)
-      - "periodic-ci-openshift-openshift-tests-private-main-amd64-nightly-aws-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-main-amd64-nightly-azure-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-main-amd64-nightly-gcp-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-main-amd64-nightly-nutanix-ipi-ovn-winc-f7"
-      - "periodic-ci-openshift-openshift-tests-private-main-amd64-nightly-vsphere-ipi-ovn-winc-f7"
+      # Wildcard patterns per version - catches all platforms, filters,
+      # naming variants (zstream), IPI/UPI, proxy/disconnected, and upgrades.
+      # Replaces 50+ explicit job names with 8 patterns.
+      - "periodic-ci-openshift-openshift-tests-private-release-4.18-*-winc-*"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.19-*-winc-*"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.20-*-winc-*"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.21-*-winc-*"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.22-*-winc-*"
+      - "periodic-ci-openshift-openshift-tests-private-release-4.23-*-winc-*"
+      - "periodic-ci-openshift-openshift-tests-private-release-5.0-*-winc-*"
+      - "periodic-ci-openshift-openshift-tests-private-main-*-winc-*"
 
     # Postsubmit FBC job discovery via GCS JSON API prefix listing.
     # Resolves matching job names at startup without listing the

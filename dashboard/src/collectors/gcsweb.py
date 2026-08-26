@@ -75,6 +75,8 @@ class GCSWebCollector(BaseCollector):
                     self._postsubmit_gcsweb['bucket'], prefix)
                 self._public_jobs.update(discovered)
 
+        self._token_expired_warned = False
+
         self.session = requests.Session()
         headers = {'User-Agent': 'CI-Dashboard-Collector/1.0'}
 
@@ -86,6 +88,11 @@ class GCSWebCollector(BaseCollector):
             logger.warning("[gcsweb] No API token found - private gcsweb instances will return 403")
 
         self.session.headers.update(headers)
+
+        self._public_session = requests.Session()
+        self._public_session.headers.update({
+            'User-Agent': 'CI-Dashboard-Collector/1.0'
+        })
 
     @staticmethod
     def _resolve_prefix(bucket: str, prefix: str) -> List[str]:
@@ -197,17 +204,46 @@ class GCSWebCollector(BaseCollector):
             return 'presubmit'
         return 'periodic'
 
+    def _is_public_path(self, path: str) -> bool:
+        """Return True if *path* routes to the public gcsweb bucket."""
+        if self._postsubmit_gcsweb:
+            pub_bucket = self._postsubmit_gcsweb['bucket']
+            if f'/gcs/{pub_bucket}/' in path:
+                return True
+        return False
+
+    def _get_session(self, path: str) -> requests.Session:
+        """Return the session for a GCS path.
+
+        Public paths use an unauthenticated session so the private
+        API token is never sent to the public gcsweb instance.
+        """
+        if self._is_public_path(path):
+            return self._public_session
+        return self.session
+
     def _get_base_url(self, path: str) -> str:
         """Return the gcsweb base URL for a GCS path.
 
         Paths containing the public bucket prefix use the public gcsweb
         instance when configured; all others use the primary instance.
         """
-        if self._postsubmit_gcsweb:
-            pub_bucket = self._postsubmit_gcsweb['bucket']
-            if f'/gcs/{pub_bucket}/' in path:
-                return self._postsubmit_gcsweb['url']
+        if self._is_public_path(path):
+            return self._postsubmit_gcsweb['url']
         return self.GCSWEB_BASE_URL
+
+    def _warn_token_expired(self, status_code: int, url: str):
+        """Log a single warning when the private API token is rejected."""
+        if self._token_expired_warned:
+            return
+        self._token_expired_warned = True
+        logger.error(
+            f"[gcsweb] Private API token rejected (HTTP {status_code}) "
+            f"for {url}. Renew at: "
+            "https://oauth-openshift.apps.ci.l2s4.p1.openshiftapps.com"
+            "/oauth/token/request -- then set API_KEY on the deployment. "
+            "Public gcsweb collection will continue."
+        )
 
     def _get_bucket_for_job(self, job_name: str) -> str:
         """Return the GCS bucket for a job name.
@@ -284,9 +320,13 @@ class GCSWebCollector(BaseCollector):
         Returns: List of (link_path, link_text) tuples
         """
         url = f"{self._get_base_url(path)}{path}"
+        session = self._get_session(path)
 
         try:
-            response = self.session.get(url, timeout=120)
+            response = session.get(url, timeout=120)
+            if response.status_code in (401, 403) and not self._is_public_path(path):
+                self._warn_token_expired(response.status_code, url)
+                return []
             response.raise_for_status()
 
             # Parse HTML to extract links
@@ -360,9 +400,13 @@ class GCSWebCollector(BaseCollector):
         when a file does not exist).
         """
         url = f"{self._get_base_url(path)}{path}"
+        session = self._get_session(path)
 
         try:
-            response = self.session.get(url, timeout=30)
+            response = session.get(url, timeout=30)
+            if response.status_code in (401, 403) and not self._is_public_path(path):
+                self._warn_token_expired(response.status_code, url)
+                return None
             response.raise_for_status()
             ct = response.headers.get('Content-Type', '')
             if 'text/html' in ct:
