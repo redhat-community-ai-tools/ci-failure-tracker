@@ -31,11 +31,16 @@ from reports.weekly_report import WeeklyReportGenerator
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# TTL (in seconds) after which a collection error is considered stale and
+# suppressed from the status API.  Override via ERROR_TTL_SECONDS env var.
+_ERROR_TTL_SECONDS = int(os.environ.get('ERROR_TTL_SECONDS', '600'))  # 10 min
+
 # Global collection status
 collection_status = {
     'running': False,
     'progress': '',
     'error': None,
+    'error_at': None,
     'completed_at': None,
     'lock': threading.Lock()
 }
@@ -201,6 +206,7 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
                 error_msg = f'Failed to initialize prow_gcs collector: {e}'
                 logger.error(error_msg)
                 collection_status['error'] = error_msg
+                collection_status['error_at'] = datetime.now().isoformat()
                 collection_status['running'] = False
                 return
         elif collector_type == 'gcsweb':
@@ -213,6 +219,7 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
             error_msg = f'Unsupported collector type: {collector_type}'
             logger.error(error_msg)
             collection_status['error'] = error_msg
+            collection_status['error_at'] = datetime.now().isoformat()
             collection_status['running'] = False
             return
 
@@ -223,6 +230,7 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
             error_msg = getattr(collector, 'health_error', None) or 'Failed to connect to data source'
             logger.error(error_msg)
             collection_status['error'] = error_msg
+            collection_status['error_at'] = datetime.now().isoformat()
             collection_status['running'] = False
             return
 
@@ -383,11 +391,13 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
         logger.info(f"Collection complete! Inserted {inserted_jobs} job runs and {inserted_tests} test results")
         collection_status['progress'] = f'Complete! Saved {inserted_jobs} job runs and {inserted_tests} test results'
         collection_status['error'] = None
+        collection_status['error_at'] = None
         collection_status['completed_at'] = datetime.now().isoformat()
 
     except Exception as e:
         logger.error(f"Collection failed: {e}", exc_info=True)
         collection_status['error'] = str(e)
+        collection_status['error_at'] = datetime.now().isoformat()
         collection_status['progress'] = 'Failed'
         collection_status['completed_at'] = None
     finally:
@@ -695,12 +705,31 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
 
     @app.route('/api/collection-status')
     def api_collection_status():
-        """Get current collection status"""
+        """Get current collection status.
+
+        Suppresses stale errors that are older than the TTL so that
+        page loads after a transient failure do not show a scary
+        banner from a long-ago collection run.
+        """
         global collection_status
+        error = collection_status['error']
+        error_at = collection_status.get('error_at')
+
+        # Suppress stale errors: if a collection is not running and
+        # the error is older than the TTL, treat it as cleared.
+        if error and error_at and not collection_status['running']:
+            try:
+                age = (datetime.now()
+                       - datetime.fromisoformat(error_at)).total_seconds()
+                if age > _ERROR_TTL_SECONDS:
+                    error = None
+            except (ValueError, TypeError):
+                pass
+
         return jsonify({
             'running': collection_status['running'],
             'progress': collection_status['progress'],
-            'error': collection_status['error'],
+            'error': error,
             'completed_at': collection_status['completed_at']
         })
 
@@ -720,6 +749,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             collection_status['running'] = True
             collection_status['progress'] = 'Initializing...'
             collection_status['error'] = None
+            collection_status['error_at'] = None
             collection_status['completed_at'] = None
 
             thread = threading.Thread(
