@@ -63,20 +63,28 @@ Most agent work targets the dashboard.
     pattern used by neighboring versions. Flag any deviations in the commit
     message.
 
-11. **Collector interface.** New collectors must implement the full `BaseCollector`
+11. **Config-driven test assertions.** When a code change modifies
+    `config.yaml`, at least one test must load and assert the actual
+    configured value rather than duplicating it as a hardcoded constant.
+    This ensures tests detect config regressions. Example: a test
+    verifying prefix matching should read the prefix from `config.yaml`
+    (e.g., via `yaml.safe_load`) and assert it matches expectations,
+    not define its own copy of the expected prefix.
+
+12. **Collector interface.** New collectors must implement the full `BaseCollector`
    ABC from `dashboard/src/collectors/base.py`.
 
-12. **Security.** No hardcoded credentials. Use environment variables for secrets.
+13. **Security.** No hardcoded credentials. Use environment variables for secrets.
     Use parameterized SQLite queries.
 
-13. **Filter parameter flow.** When adding or modifying collector methods that
+14. **Filter parameter flow.** When adding or modifying collector methods that
     accept filtering parameters (date ranges, version lists, platform lists),
     verify every filter parameter is either (a) used in a conditional check
     within the method body, or (b) forwarded to a callee that applies it. Do
     not add filter parameters to method signatures without implementing or
     forwarding the filter logic.
 
-14. **Template-embedded JavaScript testing.** String-presence assertions
+15. **Template-embedded JavaScript testing.** String-presence assertions
     (e.g., checking that a function name appears in rendered HTML) are not
     sufficient tests for JavaScript logic embedded in Jinja templates.
     Tests must verify structural correctness: that cache-check logic
@@ -85,27 +93,27 @@ Most agent work targets the dashboard.
     require tests, consider extracting it into a separate `.js` file
     that can be tested independently.
 
-15. **Case-insensitive HTML regex.** When writing regex patterns that
+16. **Case-insensitive HTML regex.** When writing regex patterns that
     match HTML tags (e.g., `<script>`, `<div>`), always include
     `re.IGNORECASE` since HTML tag names are case-insensitive per spec.
     This prevents CodeQL "Bad HTML filtering regexp" findings and avoids
     review rework.
 
-16. **Version comparison.** When sorting or comparing version strings
+17. **Version comparison.** When sorting or comparing version strings
     (OCP versions like `4.21`, operator versions like `10.0.0-abc`),
     always use semantic version comparison — split on dots and dashes,
     compare numeric components as integers. Never use lexicographic
     string sorting for versions, since `"9.0.0" > "10.0.0"`
     lexicographically but `10.0.0 > 9.0.0` semantically.
 
-17. **Secure error responses.** Never interpolate exception content (`str(e)`,
+18. **Secure error responses.** Never interpolate exception content (`str(e)`,
     `{e}`, `e.args`) into HTTP/API responses. Return a static, generic error
     message to the client (e.g., `'Failed to create Jira issue'`) and log
     the full exception server-side via `logger.error()` or `logger.exception()`.
     This prevents CodeQL CWE-209 "Information exposure through an exception"
     findings and avoids review rework.
 
-18. **AI classification claims.** When an issue claims the AI analyzer
+19. **AI classification claims.** When an issue claims the AI analyzer
     incorrectly classifies a failure type (e.g., product_bug vs
     automation_bug), the triage agent must verify the claim before
     labeling ready-to-code. Verification means: (a) examine the actual
