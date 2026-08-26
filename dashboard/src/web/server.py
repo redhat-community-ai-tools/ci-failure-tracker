@@ -577,6 +577,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     config_versions = []
     config_platforms = []
     source_repo_url = 'https://github.com/openshift/windows-machine-config-operator'
+    excluded_job_keywords = []
     try:
         with open(config_file, 'r') as f:
             yaml_config = yaml.safe_load(f)
@@ -587,6 +588,9 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 'source_repo_url',
                 'https://github.com/openshift/windows-machine-config-operator',
             )
+            excluded_job_keywords = yaml_config.get(
+                'build_health', {},
+            ).get('excluded_job_keywords', [])
     except Exception as e:
         print(f"Warning: Could not load tracking config: {e}")
 
@@ -935,7 +939,10 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             # versions so the user sees the latest operator build per OCP.
             version = request.args.get('version') or None
 
-            rows = db.get_build_health(version=version, days=days)
+            rows = db.get_build_health(
+                version=version, days=days,
+                excluded_job_keywords=excluded_job_keywords,
+            )
 
             if not rows:
                 return jsonify({
