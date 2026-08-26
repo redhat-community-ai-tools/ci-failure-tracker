@@ -34,7 +34,7 @@ Most agent work targets the dashboard.
 6. **Python conventions.** Follow PEP 8 and match the existing code style. Do
    not add type hints to files that do not already use them.
 
-7. **Testing.** Run `cd dashboard && python -m pytest -v` after changes. If no
+7. **Testing.** Run `cd dashboard && pip install -r requirements.txt -q && python -m pytest -v` after changes. If no
    tests exist for the changed module, create a test file.
 
 8. **False-positive testing.** When writing pattern-matching logic (regex,
