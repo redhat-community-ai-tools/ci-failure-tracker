@@ -846,16 +846,16 @@ class DashboardDatabase:
         return results
 
     def get_build_health(self, version=None, days=30,
-                         excluded_job_keywords=None):
+                         excluded_job_keywords=None, excluded_test_ids=None):
         """Get build health summary grouped by operator (WMCO) version.
 
         Returns per-platform pass/fail breakdown for each operator version,
         including the OCP version each run belongs to.  Only job runs that
         have a non-null operator_version are included.
 
-        Jobs whose names contain any of the *excluded_job_keywords* are
-        filtered out so that infrastructure-specific runs (disconnected,
-        proxy) do not affect releasability.
+        Excludes:
+        - Jobs with excluded keywords in their name (e.g., "proxy", "disconnected")
+        - Runs that failed ONLY due to excluded test IDs (known infrastructure issues)
 
         Args:
             version: Optional OCP version filter (e.g. "4.22")
@@ -863,23 +863,26 @@ class DashboardDatabase:
             excluded_job_keywords: Optional list of substrings. Job names
                 containing any of these keywords (case-insensitive) are
                 excluded from the results.
+            excluded_test_ids: List of test IDs to exclude (runs failing only these tests are treated as passed)
 
         Returns:
             List of dicts with keys: operator_version, version (OCP),
             platform, total_runs, passed_runs, failed_runs
         """
+        excluded_test_ids = excluded_test_ids or []
+
         cursor = self.conn.cursor()
 
+        # First, get all individual runs
         query = """
             SELECT
                 operator_version,
                 version,
                 platform,
-                COUNT(*) as total_runs,
-                SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) as passed_runs,
-                SUM(CASE WHEN status != 'passed' THEN 1 ELSE 0 END) as failed_runs,
-                MIN(timestamp) as first_seen,
-                MAX(timestamp) as last_seen
+                job_name,
+                build_id,
+                status,
+                timestamp
             FROM job_runs
             WHERE operator_version IS NOT NULL
             AND timestamp >= datetime('now', ? || ' days')
@@ -895,10 +898,90 @@ class DashboardDatabase:
             query += " AND version = ?"
             params.append(version)
 
-        query += " GROUP BY operator_version, version, platform ORDER BY operator_version DESC, platform"
+        query += " ORDER BY operator_version DESC, platform"
 
         cursor.execute(query, params)
-        return [dict(row) for row in cursor.fetchall()]
+        runs = [dict(row) for row in cursor.fetchall()]
+
+        # Batch lookup of failed tests to avoid N+1 queries
+        failed_run_keys = [(run['job_name'], run['build_id'])
+                          for run in runs if run['status'] != 'passed']
+
+        failed_tests_by_run = {}
+        if failed_run_keys and excluded_test_ids:
+            # Build query with placeholders for all (job_name, build_id) pairs
+            placeholders = ','.join(['(?,?)'] * len(failed_run_keys))
+            batch_params = [item for pair in failed_run_keys for item in pair]
+
+            cursor.execute(f"""
+                SELECT job_name, build_id, test_name
+                FROM test_results
+                WHERE (job_name, build_id) IN (VALUES {placeholders})
+                AND status = 'failed'
+            """, batch_params)
+
+            # Group results by (job_name, build_id)
+            for row in cursor.fetchall():
+                key = (row['job_name'], row['build_id'])
+                if key not in failed_tests_by_run:
+                    failed_tests_by_run[key] = []
+                failed_tests_by_run[key].append(row['test_name'])
+
+        # Post-process to exclude runs that failed only due to excluded tests
+        processed_runs = []
+        for run in runs:
+            status = run['status']
+            if status != 'passed' and excluded_test_ids:
+                # Check if this run failed only due to excluded tests
+                run_key = (run['job_name'], run['build_id'])
+                failed_tests = failed_tests_by_run.get(run_key, [])
+
+                # If no failed tests recorded, treat as real failure
+                # Use prefix matching: test names can have suffixes (e.g., OCP-65980:author:...)
+                if failed_tests and all(
+                    any(test.startswith(exc_id) for exc_id in excluded_test_ids)
+                    for test in failed_tests
+                ):
+                    # Treat as passed for releasability purposes
+                    status = 'passed'
+
+            processed_runs.append({**run, 'processed_status': status})
+
+        # Now aggregate the processed runs
+        aggregated = {}
+        for run in processed_runs:
+            key = (run['operator_version'], run['version'], run['platform'])
+            if key not in aggregated:
+                aggregated[key] = {
+                    'operator_version': run['operator_version'],
+                    'version': run['version'],
+                    'platform': run['platform'],
+                    'total_runs': 0,
+                    'passed_runs': 0,
+                    'failed_runs': 0,
+                    'first_seen': None,
+                    'last_seen': None,
+                }
+
+            entry = aggregated[key]
+            entry['total_runs'] += 1
+            if run['processed_status'] == 'passed':
+                entry['passed_runs'] += 1
+            else:
+                entry['failed_runs'] += 1
+
+            # Track first_seen and last_seen
+            ts = run['timestamp']
+            if entry['first_seen'] is None or ts < entry['first_seen']:
+                entry['first_seen'] = ts
+            if entry['last_seen'] is None or ts > entry['last_seen']:
+                entry['last_seen'] = ts
+
+        # Convert to list and sort
+        result = list(aggregated.values())
+        result.sort(key=lambda x: (x['operator_version'], x['platform']), reverse=True)
+
+        return result
 
     def get_runs_without_operator_version(self):
         """Return job runs that have no operator_version set.

@@ -271,6 +271,15 @@ build_health:
     - "disconnected"
     - "proxy"
 
+  # Exclude specific test IDs from releasability calculation
+  # Jobs that fail ONLY due to these tests won't block releases
+  # These tests are linked to known infrastructure bugs (e.g., OCPBUGS-111093)
+  # Note: Only include test IDs that are actively failing. Don't add passing
+  # tests (OCP-66670, OCP-68320) or non-existent tests (OCP-74760).
+  excluded_test_ids:
+    - "OCP-65980"   # Proxy test - known issue OCPBUGS-111093
+    - "OCP-71173"   # Proxy test - known issue OCPBUGS-111093
+
 # Database configuration
 database:
   # Path to SQLite database file
