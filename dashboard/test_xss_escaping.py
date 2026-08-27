@@ -48,7 +48,11 @@ def client(app):
 
 def _extract_script_body(html):
     """Extract the main inline <script> block from the rendered HTML."""
-    matches = re.findall(r'<script>(.*?)</script>', html, re.DOTALL)
+    script_tag_pattern = re.compile(
+        r'<\s*script\b[^>]*>(.*?)<\s*/\s*script\s*>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    matches = script_tag_pattern.findall(html)
     for block in reversed(matches):
         if 'fetchData' in block:
             return block
