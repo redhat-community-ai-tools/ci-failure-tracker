@@ -996,3 +996,307 @@ class TestBuildHealthErrorHandling:
             data = resp.get_json()
             assert 'error' in data
             assert data['error'] == 'An internal error has occurred.'
+
+
+# ---------------------------------------------------------------------------
+# Build Health Details (drill-down) tests
+# ---------------------------------------------------------------------------
+
+class TestGetBuildHealthDetails:
+    """Tests for DashboardDatabase.get_build_health_details."""
+
+    @pytest.fixture
+    def db_with_details(self, tmp_path):
+        """Create a database with runs and test results for detail queries."""
+        from datetime import datetime
+        from src.collectors.base import TestResult
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        runs = [
+            # Passed run
+            JobRun(
+                job_name='job-aws-pass', build_id='101',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.22', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.0.0-aaa111',
+            ),
+            # Failed run with real failures
+            JobRun(
+                job_name='job-aws-fail', build_id='102',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.22', platform='aws',
+                total_tests=10, passed_tests=8, failed_tests=2,
+                skipped_tests=0, operator_version='10.0.0-aaa111',
+            ),
+            # Failed run with only excluded tests
+            JobRun(
+                job_name='job-aws-excluded', build_id='103',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.22', platform='aws',
+                total_tests=10, passed_tests=8, failed_tests=2,
+                skipped_tests=0, operator_version='10.0.0-aaa111',
+            ),
+            # Failed run with no test results (incomplete)
+            JobRun(
+                job_name='job-aws-incomplete', build_id='104',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.22', platform='aws',
+                total_tests=0, passed_tests=0, failed_tests=0,
+                skipped_tests=0, operator_version='10.0.0-aaa111',
+            ),
+            # Different platform - should not appear
+            JobRun(
+                job_name='job-gcp-pass', build_id='105',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.22', platform='gcp',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.0.0-aaa111',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        # Add failed test results
+        test_results = [
+            TestResult(
+                test_name='OCP-12345', test_description='Real failure',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='assertion error',
+                job_name='job-aws-fail', build_id='102',
+                version='4.22', platform='aws', job_url='',
+            ),
+            TestResult(
+                test_name='OCP-67890', test_description='Another failure',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='timeout',
+                job_name='job-aws-fail', build_id='102',
+                version='4.22', platform='aws', job_url='',
+            ),
+            # Excluded tests
+            TestResult(
+                test_name='OCP-65980:author:foo', test_description='Proxy test',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='proxy error',
+                job_name='job-aws-excluded', build_id='103',
+                version='4.22', platform='aws', job_url='',
+            ),
+            TestResult(
+                test_name='OCP-71173:author:bar', test_description='Proxy test 2',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='proxy error 2',
+                job_name='job-aws-excluded', build_id='103',
+                version='4.22', platform='aws', job_url='',
+            ),
+        ]
+        database.insert_test_results(test_results)
+
+        yield database
+        database.close()
+
+    def test_returns_all_runs_for_platform(self, db_with_details):
+        """Returns all runs for specified operator version and platform."""
+        runs = db_with_details.get_build_health_details(
+            operator_version='10.0.0-aaa111',
+            platform='aws',
+            version='4.22',
+            days=7,
+        )
+        assert len(runs) == 4
+        job_names = {r['job_name'] for r in runs}
+        assert 'job-gcp-pass' not in job_names
+
+    def test_passed_run_classification(self, db_with_details):
+        """Passed runs are classified as 'passed'."""
+        runs = db_with_details.get_build_health_details(
+            operator_version='10.0.0-aaa111',
+            platform='aws',
+            version='4.22',
+            days=7,
+        )
+        passed = [r for r in runs if r['job_name'] == 'job-aws-pass']
+        assert len(passed) == 1
+        assert passed[0]['classification'] == 'passed'
+        assert passed[0]['failed_tests'] == []
+
+    def test_real_failure_classification(self, db_with_details):
+        """Runs with non-excluded failed tests are classified as 'real'."""
+        runs = db_with_details.get_build_health_details(
+            operator_version='10.0.0-aaa111',
+            platform='aws',
+            version='4.22',
+            days=7,
+            excluded_test_ids=['OCP-65980', 'OCP-71173'],
+        )
+        real = [r for r in runs if r['job_name'] == 'job-aws-fail']
+        assert len(real) == 1
+        assert real[0]['classification'] == 'real'
+        assert len(real[0]['failed_tests']) == 2
+        assert all(not ft['excluded'] for ft in real[0]['failed_tests'])
+
+    def test_excluded_only_classification(self, db_with_details):
+        """Runs failing only due to excluded tests are classified as 'excluded'."""
+        runs = db_with_details.get_build_health_details(
+            operator_version='10.0.0-aaa111',
+            platform='aws',
+            version='4.22',
+            days=7,
+            excluded_test_ids=['OCP-65980', 'OCP-71173'],
+        )
+        excluded = [r for r in runs if r['job_name'] == 'job-aws-excluded']
+        assert len(excluded) == 1
+        assert excluded[0]['classification'] == 'excluded'
+        assert all(ft['excluded'] for ft in excluded[0]['failed_tests'])
+
+    def test_incomplete_run_classification(self, db_with_details):
+        """Failed runs with no test results are classified as 'incomplete'."""
+        runs = db_with_details.get_build_health_details(
+            operator_version='10.0.0-aaa111',
+            platform='aws',
+            version='4.22',
+            days=7,
+        )
+        incomplete = [r for r in runs if r['job_name'] == 'job-aws-incomplete']
+        assert len(incomplete) == 1
+        assert incomplete[0]['classification'] == 'incomplete'
+        assert incomplete[0]['failed_tests'] == []
+
+    def test_empty_result_for_unknown_platform(self, db_with_details):
+        """Returns empty list for a platform with no runs."""
+        runs = db_with_details.get_build_health_details(
+            operator_version='10.0.0-aaa111',
+            platform='azure',
+            version='4.22',
+            days=7,
+        )
+        assert runs == []
+
+
+class TestBuildHealthDetailsAPI:
+    """Tests for /api/build-health-details endpoint."""
+
+    @pytest.fixture
+    def client_with_details(self, tmp_path):
+        """Create a Flask test client with runs and test results."""
+        from datetime import datetime
+        from src.collectors.base import TestResult
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        runs = [
+            JobRun(
+                job_name='job-aws-pass', build_id='201',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.22', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.0.0-bbb222',
+            ),
+            JobRun(
+                job_name='job-aws-fail', build_id='202',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.22', platform='aws',
+                total_tests=10, passed_tests=8, failed_tests=2,
+                skipped_tests=0, operator_version='10.0.0-bbb222',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        test_results = [
+            TestResult(
+                test_name='OCP-11111', test_description='Test one',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='error',
+                job_name='job-aws-fail', build_id='202',
+                version='4.22', platform='aws', job_url='',
+            ),
+        ]
+        database.insert_test_results(test_results)
+
+        config_path = str(tmp_path / 'config.yaml')
+        with open(config_path, 'w') as f:
+            f.write(
+                'tracking:\n'
+                '  versions: ["4.22"]\n'
+                '  platforms: ["aws"]\n'
+                '  blocklist: []\n'
+                'build_health:\n'
+                '  excluded_job_keywords: []\n'
+                '  excluded_test_ids: []\n'
+            )
+
+        app = create_app(db_path, config_file=config_path)
+        app.config['TESTING'] = True
+        with app.test_client() as client:
+            yield client
+
+        database.close()
+
+    def test_returns_runs_with_classification(self, client_with_details):
+        """Endpoint returns runs list with classification."""
+        resp = client_with_details.get(
+            '/api/build-health-details?operator_version=10.0.0-bbb222'
+            '&platform=aws&version=4.22&days=7'
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert 'runs' in data
+        assert len(data['runs']) == 2
+
+        classifications = {r['classification'] for r in data['runs']}
+        assert 'passed' in classifications
+        assert 'real' in classifications
+
+    def test_failed_run_includes_tests(self, client_with_details):
+        """Failed runs include failed_tests list."""
+        resp = client_with_details.get(
+            '/api/build-health-details?operator_version=10.0.0-bbb222'
+            '&platform=aws&version=4.22&days=7'
+        )
+        data = resp.get_json()
+        failed = [r for r in data['runs'] if r['classification'] == 'real']
+        assert len(failed) == 1
+        assert len(failed[0]['failed_tests']) == 1
+        assert failed[0]['failed_tests'][0]['test_name'] == 'OCP-11111'
+
+    def test_missing_params_returns_400(self, client_with_details):
+        """Missing required params returns 400."""
+        resp = client_with_details.get('/api/build-health-details?platform=aws')
+        assert resp.status_code == 400
+
+        resp = client_with_details.get(
+            '/api/build-health-details?operator_version=10.0.0-bbb222'
+        )
+        assert resp.status_code == 400
+
+    def test_returns_json_on_db_error(self, tmp_path, monkeypatch):
+        """Endpoint returns JSON even when DB query fails."""
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        config_path = str(tmp_path / 'config.yaml')
+        with open(config_path, 'w') as f:
+            f.write('tracking:\n  versions: []\n  platforms: []\n  blocklist: []\n')
+
+        app = create_app(db_path, config_file=config_path)
+        app.config['TESTING'] = True
+
+        def broken_query(*args, **kwargs):
+            raise Exception("simulated database error")
+
+        monkeypatch.setattr(
+            "storage.database.DashboardDatabase.get_build_health_details",
+            broken_query,
+        )
+
+        with app.test_client() as client:
+            resp = client.get(
+                '/api/build-health-details?operator_version=x&platform=y'
+            )
+            assert resp.status_code == 500
+            assert resp.content_type == 'application/json'
+            data = resp.get_json()
+            assert data['error'] == 'An internal error has occurred.'
+
+        database.close()

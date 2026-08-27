@@ -989,6 +989,124 @@ class DashboardDatabase:
 
         return result
 
+    def get_build_health_details(self, operator_version, platform, version=None,
+                                    days=30, excluded_job_keywords=None,
+                                    excluded_test_ids=None):
+        """Get per-run details for a specific operator version and platform.
+
+        Returns individual job runs with their failed tests and failure
+        classification, enabling drill-down from the Build Health summary.
+
+        Args:
+            operator_version: Operator (WMCO) version to filter by.
+            platform: Platform to filter by.
+            version: Optional OCP version filter.
+            days: Number of days to look back.
+            excluded_job_keywords: Job name substrings to exclude.
+            excluded_test_ids: Test IDs whose failures do not block release.
+
+        Returns:
+            List of dicts, one per run, with keys: job_name, build_id,
+            status, timestamp, job_url, failed_tests (list of dicts with
+            test_name and excluded), classification ('real', 'excluded',
+            'incomplete', 'passed').
+        """
+        excluded_test_ids = excluded_test_ids or []
+
+        cursor = self.conn.cursor()
+
+        query = """
+            SELECT job_name, build_id, status, timestamp, job_url
+            FROM job_runs
+            WHERE operator_version = ?
+            AND platform = ?
+            AND operator_version IS NOT NULL
+            AND timestamp >= datetime('now', ? || ' days')
+        """
+        params = [operator_version, platform, f'-{days}']
+
+        if excluded_job_keywords:
+            for keyword in excluded_job_keywords:
+                query += " AND LOWER(job_name) NOT LIKE ?"
+                params.append(f'%{keyword.lower()}%')
+
+        if version:
+            query += " AND version = ?"
+            params.append(version)
+
+        query += " ORDER BY timestamp DESC"
+
+        cursor.execute(query, params)
+        runs = [dict(row) for row in cursor.fetchall()]
+
+        if not runs:
+            return []
+
+        # Batch-fetch failed tests for all non-passed runs
+        failed_run_keys = [(r['job_name'], r['build_id'])
+                           for r in runs if r['status'] != 'passed']
+
+        failed_tests_by_run = {}
+        if failed_run_keys:
+            placeholders = ','.join(['(?,?)'] * len(failed_run_keys))
+            batch_params = [item for pair in failed_run_keys for item in pair]
+
+            cursor.execute(f"""
+                SELECT job_name, build_id, test_name
+                FROM test_results
+                WHERE (job_name, build_id) IN (VALUES {placeholders})
+                AND status = 'failed'
+            """, batch_params)
+
+            for row in cursor.fetchall():
+                key = (row['job_name'], row['build_id'])
+                if key not in failed_tests_by_run:
+                    failed_tests_by_run[key] = []
+                failed_tests_by_run[key].append(row['test_name'])
+
+        # Build result with classification
+        result = []
+        for run in runs:
+            run_key = (run['job_name'], run['build_id'])
+            entry = {
+                'job_name': run['job_name'],
+                'build_id': run['build_id'],
+                'status': run['status'],
+                'timestamp': run['timestamp'],
+                'job_url': run['job_url'],
+                'failed_tests': [],
+                'classification': 'passed',
+            }
+
+            if run['status'] != 'passed':
+                failed_tests = failed_tests_by_run.get(run_key, [])
+
+                if not failed_tests:
+                    entry['classification'] = 'incomplete'
+                else:
+                    # Annotate each failed test with exclusion status
+                    all_excluded = True
+                    for test_name in failed_tests:
+                        is_excluded = any(
+                            test_name.startswith(exc_id)
+                            for exc_id in excluded_test_ids
+                        ) if excluded_test_ids else False
+                        entry['failed_tests'].append({
+                            'test_name': test_name,
+                            'excluded': is_excluded,
+                        })
+                        if not is_excluded:
+                            all_excluded = False
+
+                    if all_excluded:
+                        entry['classification'] = 'excluded'
+                    else:
+                        entry['classification'] = 'real'
+
+            result.append(entry)
+
+        return result
+
     def get_runs_without_operator_version(self):
         """Return job runs that have no operator_version set.
 
