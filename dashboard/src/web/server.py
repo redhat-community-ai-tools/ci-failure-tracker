@@ -1032,6 +1032,40 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             logger.error(f"Build health query failed: {e}", exc_info=True)
             return jsonify({'error': 'An internal error has occurred.'}), 500
 
+    @app.route('/api/build-health-details')
+    def api_build_health_details():
+        """Get per-run details for a specific operator version and platform.
+
+        Returns individual runs with failed tests and failure classification
+        to support drill-down from the Build Health summary view.
+        """
+        try:
+            operator_version = request.args.get('operator_version')
+            platform = request.args.get('platform')
+            if not operator_version or not platform:
+                return jsonify({
+                    'error': 'operator_version and platform are required'
+                }), 400
+
+            days = request.args.get('days', 30, type=int)
+            version = request.args.get('version') or None
+
+            runs = db.get_build_health_details(
+                operator_version=operator_version,
+                platform=platform,
+                version=version,
+                days=days,
+                excluded_job_keywords=excluded_job_keywords,
+                excluded_test_ids=excluded_test_ids,
+            )
+
+            return jsonify({'runs': runs})
+        except Exception as e:
+            logger.error(
+                "Build health details query failed: %s", e, exc_info=True
+            )
+            return jsonify({'error': 'An internal error has occurred.'}), 500
+
     @app.route('/api/platform-tests')
     def api_platform_tests():
         """Get test results for a specific platform"""
