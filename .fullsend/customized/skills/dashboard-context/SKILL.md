@@ -82,6 +82,35 @@ Five tables:
 - `test_metrics` -- per-test aggregated statistics
 - `ai_analyses` -- cached AI analysis results
 
+## Data Integrity Invariants
+
+### job_runs vs test_results consistency
+
+A `job_runs` record with `total_tests > 0` but zero corresponding
+`test_results` rows indicates a data collection failure — the collector
+fetched job-level metadata but failed to import individual test results.
+These are NOT infrastructure failures: the `total_tests` and
+`failed_tests` fields prove that tests ran in CI. Such records represent
+incomplete data and should be excluded from build health calculations.
+
+### Collection failure pattern
+
+The collector writes `job_runs` and `test_results` in separate
+operations (`insert_job_runs` then `insert_test_results`). If the
+second operation fails (network timeout, API error, malformed JUnit
+XML), the database ends up with job metadata but no individual results.
+These incomplete records re-appear after manual deletion because the
+collector re-imports them from the upstream CI source on the next
+collection cycle.
+
+### Build health implications
+
+The `get_build_health()` method must handle this inconsistency. Failed
+runs with no test results should be treated as data quality issues, not
+as real test failures that block releasability. The current
+implementation skips such runs during post-processing (see
+`database.py`: "Skip failed runs with no test results").
+
 ## Configuration Model
 
 `config.yaml` sections:
