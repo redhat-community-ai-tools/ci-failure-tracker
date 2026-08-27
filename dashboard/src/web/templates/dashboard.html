@@ -943,6 +943,9 @@
         let trendChart, versionChart;
         let currentLogData = {}; // Store current log data for AI analysis and Jira creation
 
+        // Global HTML escaping utility — use for all dynamic values rendered via innerHTML
+        const escapeHtml = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+
         // Shared classification lookup maps (used by save, load, and AI analysis)
         const classNames = {
             'product_bug': 'Product Bug',
@@ -1229,8 +1232,6 @@
             }
 
             // Build metadata HTML
-            const escapeHtml = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&#39;').replace(/"/g, '&quot;');
-
             let linkText = 'View Job';
             if (metadata.jobUrl) {
                 if (metadata.jobUrl.includes('reportportal')) linkText = 'View in ReportPortal';
@@ -1908,13 +1909,13 @@
 
         function renderVersionCard(ver, isLatest) {
             var versionLabel = ver.operator_version;
-            var ocpLabel = ver.ocp_version ? ' <span style="color: #666; font-size: 14px; font-weight: 400;">(OCP ' + ver.ocp_version + ')</span>' : '';
+            var ocpLabel = ver.ocp_version ? ' <span style="color: #666; font-size: 14px; font-weight: 400;">(OCP ' + escapeHtml(ver.ocp_version) + ')</span>' : '';
             var sourceLink = '';
             if (ver.source_url) {
                 var linkLabel = versionLabel.indexOf('-') !== -1
                     ? versionLabel.split('-')[1].substring(0, 7)
                     : 'v' + versionLabel;
-                sourceLink = ' <a href="' + ver.source_url + '" target="_blank" style="color: #2563eb; font-size: 14px;">' + linkLabel + '</a>';
+                sourceLink = ' <a href="' + escapeHtml(ver.source_url) + '" target="_blank" style="color: #2563eb; font-size: 14px;">' + escapeHtml(linkLabel) + '</a>';
             }
 
             var releasableHtml = ver.releasable
@@ -1939,7 +1940,7 @@
             var html = '<div class="card" style="margin-bottom: 20px;">';
             html += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">';
             html += '<div>';
-            html += '<h3 style="margin: 0;">' + versionLabel + ocpLabel + latestBadge + sourceLink + '</h3>';
+            html += '<h3 style="margin: 0;">' + escapeHtml(versionLabel) + ocpLabel + latestBadge + sourceLink + '</h3>';
             html += dateLabel;
             html += '</div>';
             html += '<div>' + releasableHtml + ' <span style="color: #666; font-size: 13px; margin-left: 8px;">' + ver.pass_rate + '% pass rate &middot; ' + ver.total_runs + ' runs</span></div>';
@@ -1967,8 +1968,8 @@
                         : '<span style="background: #fef2f2; color: #991b1b; padding: 2px 8px; border-radius: 8px; font-size: 12px; font-weight: 600;">FAIL</span>';
                     var rowId = 'bh-detail-' + versionLabel.replace(/[^a-zA-Z0-9]/g, '-') + '-' + platform;
                     var toggleArrow = '<span class="bh-toggle-arrow" id="arrow-' + rowId + '" style="display: inline-block; transition: transform 0.2s; margin-right: 4px; font-size: 10px; color: #999;">&#9654;</span>';
-                    html += '<tr style="border-bottom: 1px solid #f3f4f6; cursor: pointer;" onclick="toggleBuildHealthDetail(\'' + rowId + '\', \'' + versionLabel + '\', \'' + platform + '\', \'' + (ver.ocp_version || '') + '\')" title="Click to show run details">';
-                    html += '<td style="padding: 8px; font-weight: 500;">' + toggleArrow + platform.toUpperCase() + '</td>';
+                    html += '<tr style="border-bottom: 1px solid #f3f4f6; cursor: pointer;" onclick="toggleBuildHealthDetail(\'' + rowId + '\', \'' + escapeHtml(versionLabel) + '\', \'' + escapeHtml(platform) + '\', \'' + escapeHtml(ver.ocp_version || '') + '\')" title="Click to show run details">';
+                    html += '<td style="padding: 8px; font-weight: 500;">' + toggleArrow + escapeHtml(platform).toUpperCase() + '</td>';
                     html += '<td style="text-align: center; padding: 8px;">' + p.total_runs + '</td>';
                     html += '<td style="text-align: center; padding: 8px; color: #166534;">' + p.passed_runs + '</td>';
                     html += '<td style="text-align: center; padding: 8px; color: ' + (p.failed_runs > 0 ? '#991b1b' : '#666') + ';">' + p.failed_runs + '</td>';
@@ -2046,15 +2047,16 @@
                     var badge = '<span style="background: ' + classBg + '; color: ' + classColor + '; padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 600;">' + classLabel + '</span>';
 
                     var dateStr = run.timestamp ? formatShortDate(run.timestamp) : '';
-                    var jobLink = run.job_url ? '<a href="' + run.job_url + '" target="_blank" style="color: #2563eb; font-size: 12px; text-decoration: none;">View Job &#8599;</a>' : '';
+                    var safeJobUrl = (run.job_url && /^https?:\/\//i.test(run.job_url)) ? run.job_url : '';
+                    var jobLink = safeJobUrl ? '<a href="' + escapeHtml(safeJobUrl) + '" target="_blank" style="color: #2563eb; font-size: 12px; text-decoration: none;">View Job &#8599;</a>' : '';
                     var jobShort = run.job_name.length > 80 ? run.job_name.substring(0, 77) + '...' : run.job_name;
 
                     html += '<div style="' + (idx > 0 ? 'border-top: 1px solid #e5e7eb; margin-top: 8px; padding-top: 8px;' : '') + '">';
                     html += '<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">';
                     html += badge;
-                    html += '<span style="font-size: 13px; font-weight: 500; color: #374151;" title="' + run.job_name + '">' + jobShort + '</span>';
-                    html += '<span style="font-size: 12px; color: #6b7280;">#' + run.build_id + '</span>';
-                    html += '<span style="font-size: 12px; color: #9ca3af;">' + dateStr + '</span>';
+                    html += '<span style="font-size: 13px; font-weight: 500; color: #374151;" title="' + escapeHtml(run.job_name) + '">' + escapeHtml(jobShort) + '</span>';
+                    html += '<span style="font-size: 12px; color: #6b7280;">#' + escapeHtml(run.build_id) + '</span>';
+                    html += '<span style="font-size: 12px; color: #9ca3af;">' + escapeHtml(dateStr) + '</span>';
                     html += jobLink;
                     html += '</div>';
 
@@ -2063,7 +2065,7 @@
                         run.failed_tests.forEach(function(ft) {
                             var excTag = ft.excluded ? ' <span style="background: #fef3c7; color: #92400e; padding: 1px 6px; border-radius: 4px; font-size: 10px;">excluded</span>' : '';
                             var testColor = ft.excluded ? '#92400e' : '#991b1b';
-                            html += '<div style="font-size: 12px; color: ' + testColor + '; padding: 2px 0;">&bull; ' + ft.test_name + excTag + '</div>';
+                            html += '<div style="font-size: 12px; color: ' + testColor + '; padding: 2px 0;">&bull; ' + escapeHtml(ft.test_name) + excTag + '</div>';
                         });
                         html += '</div>';
                     } else if (run.classification === 'incomplete') {
@@ -2078,7 +2080,7 @@
                 detailRow.setAttribute('data-loaded', 'true');
             } catch (err) {
                 var cell = detailRow.querySelector('td');
-                cell.innerHTML = '<div style="padding: 12px 16px; background: #fef2f2; border-left: 3px solid #dc2626; color: #991b1b; font-size: 13px;">Failed to load details: ' + err + '</div>';
+                cell.innerHTML = '<div style="padding: 12px 16px; background: #fef2f2; border-left: 3px solid #dc2626; color: #991b1b; font-size: 13px;">Failed to load details: ' + escapeHtml(String(err)) + '</div>';
             }
         }
 
