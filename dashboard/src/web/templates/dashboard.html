@@ -1977,6 +1977,25 @@
                 html += '</tbody></table>';
             }
 
+            // Known Issues section
+            var knownIssues = ver.known_issues || [];
+            if (knownIssues.length > 0) {
+                html += '<div style="margin-top: 16px; padding: 12px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;">';
+                html += '<div style="font-weight: 600; font-size: 14px; color: #92400e; margin-bottom: 8px;">';
+                html += '<span style="background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 8px; font-size: 12px; font-weight: 600; margin-right: 6px;">KNOWN ISSUE</span>';
+                html += knownIssues.length + ' test' + (knownIssues.length !== 1 ? 's' : '') + ' excluded from releasability';
+                html += '</div>';
+                html += '<ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #78350f;">';
+                knownIssues.forEach(function(ki) {
+                    var bugLink = ki.bug
+                        ? ' &mdash; <a href="https://issues.redhat.com/browse/' + ki.bug + '" target="_blank" style="color: #2563eb;">' + ki.bug + '</a>'
+                        : '';
+                    html += '<li style="margin-bottom: 4px;">' + ki.test_id + bugLink + '</li>';
+                });
+                html += '</ul>';
+                html += '</div>';
+            }
+
             html += '</div>';
             return html;
         }

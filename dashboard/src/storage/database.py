@@ -933,6 +933,7 @@ class DashboardDatabase:
         processed_runs = []
         for run in runs:
             status = run['status']
+            excluded_found = set()
             if status != 'passed':
                 run_key = (run['job_name'], run['build_id'])
                 failed_tests = failed_tests_by_run.get(run_key, [])
@@ -944,6 +945,10 @@ class DashboardDatabase:
                 # Check if this run failed only due to excluded tests
                 if excluded_test_ids:
                     # Use prefix matching: test names can have suffixes (e.g., OCP-65980:author:...)
+                    for test in failed_tests:
+                        for exc_id in excluded_test_ids:
+                            if test.startswith(exc_id):
+                                excluded_found.add(exc_id)
                     if all(
                         any(test.startswith(exc_id) for exc_id in excluded_test_ids)
                         for test in failed_tests
@@ -951,7 +956,11 @@ class DashboardDatabase:
                         # Treat as passed for releasability purposes
                         status = 'passed'
 
-            processed_runs.append({**run, 'processed_status': status})
+            processed_runs.append({
+                **run,
+                'processed_status': status,
+                'known_issue_tests': excluded_found,
+            })
 
         # Now aggregate the processed runs
         aggregated = {}
@@ -967,6 +976,7 @@ class DashboardDatabase:
                     'failed_runs': 0,
                     'first_seen': None,
                     'last_seen': None,
+                    'known_issue_tests': set(),
                 }
 
             entry = aggregated[key]
@@ -975,6 +985,9 @@ class DashboardDatabase:
                 entry['passed_runs'] += 1
             else:
                 entry['failed_runs'] += 1
+
+            # Track known-issue tests encountered in this platform
+            entry['known_issue_tests'].update(run.get('known_issue_tests', set()))
 
             # Track first_seen and last_seen
             ts = run['timestamp']
@@ -985,6 +998,9 @@ class DashboardDatabase:
 
         # Convert to list and sort
         result = list(aggregated.values())
+        # Convert known_issue_tests sets to sorted lists for serialisation
+        for entry in result:
+            entry['known_issue_tests'] = sorted(entry['known_issue_tests'])
         result.sort(key=lambda x: (x['operator_version'], x['platform']), reverse=True)
 
         return result

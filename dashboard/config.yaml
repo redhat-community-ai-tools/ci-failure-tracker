@@ -280,6 +280,16 @@ build_health:
     - "OCP-65980"   # Proxy test - known issue OCPBUGS-111093
     - "OCP-71173"   # Proxy test - known issue OCPBUGS-111093
 
+  # Known upstream issues: tests linked to bugs outside the team's control.
+  # These tests are excluded from the releasability calculation (via
+  # excluded_test_ids above) and shown separately in Build Health with a
+  # "Known Issue" badge so they remain visible for tracking.
+  known_issues:
+    - test_id: "OCP-65980"
+      bug: "OCPBUGS-111093"
+    - test_id: "OCP-71173"
+      bug: "OCPBUGS-111093"
+
 # Database configuration
 database:
   # Path to SQLite database file

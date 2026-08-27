@@ -967,6 +967,378 @@ class TestExcludedKeywordsLoadedFromConfig:
         assert 'proxy' in keywords
 
 
+class TestKnownIssuesLoadedFromConfig:
+    """Config-driven test: assert known_issues from config.yaml (rule 11)."""
+
+    def test_known_issues_in_config(self):
+        """Config file contains expected known_issues entries."""
+        import yaml
+        import os
+
+        config_path = os.path.join(
+            os.path.dirname(__file__), 'config.yaml',
+        )
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+
+        known_issues = config['build_health']['known_issues']
+        assert isinstance(known_issues, list)
+        assert len(known_issues) >= 2
+
+        # Build lookup for assertion
+        ki_map = {ki['test_id']: ki['bug'] for ki in known_issues}
+        assert 'OCP-65980' in ki_map
+        assert 'OCP-71173' in ki_map
+        assert ki_map['OCP-65980'] == 'OCPBUGS-111093'
+        assert ki_map['OCP-71173'] == 'OCPBUGS-111093'
+
+    def test_known_issues_match_excluded_test_ids(self):
+        """Every known_issues test_id is also in excluded_test_ids."""
+        import yaml
+        import os
+
+        config_path = os.path.join(
+            os.path.dirname(__file__), 'config.yaml',
+        )
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+
+        excluded = set(config['build_health']['excluded_test_ids'])
+        known = {ki['test_id'] for ki in config['build_health']['known_issues']}
+        assert known.issubset(excluded), (
+            f"known_issues test_ids {known - excluded} not in excluded_test_ids"
+        )
+
+
+class TestGetBuildHealthKnownIssueTests:
+    """Tests for known_issue_tests in get_build_health return value."""
+
+    @pytest.fixture
+    def db_with_known_issues(self, tmp_path):
+        """Create a database with runs that fail due to excluded tests."""
+        from datetime import datetime
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        runs = [
+            # Passed run on AWS
+            JobRun(
+                job_name='job-aws', build_id='1',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+            # Failed run on GCP - fails due to excluded tests only
+            JobRun(
+                job_name='job-gcp', build_id='2',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='gcp',
+                total_tests=10, passed_tests=8, failed_tests=2,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        # Insert test_results for the GCP failure (excluded tests)
+        from collectors.base import TestResult
+        test_results = [
+            TestResult(
+                test_name='OCP-65980:proxy-acceptance',
+                test_description='Cluster-wide proxy acceptance',
+                status=TestStatus.FAILED,
+                timestamp=datetime.now(),
+                duration_seconds=10.0,
+                error_message='proxy error',
+                job_name='job-gcp', build_id='2',
+                version='4.21', platform='gcp',
+            ),
+            TestResult(
+                test_name='OCP-71173:proxy-windows',
+                test_description='Windows nodes behind proxy',
+                status=TestStatus.FAILED,
+                timestamp=datetime.now(),
+                duration_seconds=10.0,
+                error_message='proxy error',
+                job_name='job-gcp', build_id='2',
+                version='4.21', platform='gcp',
+            ),
+        ]
+        database.insert_test_results(test_results)
+
+        yield database
+        database.close()
+
+    def test_returns_known_issue_tests_when_excluded(self, db_with_known_issues):
+        """get_build_health returns known_issue_tests for platforms
+        with excluded test failures."""
+        rows = db_with_known_issues.get_build_health(
+            version='4.21', days=7,
+            excluded_test_ids=['OCP-65980', 'OCP-71173'],
+        )
+
+        gcp = [r for r in rows if r['platform'] == 'gcp']
+        assert len(gcp) == 1
+        assert sorted(gcp[0]['known_issue_tests']) == ['OCP-65980', 'OCP-71173']
+        # The run should be treated as passed
+        assert gcp[0]['passed_runs'] == 1
+        assert gcp[0]['failed_runs'] == 0
+
+    def test_no_known_issue_tests_for_passing_platform(self, db_with_known_issues):
+        """Platforms with only passed runs have empty known_issue_tests."""
+        rows = db_with_known_issues.get_build_health(
+            version='4.21', days=7,
+            excluded_test_ids=['OCP-65980', 'OCP-71173'],
+        )
+
+        aws = [r for r in rows if r['platform'] == 'aws']
+        assert len(aws) == 1
+        assert aws[0]['known_issue_tests'] == []
+
+    def test_no_known_issue_tests_without_exclusion(self, db_with_known_issues):
+        """Without excluded_test_ids, known_issue_tests is empty."""
+        rows = db_with_known_issues.get_build_health(
+            version='4.21', days=7,
+            excluded_test_ids=[],
+        )
+
+        for row in rows:
+            assert row['known_issue_tests'] == []
+
+
+class TestBuildHealthKnownIssuesAPI:
+    """Tests for known_issues in /api/build-health response."""
+
+    @pytest.fixture
+    def client_with_known_issues(self, tmp_path):
+        """Create a Flask test client with known-issue test failures."""
+        from datetime import datetime
+        from collectors.base import TestResult
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        runs = [
+            JobRun(
+                job_name='job-aws', build_id='1',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+            JobRun(
+                job_name='job-gcp', build_id='2',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='gcp',
+                total_tests=10, passed_tests=8, failed_tests=2,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        test_results = [
+            TestResult(
+                test_name='OCP-65980:proxy-acceptance',
+                test_description='Cluster-wide proxy acceptance',
+                status=TestStatus.FAILED,
+                timestamp=datetime.now(),
+                duration_seconds=10.0,
+                error_message='proxy error',
+                job_name='job-gcp', build_id='2',
+                version='4.21', platform='gcp',
+            ),
+            TestResult(
+                test_name='OCP-71173:proxy-windows',
+                test_description='Windows nodes behind proxy',
+                status=TestStatus.FAILED,
+                timestamp=datetime.now(),
+                duration_seconds=10.0,
+                error_message='proxy error',
+                job_name='job-gcp', build_id='2',
+                version='4.21', platform='gcp',
+            ),
+        ]
+        database.insert_test_results(test_results)
+
+        config_path = str(tmp_path / 'config.yaml')
+        with open(config_path, 'w') as f:
+            f.write(
+                'tracking:\n'
+                '  versions: ["4.21"]\n'
+                '  platforms: ["aws","gcp"]\n'
+                '  blocklist: []\n'
+                'build_health:\n'
+                '  excluded_test_ids:\n'
+                '    - "OCP-65980"\n'
+                '    - "OCP-71173"\n'
+                '  known_issues:\n'
+                '    - test_id: "OCP-65980"\n'
+                '      bug: "OCPBUGS-111093"\n'
+                '    - test_id: "OCP-71173"\n'
+                '      bug: "OCPBUGS-111093"\n'
+            )
+
+        app = create_app(db_path, config_file=config_path)
+        app.config['TESTING'] = True
+        with app.test_client() as client:
+            yield client
+
+        database.close()
+
+    def test_api_returns_known_issues(self, client_with_known_issues):
+        """API response includes known_issues with test_id and bug."""
+        resp = client_with_known_issues.get(
+            '/api/build-health?version=4.21&days=7'
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        version_data = data['operator_versions'][0]
+
+        assert 'known_issues' in version_data
+        ki = version_data['known_issues']
+        assert len(ki) == 2
+
+        ki_map = {entry['test_id']: entry['bug'] for entry in ki}
+        assert ki_map['OCP-65980'] == 'OCPBUGS-111093'
+        assert ki_map['OCP-71173'] == 'OCPBUGS-111093'
+
+    def test_api_releasable_with_known_issues(self, client_with_known_issues):
+        """Build is releasable when failures are all known issues."""
+        resp = client_with_known_issues.get(
+            '/api/build-health?version=4.21&days=7'
+        )
+        data = resp.get_json()
+        assert data['operator_versions'][0]['releasable'] is True
+
+    def test_api_platform_known_issues(self, client_with_known_issues):
+        """Per-platform data includes known_issue_tests."""
+        resp = client_with_known_issues.get(
+            '/api/build-health?version=4.21&days=7'
+        )
+        data = resp.get_json()
+        platforms = data['operator_versions'][0]['platforms']
+
+        gcp = platforms['gcp']
+        assert 'known_issue_tests' in gcp
+        ki_ids = {ki['test_id'] for ki in gcp['known_issue_tests']}
+        assert ki_ids == {'OCP-65980', 'OCP-71173'}
+
+        # AWS had no failures, no known_issue_tests key
+        aws = platforms['aws']
+        assert 'known_issue_tests' not in aws
+
+    def test_api_no_known_issues_when_config_empty(self, tmp_path):
+        """No known_issues field when config has no known_issues."""
+        from datetime import datetime
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+        runs = [
+            JobRun(
+                job_name='job-aws', build_id='1',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        config_path = str(tmp_path / 'config.yaml')
+        with open(config_path, 'w') as f:
+            f.write(
+                'tracking:\n'
+                '  versions: ["4.21"]\n'
+                '  platforms: ["aws"]\n'
+                '  blocklist: []\n'
+            )
+
+        app = create_app(db_path, config_file=config_path)
+        app.config['TESTING'] = True
+        with app.test_client() as client:
+            resp = client.get('/api/build-health?version=4.21&days=7')
+            data = resp.get_json()
+            version_data = data['operator_versions'][0]
+            # No known issues should be present
+            assert 'known_issues' not in version_data
+
+        database.close()
+
+    def test_api_mixed_known_and_unknown_failures(self, tmp_path):
+        """Build is NOT releasable when both known and unknown failures exist."""
+        from datetime import datetime
+        from collectors.base import TestResult
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        runs = [
+            JobRun(
+                job_name='job-gcp', build_id='1',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='4.21', platform='gcp',
+                total_tests=10, passed_tests=7, failed_tests=3,
+                skipped_tests=0, operator_version='10.21.2-abc123',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        test_results = [
+            TestResult(
+                test_name='OCP-65980:proxy-acceptance',
+                test_description='Known issue test',
+                status=TestStatus.FAILED,
+                timestamp=datetime.now(),
+                duration_seconds=10.0,
+                error_message='proxy error',
+                job_name='job-gcp', build_id='1',
+                version='4.21', platform='gcp',
+            ),
+            TestResult(
+                test_name='OCP-99999:unknown-failure',
+                test_description='Unknown failure',
+                status=TestStatus.FAILED,
+                timestamp=datetime.now(),
+                duration_seconds=10.0,
+                error_message='real error',
+                job_name='job-gcp', build_id='1',
+                version='4.21', platform='gcp',
+            ),
+        ]
+        database.insert_test_results(test_results)
+
+        config_path = str(tmp_path / 'config.yaml')
+        with open(config_path, 'w') as f:
+            f.write(
+                'tracking:\n'
+                '  versions: ["4.21"]\n'
+                '  platforms: ["gcp"]\n'
+                '  blocklist: []\n'
+                'build_health:\n'
+                '  excluded_test_ids:\n'
+                '    - "OCP-65980"\n'
+                '  known_issues:\n'
+                '    - test_id: "OCP-65980"\n'
+                '      bug: "OCPBUGS-111093"\n'
+            )
+
+        app = create_app(db_path, config_file=config_path)
+        app.config['TESTING'] = True
+        with app.test_client() as client:
+            resp = client.get('/api/build-health?version=4.21&days=7')
+            data = resp.get_json()
+            version_data = data['operator_versions'][0]
+            # Not releasable because OCP-99999 is a real failure
+            assert version_data['releasable'] is False
+            # But known_issues still shows the known issue
+            assert 'known_issues' in version_data
+            ki_ids = {ki['test_id'] for ki in version_data['known_issues']}
+            assert 'OCP-65980' in ki_ids
+
+        database.close()
+
+
 class TestBuildHealthErrorHandling:
     """Tests for /api/build-health error handling."""
 
