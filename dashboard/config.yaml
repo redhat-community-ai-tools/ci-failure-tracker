@@ -83,6 +83,7 @@ collector:
       - "periodic-ci-openshift-openshift-tests-private-release-4.22-*-winc-*"
       - "periodic-ci-openshift-openshift-tests-private-release-4.23-*-winc-*"
       - "periodic-ci-openshift-openshift-tests-private-release-5.0-*-winc-*"
+      - "periodic-ci-openshift-openshift-tests-private-release-5.1-*-winc-*"
       - "periodic-ci-openshift-openshift-tests-private-main-*-winc-*"
       - "periodic-ci-openshift-windows-machine-config-operator-release-4.18-*"
       - "periodic-ci-openshift-windows-machine-config-operator-release-4.19-*"
@@ -91,6 +92,7 @@ collector:
       - "periodic-ci-openshift-windows-machine-config-operator-release-4.22-*"
       - "periodic-ci-openshift-windows-machine-config-operator-release-4.23-*"
       - "periodic-ci-openshift-windows-machine-config-operator-release-5.0-*"
+      - "periodic-ci-openshift-windows-machine-config-operator-release-5.1-*"
 
       # Pull request (presubmit) jobs
       - "pull-ci-openshift-openshift-tests-private-*-winc-*"
@@ -125,6 +127,7 @@ collector:
       - "periodic-ci-openshift-openshift-tests-private-release-4.22-*-winc-*"
       - "periodic-ci-openshift-openshift-tests-private-release-4.23-*-winc-*"
       - "periodic-ci-openshift-openshift-tests-private-release-5.0-*-winc-*"
+      - "periodic-ci-openshift-openshift-tests-private-release-5.1-*-winc-*"
       - "periodic-ci-openshift-openshift-tests-private-main-*-winc-*"
 
     # Postsubmit FBC job discovery via GCS JSON API prefix listing.
@@ -216,6 +219,7 @@ tracking:
     - "4.22"
     - "4.23"
     - "5.0"
+    - "5.1"
 
   # Map branch names to versions (e.g., "main" branch jobs map to "5.0")
   branch_version_map:
