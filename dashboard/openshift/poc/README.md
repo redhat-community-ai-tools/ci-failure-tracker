@@ -129,6 +129,77 @@ oc get route winc-dashboard-poc -o jsonpath='{.spec.host}'
 - PVC: 1Gi for SQLite database
 - Mount: `/data/dashboard.db`
 
+## Updating ConfigMap After Config Changes
+
+The OpenShift BuildConfig only updates the **container image** (code). The
+ConfigMap (`dashboard-config-poc`) is a separate Kubernetes resource that is
+**not** updated automatically by the build pipeline.
+
+If you merge a PR that changes `dashboard/config.yaml`, the new config will
+not take effect until you manually update the ConfigMap and restart the pod.
+
+**Symptoms of a stale ConfigMap:**
+- Config changes from merged PRs don't appear in the dashboard
+- Blocklist entries, version tracking, or other config-driven features
+  are missing despite a successful build and deployment
+
+### Update Procedure
+
+After merging PRs that modify `dashboard/config.yaml`:
+
+```bash
+# 1. Update the ConfigMap from the latest config.yaml in git
+oc create configmap dashboard-config-poc \
+  --from-file=config.yaml=dashboard/config.yaml \
+  --dry-run=client -o yaml | \
+  oc replace -f - -n winc-dashboard-poc
+
+# 2. Restart the pod to pick up the new ConfigMap
+oc delete pod -n winc-dashboard-poc -l app=winc-dashboard-poc
+
+# 3. Wait for the new pod to become ready
+oc wait --for=condition=ready pod \
+  -l app=winc-dashboard-poc -n winc-dashboard-poc
+```
+
+### Diagnosing a Stale ConfigMap
+
+```bash
+# Check which ConfigMap the deployment mounts
+oc get deployment/winc-dashboard-poc -n winc-dashboard-poc \
+  -o jsonpath='{.spec.template.spec.volumes[?(@.name=="config")].configMap.name}'
+# Expected: dashboard-config-poc
+
+# View the config currently mounted in the running pod
+POD=$(oc get pod -n winc-dashboard-poc -l app=winc-dashboard-poc \
+  -o jsonpath='{.items[0].metadata.name}')
+oc exec -n winc-dashboard-poc "$POD" -c dashboard -- cat /app/config.yaml
+
+# Compare mounted config with git
+diff <(oc get configmap/dashboard-config-poc -n winc-dashboard-poc \
+  -o jsonpath='{.data.config\.yaml}') dashboard/config.yaml
+```
+
+### Why This Happens
+
+The deployment architecture separates code from configuration:
+
+```yaml
+deployment:
+  containers:
+    - name: dashboard
+      image: winc-dashboard-poc:latest  # Updated by build
+  volumes:
+    - name: config
+      configMap:
+        name: dashboard-config-poc      # NOT updated by build
+```
+
+The webhook-triggered build pipeline rebuilds the container image and
+rolls out the new deployment, but it does not touch the ConfigMap. This
+is a standard Kubernetes pattern, but it means config changes require a
+separate update step.
+
 ## Verification
 
 ### 1. Check MCP Server Health
