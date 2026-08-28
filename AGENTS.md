@@ -96,8 +96,13 @@ Most agent work targets the dashboard.
 16. **Case-insensitive HTML regex.** When writing regex patterns that
     match HTML tags (e.g., `<script>`, `<div>`), always include
     `re.IGNORECASE` since HTML tag names are case-insensitive per spec.
-    This prevents CodeQL "Bad HTML filtering regexp" findings and avoids
-    review rework.
+    Use flexible patterns for both opening and closing tags to avoid
+    CodeQL "Bad HTML filtering regexp" findings. Reference pattern for
+    matching script content:
+    `re.compile(r'<\s*script\b[^>]*>(.*?)<\s*/\s*script\b[^>]*>', re.IGNORECASE | re.DOTALL)`.
+    Key elements: `\b[^>]*>` handles attributes and whitespace in both
+    opening and closing tags; `\s*` around `/` handles whitespace in
+    closing tags.
 
 17. **Version comparison.** When sorting or comparing version strings
     (OCP versions like `4.21`, operator versions like `10.0.0-abc`),
@@ -126,7 +131,16 @@ Most agent work targets the dashboard.
     and explain the uncertainty in the triage summary. A pre-classifier
     that suppresses correct classifications is worse than no change.
 
-20. **No-change justification.** If you determine that no file changes
+20. **Client-side HTML escaping.** When interpolating any data into
+    `innerHTML`, template literals used for DOM insertion, or
+    `onclick`/event-handler attribute strings in `dashboard.html`,
+    always pass the value through `escapeHtml()` first. For URL values
+    used in `href` attributes, validate the scheme against `https?://`
+    before interpolation. The global `escapeHtml()` function is defined
+    at the top of the main `<script>` block in `dashboard.html` — use
+    it, do not redefine it locally.
+
+21. **No-change justification.** If you determine that no file changes
     are needed for an issue that was triaged as requiring code, you must
     include a `no_change_reason` field in `agent-result.json` explaining
     why. For example: the issue was already resolved by a prior commit,
