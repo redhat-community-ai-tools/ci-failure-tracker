@@ -130,3 +130,12 @@ Most agent work targets the dashboard.
     is inconclusive, add a `needs-info` label instead of `ready-to-code`
     and explain the uncertainty in the triage summary. A pre-classifier
     that suppresses correct classifications is worse than no change.
+
+20. **Client-side HTML escaping.** When interpolating any data into
+    `innerHTML`, template literals used for DOM insertion, or
+    `onclick`/event-handler attribute strings in `dashboard.html`,
+    always pass the value through `escapeHtml()` first. For URL values
+    used in `href` attributes, validate the scheme against `https?://`
+    before interpolation. The global `escapeHtml()` function is defined
+    at the top of the main `<script>` block in `dashboard.html` — use
+    it, do not redefine it locally.
