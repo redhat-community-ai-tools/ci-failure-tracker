@@ -49,7 +49,7 @@ def client(app):
 def _extract_script_body(html):
     """Extract the main inline <script> block from the rendered HTML."""
     script_tag_pattern = re.compile(
-        r'<\s*script\b[^>]*>(.*?)<\s*/\s*script\s*>',
+        r'<\s*script\b[^>]*>(.*?)<\s*/\s*script\b[^>]*>',
         re.IGNORECASE | re.DOTALL,
     )
     matches = script_tag_pattern.findall(html)
