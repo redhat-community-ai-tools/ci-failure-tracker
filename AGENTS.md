@@ -139,3 +139,10 @@ Most agent work targets the dashboard.
     before interpolation. The global `escapeHtml()` function is defined
     at the top of the main `<script>` block in `dashboard.html` — use
     it, do not redefine it locally.
+
+21. **No-change justification.** If you determine that no file changes
+    are needed for an issue that was triaged as requiring code, you must
+    include a `no_change_reason` field in `agent-result.json` explaining
+    why. For example: the issue was already resolved by a prior commit,
+    the requested change is out of scope, or the needed change is blocked
+    by a dependency. Do not silently produce zero changes.
