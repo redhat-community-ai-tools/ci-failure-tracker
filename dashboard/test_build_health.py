@@ -1010,6 +1010,25 @@ class TestKnownIssuesLoadedFromConfig:
         )
 
 
+class TestProxyTestsInBlocklist:
+    """Config-driven test: assert proxy test IDs are in tracking.blocklist."""
+
+    def test_proxy_tests_in_blocklist(self):
+        """Verify proxy test IDs are excluded from dashboard."""
+        import yaml
+        import os
+
+        config_path = os.path.join(
+            os.path.dirname(__file__), 'config.yaml',
+        )
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+
+        blocklist = config['tracking']['blocklist']
+        assert 'OCP-65980' in blocklist
+        assert 'OCP-71173' in blocklist
+
+
 class TestGetBuildHealthKnownIssueTests:
     """Tests for known_issue_tests in get_build_health return value."""
 
