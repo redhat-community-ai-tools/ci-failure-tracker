@@ -579,6 +579,8 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     source_repo_url = 'https://github.com/openshift/windows-machine-config-operator'
     excluded_job_keywords = []
     excluded_test_ids = []
+    known_issues = []
+    known_issues_map = {}
     try:
         with open(config_file, 'r') as f:
             yaml_config = yaml.safe_load(f)
@@ -593,6 +595,13 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             build_health_config = yaml_config.get('build_health', {})
             excluded_job_keywords = build_health_config.get('excluded_job_keywords', [])
             excluded_test_ids = build_health_config.get('excluded_test_ids', [])
+            # Load known issues mapping (test_id -> bug)
+            known_issues = build_health_config.get('known_issues', [])
+            known_issues_map = {
+                entry['test_id']: entry.get('bug', '')
+                for entry in known_issues
+                if 'test_id' in entry
+            }
     except Exception as e:
         print(f"Warning: Could not load tracking config: {e}")
 
@@ -974,17 +983,29 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                         'failed_runs': 0,
                         'first_seen': None,
                         'last_seen': None,
+                        '_known_ids': set(),
                     }
 
                 entry = ocp_groups[ocp_ver][ov]
-                entry['platforms'][row['platform']] = {
+                platform_data = {
                     'total_runs': row['total_runs'],
                     'passed_runs': row['passed_runs'],
                     'failed_runs': row['failed_runs'],
                 }
+                # Attach per-platform known-issue tests
+                row_known = row.get('known_issue_tests', [])
+                if row_known:
+                    platform_data['known_issue_tests'] = [
+                        {'test_id': tid, 'bug': known_issues_map.get(tid, '')}
+                        for tid in row_known
+                    ]
+                entry['platforms'][row['platform']] = platform_data
                 entry['total_runs'] += row['total_runs']
                 entry['passed_runs'] += row['passed_runs']
                 entry['failed_runs'] += row['failed_runs']
+                # Accumulate known-issue test IDs across platforms
+                for tid in row_known:
+                    entry['_known_ids'].add(tid)
 
                 # Merge first_seen / last_seen across platforms
                 row_first = row.get('first_seen')
@@ -1006,7 +1027,8 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 reverse=True,
             )
 
-            # Compute releasable flag, pass_rate, and source_url per entry
+            # Compute releasable flag, pass_rate, source_url, and
+            # known_issues list per entry
             for data in latest_per_ocp:
                 ov = data['operator_version']
                 data['releasable'] = all(
@@ -1021,6 +1043,13 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                     data['source_url'] = (
                         f'{source_repo_url}/commit/{commit_hash}'
                     )
+                # Build known_issues list from accumulated test IDs
+                kid = data.pop('_known_ids', set())
+                if kid:
+                    data['known_issues'] = [
+                        {'test_id': tid, 'bug': known_issues_map.get(tid, '')}
+                        for tid in sorted(kid)
+                    ]
 
             latest = latest_per_ocp[0]['operator_version'] if latest_per_ocp else None
 
