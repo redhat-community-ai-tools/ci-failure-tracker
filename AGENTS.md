@@ -96,8 +96,13 @@ Most agent work targets the dashboard.
 16. **Case-insensitive HTML regex.** When writing regex patterns that
     match HTML tags (e.g., `<script>`, `<div>`), always include
     `re.IGNORECASE` since HTML tag names are case-insensitive per spec.
-    This prevents CodeQL "Bad HTML filtering regexp" findings and avoids
-    review rework.
+    Use flexible patterns for both opening and closing tags to avoid
+    CodeQL "Bad HTML filtering regexp" findings. Reference pattern for
+    matching script content:
+    `re.compile(r'<\s*script\b[^>]*>(.*?)<\s*/\s*script\b[^>]*>', re.IGNORECASE | re.DOTALL)`.
+    Key elements: `\b[^>]*>` handles attributes and whitespace in both
+    opening and closing tags; `\s*` around `/` handles whitespace in
+    closing tags.
 
 17. **Version comparison.** When sorting or comparing version strings
     (OCP versions like `4.21`, operator versions like `10.0.0-abc`),
