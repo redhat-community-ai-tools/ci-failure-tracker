@@ -259,6 +259,8 @@ tracking:
   # ========================================================================
   blocklist:
     - "OCP-60944"  # Example: Removed from test suite
+    - "OCP-65980"  # Proxy test - known issue OCPBUGS-111093
+    - "OCP-71173"  # Proxy test - known issue OCPBUGS-111093
 
 # Build Health configuration
 build_health:
