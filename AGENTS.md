@@ -125,3 +125,10 @@ Most agent work targets the dashboard.
     is inconclusive, add a `needs-info` label instead of `ready-to-code`
     and explain the uncertainty in the triage summary. A pre-classifier
     that suppresses correct classifications is worse than no change.
+
+20. **No-change justification.** If you determine that no file changes
+    are needed for an issue that was triaged as requiring code, you must
+    include a `no_change_reason` field in `agent-result.json` explaining
+    why. For example: the issue was already resolved by a prior commit,
+    the requested change is out of scope, or the needed change is blocked
+    by a dependency. Do not silently produce zero changes.
