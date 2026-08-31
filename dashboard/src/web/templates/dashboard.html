@@ -1098,6 +1098,16 @@
                     }
                 }
 
+                // Sync overview version to weekly report version filter
+                var overviewVersion = document.getElementById('versionFilter').value;
+                var reportVersionSelect = document.getElementById('reportVersion');
+                for (var i = 0; i < reportVersionSelect.options.length; i++) {
+                    if (reportVersionSelect.options[i].value === overviewVersion) {
+                        reportVersionSelect.value = overviewVersion;
+                        break;
+                    }
+                }
+
                 refreshWeeklyReport();
             } else if (tabName === 'build-health') {
                 invalidateFetchCache();
