@@ -31,7 +31,7 @@ def collector_with_wmco_map():
     return GCSWebCollector({
         'url': 'https://example.com',
         'bucket': 'test',
-        'branch_version_map': {'main': '5.0'},
+        'branch_version_map': {'main': '5.1'},
         'wmco_version_map': {'10': '4', '11': '5'},
         'fbc_default_version': '5.0',
     })
@@ -43,7 +43,7 @@ def collector_with_public_gcsweb():
     return GCSWebCollector({
         'url': 'https://gcsweb-private.example.com',
         'bucket': 'private-bucket',
-        'branch_version_map': {'main': '5.0'},
+        'branch_version_map': {'main': '5.1'},
         'wmco_version_map': {'10': '4', '11': '5'},
         'fbc_default_version': '5.0',
         'postsubmit_gcsweb': {
@@ -494,7 +494,7 @@ class TestExtractMetadataNewPatterns:
             'main-amd64-nightly-aws-ipi-ovn-winc-f7'
         )
         # Periodic job with 'main' should use branch_version_map, not fbc_default
-        assert meta['version'] == '5.0'
+        assert meta['version'] == '5.1'
 
     def test_presubmit_job_extracts_version(self, collector):
         meta = collector._extract_metadata(
