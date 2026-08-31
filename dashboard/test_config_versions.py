@@ -45,3 +45,12 @@ class TestVersion51InConfig:
             'windows-machine-config-operator-release-5.1' in p
             for p in patterns
         )
+
+
+class TestBranchVersionMap:
+    """Config-driven test: assert branch_version_map entries (rule 11)."""
+
+    def test_main_maps_to_5_1(self, config):
+        """branch_version_map maps main to 5.1 (WMCO 11.1.0 = OCP 5.1)."""
+        branch_map = config['tracking']['branch_version_map']
+        assert branch_map['main'] == '5.1'
