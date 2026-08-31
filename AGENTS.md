@@ -146,3 +146,15 @@ Most agent work targets the dashboard.
     why. For example: the issue was already resolved by a prior commit,
     the requested change is out of scope, or the needed change is blocked
     by a dependency. Do not silently produce zero changes.
+
+22. **Accessible interactive UI components.** When adding new interactive
+    elements (dropdowns, menus, modals, popovers) to `dashboard.html`:
+    (a) dropdown/menu trigger buttons must include `aria-haspopup="true"`
+    and an `aria-expanded` attribute toggled between `"true"` and
+    `"false"` by the JavaScript handler, (b) dropdown/menu containers
+    must include `role="menu"` and each item must include
+    `role="menuitem"`, (c) pressing `Escape` must close any open
+    dropdown or menu, and (d) links that open in a new tab
+    (`target="_blank"`) must include `rel="noopener noreferrer"`. These
+    requirements apply to new interactive components; retrofitting
+    existing components (e.g., the export menu) is a separate task.
