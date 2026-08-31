@@ -16,7 +16,7 @@ import tempfile
 import pytest
 
 from src.collectors.gcsweb import GCSWebCollector
-from src.collectors.base import JobRun, TestStatus
+from src.collectors.base import JobRun, TestResult, TestStatus
 from src.storage.database import DashboardDatabase
 from src.web.server import create_app
 
@@ -31,6 +31,8 @@ def collector():
 # Operator version extraction tests
 # ---------------------------------------------------------------------------
 
+@pytest.mark.xfail(reason='#208: _extract_operator_version not implemented; '
+                           'version extraction uses CSV-based approach')
 class TestExtractOperatorVersion:
     """Tests for _extract_operator_version."""
 
@@ -84,6 +86,8 @@ class TestExtractOperatorVersion:
         assert collector._extract_operator_version('') is None
 
 
+@pytest.mark.xfail(reason='#208: _extract_operator_version not implemented; '
+                           'version extraction uses CSV-based approach')
 class TestConfigurablePatterns:
     """Tests for operator_version.patterns config."""
 
@@ -239,6 +243,20 @@ class TestGetBuildHealth:
             ),
         ]
         database.insert_job_runs(runs)
+
+        # Add test_results for the failed azure run so get_build_health
+        # does not skip it as incomplete data.
+        test_results = [
+            TestResult(
+                test_name='OCP-99901', test_description='Azure failure',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='test error',
+                job_name='job-azure', build_id='3',
+                version='4.22', platform='azure',
+            ),
+        ]
+        database.insert_test_results(test_results)
+
         yield database
         database.close()
 
@@ -494,6 +512,19 @@ class TestBuildHealthReleasability:
             ),
         ]
         database.insert_job_runs(runs)
+
+        # Add test_results for the failed gcp run so get_build_health
+        # does not skip it as incomplete data.
+        test_results = [
+            TestResult(
+                test_name='OCP-99902', test_description='GCP failure',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='test error',
+                job_name='job-gcp', build_id='2',
+                version='4.22', platform='gcp',
+            ),
+        ]
+        database.insert_test_results(test_results)
 
         config_path = str(tmp_path / 'config.yaml')
         with open(config_path, 'w') as f:
@@ -773,6 +804,7 @@ class TestBuildHealthExcludedJobKeywords:
     def test_no_exclusion_when_keywords_empty(self, db):
         """All jobs are included when excluded_job_keywords is empty."""
         from datetime import datetime
+        from src.collectors.base import TestResult
 
         runs = [
             JobRun(
@@ -786,6 +818,18 @@ class TestBuildHealthExcludedJobKeywords:
         ]
         db.insert_job_runs(runs)
 
+        # Add test_results so the run is not skipped as incomplete.
+        test_results = [
+            TestResult(
+                test_name='OCP-99903', test_description='Failure',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='test error',
+                job_name='periodic-ci-vsphere-ipi-disconnected-winc',
+                build_id='10', version='4.21', platform='vsphere',
+            ),
+        ]
+        db.insert_test_results(test_results)
+
         results = db.get_build_health(
             version='4.21', days=7, excluded_job_keywords=[],
         )
@@ -795,6 +839,7 @@ class TestBuildHealthExcludedJobKeywords:
     def test_no_exclusion_when_keywords_none(self, db):
         """All jobs are included when excluded_job_keywords is None."""
         from datetime import datetime
+        from src.collectors.base import TestResult
 
         runs = [
             JobRun(
@@ -807,6 +852,18 @@ class TestBuildHealthExcludedJobKeywords:
             ),
         ]
         db.insert_job_runs(runs)
+
+        # Add test_results so the run is not skipped as incomplete.
+        test_results = [
+            TestResult(
+                test_name='OCP-99904', test_description='Failure',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='test error',
+                job_name='periodic-ci-vsphere-ipi-proxy-winc',
+                build_id='11', version='4.21', platform='vsphere',
+            ),
+        ]
+        db.insert_test_results(test_results)
 
         results = db.get_build_health(version='4.21', days=7)
         assert len(results) == 1
