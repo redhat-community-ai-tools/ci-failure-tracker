@@ -219,11 +219,10 @@ tracking:
     - "4.22"
     - "4.23"
     - "5.0"
-    - "5.1"
 
   # Map branch names to versions (e.g., "main" branch jobs map to "5.0")
   branch_version_map:
-    main: "5.1"
+    main: "5.0"
 
   # ========================================================================
   # CUSTOMIZE: Cloud platforms to track for your team
