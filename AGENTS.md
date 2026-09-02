@@ -71,20 +71,31 @@ Most agent work targets the dashboard.
     (e.g., via `yaml.safe_load`) and assert it matches expectations,
     not define its own copy of the expected prefix.
 
-12. **Collector interface.** New collectors must implement the full `BaseCollector`
+12. **Version-mapping readiness verification.** When an issue requests changes
+    to `branch_version_map` or `tracking.versions` in `config.yaml`, the
+    triage agent must ask the reporter to confirm: (a) the target version's
+    CI infrastructure is bootstrapped and actively generating job results,
+    and (b) no blocking tickets exist for the version's operator catalog or
+    test framework setup. If the reporter cannot confirm both, label
+    `needs-info` instead of `ready-to-code` and note the unresolved
+    dependency. The code agent should also check the existing `config.yaml`
+    job patterns for the target version — if no periodic jobs reference the
+    version, that is a signal the infrastructure may not be ready.
+
+13. **Collector interface.** New collectors must implement the full `BaseCollector`
    ABC from `dashboard/src/collectors/base.py`.
 
-13. **Security.** No hardcoded credentials. Use environment variables for secrets.
+14. **Security.** No hardcoded credentials. Use environment variables for secrets.
     Use parameterized SQLite queries.
 
-14. **Filter parameter flow.** When adding or modifying collector methods that
+15. **Filter parameter flow.** When adding or modifying collector methods that
     accept filtering parameters (date ranges, version lists, platform lists),
     verify every filter parameter is either (a) used in a conditional check
     within the method body, or (b) forwarded to a callee that applies it. Do
     not add filter parameters to method signatures without implementing or
     forwarding the filter logic.
 
-15. **Template-embedded JavaScript testing.** String-presence assertions
+16. **Template-embedded JavaScript testing.** String-presence assertions
     (e.g., checking that a function name appears in rendered HTML) are not
     sufficient tests for JavaScript logic embedded in Jinja templates.
     Tests must verify structural correctness: that cache-check logic
@@ -93,7 +104,7 @@ Most agent work targets the dashboard.
     require tests, consider extracting it into a separate `.js` file
     that can be tested independently.
 
-16. **Case-insensitive HTML regex.** When writing regex patterns that
+17. **Case-insensitive HTML regex.** When writing regex patterns that
     match HTML tags (e.g., `<script>`, `<div>`), always include
     `re.IGNORECASE` since HTML tag names are case-insensitive per spec.
     Use flexible patterns for both opening and closing tags to avoid
@@ -104,21 +115,21 @@ Most agent work targets the dashboard.
     opening and closing tags; `\s*` around `/` handles whitespace in
     closing tags.
 
-17. **Version comparison.** When sorting or comparing version strings
+18. **Version comparison.** When sorting or comparing version strings
     (OCP versions like `4.21`, operator versions like `10.0.0-abc`),
     always use semantic version comparison — split on dots and dashes,
     compare numeric components as integers. Never use lexicographic
     string sorting for versions, since `"9.0.0" > "10.0.0"`
     lexicographically but `10.0.0 > 9.0.0` semantically.
 
-18. **Secure error responses.** Never interpolate exception content (`str(e)`,
+19. **Secure error responses.** Never interpolate exception content (`str(e)`,
     `{e}`, `e.args`) into HTTP/API responses. Return a static, generic error
     message to the client (e.g., `'Failed to create Jira issue'`) and log
     the full exception server-side via `logger.error()` or `logger.exception()`.
     This prevents CodeQL CWE-209 "Information exposure through an exception"
     findings and avoids review rework.
 
-19. **AI classification claims.** When an issue claims the AI analyzer
+20. **AI classification claims.** When an issue claims the AI analyzer
     incorrectly classifies a failure type (e.g., product_bug vs
     automation_bug), the triage agent must verify the claim before
     labeling ready-to-code. Verification means: (a) examine the actual
@@ -131,7 +142,7 @@ Most agent work targets the dashboard.
     and explain the uncertainty in the triage summary. A pre-classifier
     that suppresses correct classifications is worse than no change.
 
-20. **Client-side HTML escaping.** When interpolating any data into
+21. **Client-side HTML escaping.** When interpolating any data into
     `innerHTML`, template literals used for DOM insertion, or
     `onclick`/event-handler attribute strings in `dashboard.html`,
     always pass the value through `escapeHtml()` first. For URL values
@@ -140,7 +151,7 @@ Most agent work targets the dashboard.
     at the top of the main `<script>` block in `dashboard.html` — use
     it, do not redefine it locally.
 
-21. **No-change justification.** If you determine that no file changes
+22. **No-change justification.** If you determine that no file changes
     are needed for an issue that was triaged as requiring code, you must
     include a `no_change_reason` field in `agent-result.json` explaining
     why. For example: the issue was already resolved by a prior commit,
