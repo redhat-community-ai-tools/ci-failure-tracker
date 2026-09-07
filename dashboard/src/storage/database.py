@@ -1155,6 +1155,89 @@ class DashboardDatabase:
         self.conn.commit()
         return cursor.rowcount
 
+    def get_build_health_impact(self, version=None, days=7, threshold=90.0,
+                                blocklist=None, excluded_job_keywords=None):
+        """Get tests below a pass rate threshold with build impact data.
+
+        Returns per-test aggregation showing which tests are responsible
+        for dragging down build health, with platform breakdown and
+        failed-build count.
+
+        Args:
+            version: OCP version filter
+            days: Number of days to look back
+            threshold: Pass rate threshold; tests below this are returned
+            blocklist: List of test ID prefixes to exclude
+            excluded_job_keywords: Job name keywords to exclude
+                (e.g. proxy, disconnected)
+
+        Returns:
+            List of dicts with keys: test_name, test_description,
+            total_runs, passed_runs, failed_runs, pass_rate,
+            total_platforms, failed_platforms, failed_platform_list,
+            failed_build_count
+        """
+        cursor = self.conn.cursor()
+
+        query = """
+            SELECT
+                test_name,
+                MAX(test_description) AS test_description,
+                COUNT(*) AS total_runs,
+                SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END)
+                    AS passed_runs,
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)
+                    AS failed_runs,
+                CAST(SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END)
+                     AS REAL) / COUNT(*) * 100 AS pass_rate,
+                COUNT(DISTINCT platform) AS total_platforms,
+                COUNT(DISTINCT CASE WHEN status = 'failed'
+                      THEN platform END) AS failed_platforms,
+                GROUP_CONCAT(DISTINCT CASE WHEN status = 'failed'
+                             THEN platform END) AS failed_platform_list,
+                COUNT(DISTINCT CASE WHEN status = 'failed'
+                      THEN job_name || '|' || build_id END)
+                    AS failed_build_count
+            FROM test_results
+            WHERE timestamp >= datetime('now', ? || ' days')
+              AND status != 'skipped'
+              AND test_name LIKE 'OCP-%'
+        """
+        params: list = [f'-{days}']
+
+        if version:
+            query += " AND version = ?"
+            params.append(version)
+
+        if excluded_job_keywords:
+            for keyword in excluded_job_keywords:
+                query += " AND LOWER(job_name) NOT LIKE ?"
+                params.append(f'%{keyword.lower()}%')
+
+        if blocklist:
+            for test_id in blocklist:
+                query += " AND test_name NOT LIKE ?"
+                params.append(f"{test_id}%")
+
+        query += """
+            GROUP BY test_name
+            HAVING pass_rate < ?
+            ORDER BY pass_rate ASC
+        """
+        params.append(threshold)
+
+        cursor.execute(query, params)
+        results = []
+        for row in cursor.fetchall():
+            entry = dict(row)
+            fpl = entry.get('failed_platform_list')
+            entry['failed_platform_list'] = (
+                sorted(fpl.split(',')) if fpl else []
+            )
+            results.append(entry)
+
+        return results
+
     def close(self):
         """Close database connection"""
         self.conn.close()
