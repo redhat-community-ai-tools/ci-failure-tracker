@@ -1748,3 +1748,592 @@ class TestBuildHealthDetailsAPI:
             assert data['error'] == 'An internal error has occurred.'
 
         database.close()
+
+
+# ---------------------------------------------------------------------------
+# Build Health Impact tests
+# ---------------------------------------------------------------------------
+
+class TestGetBuildHealthImpact:
+    """Tests for DashboardDatabase.get_build_health_impact."""
+
+    @pytest.fixture
+    def db_with_impact_data(self, tmp_path):
+        """Create a database with test results at various pass rates."""
+        from datetime import datetime
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        # Create job runs
+        runs = [
+            JobRun(
+                job_name='job-aws', build_id='1',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='5.0', platform='aws',
+                total_tests=10, passed_tests=8, failed_tests=2,
+                skipped_tests=0, operator_version='11.0.0-aaa111',
+            ),
+            JobRun(
+                job_name='job-gcp', build_id='2',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='5.0', platform='gcp',
+                total_tests=10, passed_tests=8, failed_tests=2,
+                skipped_tests=0, operator_version='11.0.0-aaa111',
+            ),
+            JobRun(
+                job_name='job-azure', build_id='3',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='5.0', platform='azure',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='11.0.0-aaa111',
+            ),
+            JobRun(
+                job_name='job-aws-2', build_id='4',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='5.0', platform='aws',
+                total_tests=10, passed_tests=8, failed_tests=2,
+                skipped_tests=0, operator_version='11.0.0-aaa111',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        # OCP-11111: fails on aws (2 builds) + gcp (1 build) = 60% pass rate
+        # Runs: aws build1 fail, gcp build2 fail, azure build3 pass,
+        #        aws build4 fail, gcp pass
+        test_results = [
+            # OCP-11111 failures on aws and gcp
+            TestResult(
+                test_name='OCP-11111', test_description='Flaky test A',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='timeout',
+                job_name='job-aws', build_id='1',
+                version='5.0', platform='aws',
+            ),
+            TestResult(
+                test_name='OCP-11111', test_description='Flaky test A',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='timeout',
+                job_name='job-gcp', build_id='2',
+                version='5.0', platform='gcp',
+            ),
+            TestResult(
+                test_name='OCP-11111', test_description='Flaky test A',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=10, error_message=None,
+                job_name='job-azure', build_id='3',
+                version='5.0', platform='azure',
+            ),
+            TestResult(
+                test_name='OCP-11111', test_description='Flaky test A',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='timeout',
+                job_name='job-aws-2', build_id='4',
+                version='5.0', platform='aws',
+            ),
+            TestResult(
+                test_name='OCP-11111', test_description='Flaky test A',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=10, error_message=None,
+                job_name='job-gcp', build_id='5',
+                version='5.0', platform='gcp',
+            ),
+            # OCP-22222: 100% pass rate (should NOT appear)
+            TestResult(
+                test_name='OCP-22222', test_description='Good test',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=10, error_message=None,
+                job_name='job-aws', build_id='1',
+                version='5.0', platform='aws',
+            ),
+            TestResult(
+                test_name='OCP-22222', test_description='Good test',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=10, error_message=None,
+                job_name='job-gcp', build_id='2',
+                version='5.0', platform='gcp',
+            ),
+            # OCP-33333: fails on ALL platforms = systematic (0% pass rate)
+            TestResult(
+                test_name='OCP-33333', test_description='Systematic fail',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='assert error',
+                job_name='job-aws', build_id='1',
+                version='5.0', platform='aws',
+            ),
+            TestResult(
+                test_name='OCP-33333', test_description='Systematic fail',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='assert error',
+                job_name='job-gcp', build_id='2',
+                version='5.0', platform='gcp',
+            ),
+            TestResult(
+                test_name='OCP-33333', test_description='Systematic fail',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='assert error',
+                job_name='job-azure', build_id='3',
+                version='5.0', platform='azure',
+            ),
+        ]
+        database.insert_test_results(test_results)
+
+        yield database
+        database.close()
+
+    def test_returns_low_pass_rate_tests(self, db_with_impact_data):
+        """Tests below threshold are returned."""
+        rows = db_with_impact_data.get_build_health_impact(
+            version='5.0', days=7, threshold=90.0,
+        )
+        test_names = {r['test_name'] for r in rows}
+        assert 'OCP-11111' in test_names
+        assert 'OCP-33333' in test_names
+
+    def test_excludes_high_pass_rate_tests(self, db_with_impact_data):
+        """Tests at or above threshold are excluded."""
+        rows = db_with_impact_data.get_build_health_impact(
+            version='5.0', days=7, threshold=90.0,
+        )
+        test_names = {r['test_name'] for r in rows}
+        assert 'OCP-22222' not in test_names
+
+    def test_pass_rate_calculation(self, db_with_impact_data):
+        """Pass rate is calculated correctly."""
+        rows = db_with_impact_data.get_build_health_impact(
+            version='5.0', days=7, threshold=90.0,
+        )
+        systematic = [r for r in rows if r['test_name'] == 'OCP-33333']
+        assert len(systematic) == 1
+        assert systematic[0]['pass_rate'] == 0.0
+        assert systematic[0]['total_runs'] == 3
+        assert systematic[0]['failed_runs'] == 3
+
+    def test_failed_build_count(self, db_with_impact_data):
+        """failed_build_count counts distinct builds with failures."""
+        rows = db_with_impact_data.get_build_health_impact(
+            version='5.0', days=7, threshold=90.0,
+        )
+        flaky = [r for r in rows if r['test_name'] == 'OCP-11111']
+        assert len(flaky) == 1
+        # Failed in build 1 (aws), build 2 (gcp), build 4 (aws) = 3
+        assert flaky[0]['failed_build_count'] == 3
+
+    def test_platform_breakdown(self, db_with_impact_data):
+        """Platform breakdown lists all platforms where test failed."""
+        rows = db_with_impact_data.get_build_health_impact(
+            version='5.0', days=7, threshold=90.0,
+        )
+        flaky = [r for r in rows if r['test_name'] == 'OCP-11111']
+        assert len(flaky) == 1
+        assert sorted(flaky[0]['failed_platform_list']) == ['aws', 'gcp']
+        # total_platforms=3 (aws, gcp, azure), failed_platforms=2
+        assert flaky[0]['total_platforms'] == 3
+        assert flaky[0]['failed_platforms'] == 2
+
+    def test_systematic_has_all_platforms_failing(self, db_with_impact_data):
+        """Systematic test fails on all platforms it runs on."""
+        rows = db_with_impact_data.get_build_health_impact(
+            version='5.0', days=7, threshold=90.0,
+        )
+        systematic = [r for r in rows if r['test_name'] == 'OCP-33333']
+        assert len(systematic) == 1
+        assert systematic[0]['failed_platforms'] == systematic[0]['total_platforms']
+
+    def test_flaky_has_fewer_failed_platforms(self, db_with_impact_data):
+        """Flaky test fails on fewer platforms than it runs on."""
+        rows = db_with_impact_data.get_build_health_impact(
+            version='5.0', days=7, threshold=90.0,
+        )
+        flaky = [r for r in rows if r['test_name'] == 'OCP-11111']
+        assert len(flaky) == 1
+        assert flaky[0]['failed_platforms'] < flaky[0]['total_platforms']
+
+    def test_blocklist_excludes_tests(self, db_with_impact_data):
+        """Blocklisted tests are excluded from results."""
+        rows = db_with_impact_data.get_build_health_impact(
+            version='5.0', days=7, threshold=90.0,
+            blocklist=['OCP-11111'],
+        )
+        test_names = {r['test_name'] for r in rows}
+        assert 'OCP-11111' not in test_names
+        assert 'OCP-33333' in test_names
+
+    def test_excluded_job_keywords_filter(self, tmp_path):
+        """Tests from excluded jobs are not counted."""
+        from datetime import datetime
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        runs = [
+            JobRun(
+                job_name='periodic-ci-vsphere-proxy-winc',
+                build_id='1',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='5.0', platform='vsphere',
+                total_tests=10, passed_tests=8, failed_tests=2,
+                skipped_tests=0, operator_version='11.0.0-aaa111',
+            ),
+            JobRun(
+                job_name='periodic-ci-aws-ipi-winc',
+                build_id='2',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='5.0', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='11.0.0-aaa111',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        test_results = [
+            TestResult(
+                test_name='OCP-44444', test_description='Proxy-only fail',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='proxy error',
+                job_name='periodic-ci-vsphere-proxy-winc', build_id='1',
+                version='5.0', platform='vsphere',
+            ),
+            TestResult(
+                test_name='OCP-44444', test_description='Proxy-only fail',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=10, error_message=None,
+                job_name='periodic-ci-aws-ipi-winc', build_id='2',
+                version='5.0', platform='aws',
+            ),
+        ]
+        database.insert_test_results(test_results)
+
+        # Without exclusion: 50% pass rate -> below 90% -> returned
+        rows = database.get_build_health_impact(
+            version='5.0', days=7, threshold=90.0,
+        )
+        assert any(r['test_name'] == 'OCP-44444' for r in rows)
+
+        # With proxy excluded: only aws run remains, 100% pass rate
+        rows = database.get_build_health_impact(
+            version='5.0', days=7, threshold=90.0,
+            excluded_job_keywords=['proxy'],
+        )
+        assert not any(r['test_name'] == 'OCP-44444' for r in rows)
+
+        database.close()
+
+    def test_empty_result_when_all_pass(self, tmp_path):
+        """Returns empty list when all tests are above threshold."""
+        from datetime import datetime
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        runs = [
+            JobRun(
+                job_name='job-aws', build_id='1',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='5.0', platform='aws',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='11.0.0-aaa111',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        test_results = [
+            TestResult(
+                test_name='OCP-55555', test_description='All pass',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=10, error_message=None,
+                job_name='job-aws', build_id='1',
+                version='5.0', platform='aws',
+            ),
+        ]
+        database.insert_test_results(test_results)
+
+        rows = database.get_build_health_impact(
+            version='5.0', days=7, threshold=90.0,
+        )
+        assert rows == []
+
+        database.close()
+
+    def test_ordered_by_pass_rate_ascending(self, db_with_impact_data):
+        """Results are ordered worst pass rate first."""
+        rows = db_with_impact_data.get_build_health_impact(
+            version='5.0', days=7, threshold=90.0,
+        )
+        pass_rates = [r['pass_rate'] for r in rows]
+        assert pass_rates == sorted(pass_rates)
+
+
+class TestBuildHealthImpactAPI:
+    """Tests for /api/build-health-impact endpoint."""
+
+    @pytest.fixture
+    def client_with_impact(self, tmp_path):
+        """Create a Flask test client with test data for impact view."""
+        from datetime import datetime
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        runs = [
+            JobRun(
+                job_name='job-aws', build_id='1',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='5.0', platform='aws',
+                total_tests=10, passed_tests=8, failed_tests=2,
+                skipped_tests=0, operator_version='11.0.0-aaa111',
+            ),
+            JobRun(
+                job_name='job-gcp', build_id='2',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='5.0', platform='gcp',
+                total_tests=10, passed_tests=8, failed_tests=2,
+                skipped_tests=0, operator_version='11.0.0-aaa111',
+            ),
+            JobRun(
+                job_name='job-azure', build_id='3',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=100, version='5.0', platform='azure',
+                total_tests=10, passed_tests=10, failed_tests=0,
+                skipped_tests=0, operator_version='11.0.0-aaa111',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        test_results = [
+            # OCP-76765: fails on aws + gcp, passes on azure = flaky
+            TestResult(
+                test_name='OCP-76765', test_description='Flaky test',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='timeout',
+                job_name='job-aws', build_id='1',
+                version='5.0', platform='aws',
+            ),
+            TestResult(
+                test_name='OCP-76765', test_description='Flaky test',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='timeout',
+                job_name='job-gcp', build_id='2',
+                version='5.0', platform='gcp',
+            ),
+            TestResult(
+                test_name='OCP-76765', test_description='Flaky test',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=10, error_message=None,
+                job_name='job-azure', build_id='3',
+                version='5.0', platform='azure',
+            ),
+            # OCP-50924: fails on ALL 3 platforms = systematic
+            TestResult(
+                test_name='OCP-50924', test_description='Systematic fail',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='assert error',
+                job_name='job-aws', build_id='1',
+                version='5.0', platform='aws',
+            ),
+            TestResult(
+                test_name='OCP-50924', test_description='Systematic fail',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='assert error',
+                job_name='job-gcp', build_id='2',
+                version='5.0', platform='gcp',
+            ),
+            TestResult(
+                test_name='OCP-50924', test_description='Systematic fail',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='assert error',
+                job_name='job-azure', build_id='3',
+                version='5.0', platform='azure',
+            ),
+            # OCP-99999: 100% pass rate - should not appear
+            TestResult(
+                test_name='OCP-99999', test_description='Good test',
+                status=TestStatus.PASSED, timestamp=datetime.now(),
+                duration_seconds=10, error_message=None,
+                job_name='job-aws', build_id='1',
+                version='5.0', platform='aws',
+            ),
+        ]
+        database.insert_test_results(test_results)
+
+        config_path = str(tmp_path / 'config.yaml')
+        with open(config_path, 'w') as f:
+            f.write(
+                'tracking:\n'
+                '  versions: ["5.0"]\n'
+                '  platforms: ["aws","gcp","azure"]\n'
+                '  blocklist: []\n'
+                'build_health:\n'
+                '  excluded_job_keywords: []\n'
+                '  excluded_test_ids: []\n'
+            )
+
+        app = create_app(db_path, config_file=config_path)
+        app.config['TESTING'] = True
+        with app.test_client() as client:
+            yield client
+
+        database.close()
+
+    def test_returns_impact_data(self, client_with_impact):
+        """Endpoint returns tests below threshold."""
+        resp = client_with_impact.get(
+            '/api/build-health-impact?version=5.0&days=7'
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert 'tests' in data
+        assert 'threshold' in data
+        assert data['threshold'] == 90.0
+
+        test_names = {t['test_name'] for t in data['tests']}
+        assert 'OCP-76765' in test_names
+        assert 'OCP-50924' in test_names
+        assert 'OCP-99999' not in test_names
+
+    def test_systematic_classification(self, client_with_impact):
+        """Tests failing on all platforms are classified as systematic."""
+        resp = client_with_impact.get(
+            '/api/build-health-impact?version=5.0&days=7'
+        )
+        data = resp.get_json()
+        systematic = [
+            t for t in data['tests']
+            if t['test_name'] == 'OCP-50924'
+        ]
+        assert len(systematic) == 1
+        assert systematic[0]['classification'] == 'systematic'
+
+    def test_flaky_classification(self, client_with_impact):
+        """Tests failing on some but not all platforms are flaky."""
+        resp = client_with_impact.get(
+            '/api/build-health-impact?version=5.0&days=7'
+        )
+        data = resp.get_json()
+        flaky = [
+            t for t in data['tests']
+            if t['test_name'] == 'OCP-76765'
+        ]
+        assert len(flaky) == 1
+        assert flaky[0]['classification'] == 'flaky'
+
+    def test_platform_breakdown_in_response(self, client_with_impact):
+        """Response includes platform breakdown for each test."""
+        resp = client_with_impact.get(
+            '/api/build-health-impact?version=5.0&days=7'
+        )
+        data = resp.get_json()
+        flaky = [
+            t for t in data['tests']
+            if t['test_name'] == 'OCP-76765'
+        ]
+        assert len(flaky) == 1
+        assert sorted(flaky[0]['failed_platform_list']) == ['aws', 'gcp']
+        assert flaky[0]['total_platforms'] == 3
+        assert flaky[0]['failed_platforms'] == 2
+
+    def test_failed_build_count_in_response(self, client_with_impact):
+        """Response includes failed_build_count per test."""
+        resp = client_with_impact.get(
+            '/api/build-health-impact?version=5.0&days=7'
+        )
+        data = resp.get_json()
+        systematic = [
+            t for t in data['tests']
+            if t['test_name'] == 'OCP-50924'
+        ]
+        assert len(systematic) == 1
+        # OCP-50924 failed in 3 distinct builds (build 1, 2, 3)
+        assert systematic[0]['failed_build_count'] == 3
+
+    def test_custom_threshold(self, client_with_impact):
+        """Custom threshold filters differently."""
+        # OCP-76765 has 33.3% pass rate, OCP-50924 has 0%
+        # threshold=50 should return both (both below 50%)
+        resp = client_with_impact.get(
+            '/api/build-health-impact?version=5.0&days=7&threshold=50'
+        )
+        data = resp.get_json()
+        test_names = {t['test_name'] for t in data['tests']}
+        assert 'OCP-50924' in test_names
+        assert 'OCP-76765' in test_names
+
+        # threshold=10 should only include tests below 10%
+        resp = client_with_impact.get(
+            '/api/build-health-impact?version=5.0&days=7&threshold=10'
+        )
+        data = resp.get_json()
+        test_names = {t['test_name'] for t in data['tests']}
+        assert 'OCP-50924' in test_names
+        assert 'OCP-76765' not in test_names
+
+    def test_returns_json_on_error(self, tmp_path, monkeypatch):
+        """Endpoint returns JSON even when DB query fails."""
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        config_path = str(tmp_path / 'config.yaml')
+        with open(config_path, 'w') as f:
+            f.write(
+                'tracking:\n'
+                '  versions: []\n'
+                '  platforms: []\n'
+                '  blocklist: []\n'
+            )
+
+        app = create_app(db_path, config_file=config_path)
+        app.config['TESTING'] = True
+
+        def broken_query(*args, **kwargs):
+            raise Exception("simulated database error")
+
+        monkeypatch.setattr(
+            "storage.database.DashboardDatabase.get_build_health_impact",
+            broken_query,
+        )
+
+        with app.test_client() as client:
+            resp = client.get('/api/build-health-impact?version=5.0')
+            assert resp.status_code == 500
+            assert resp.content_type == 'application/json'
+            data = resp.get_json()
+            assert data['error'] == 'An internal error has occurred.'
+
+        database.close()
+
+    def test_empty_database_returns_empty(self, tmp_path):
+        """Returns empty tests list when database has no data."""
+        db_path = str(tmp_path / 'empty.db')
+        database = DashboardDatabase(db_path)
+
+        config_path = str(tmp_path / 'config.yaml')
+        with open(config_path, 'w') as f:
+            f.write(
+                'tracking:\n'
+                '  versions: ["5.0"]\n'
+                '  platforms: ["aws"]\n'
+                '  blocklist: []\n'
+            )
+
+        app = create_app(db_path, config_file=config_path)
+        app.config['TESTING'] = True
+
+        with app.test_client() as client:
+            resp = client.get(
+                '/api/build-health-impact?version=5.0&days=7'
+            )
+            assert resp.status_code == 200
+            data = resp.get_json()
+            assert data['tests'] == []
+
+        database.close()
+
+    def test_response_includes_metadata(self, client_with_impact):
+        """Response includes threshold, version, and days metadata."""
+        resp = client_with_impact.get(
+            '/api/build-health-impact?version=5.0&days=14&threshold=85'
+        )
+        data = resp.get_json()
+        assert data['threshold'] == 85.0
+        assert data['version'] == '5.0'
+        assert data['days'] == 14

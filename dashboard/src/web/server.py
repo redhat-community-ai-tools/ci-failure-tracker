@@ -1095,6 +1095,48 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             )
             return jsonify({'error': 'An internal error has occurred.'}), 500
 
+    @app.route('/api/build-health-impact')
+    def api_build_health_impact():
+        """Get tests below a pass rate threshold that drag down build health.
+
+        Returns per-test aggregation with platform breakdown and
+        systematic/flaky classification so users can see which tests
+        are responsible for the gap between test pass rate and build
+        health.
+        """
+        try:
+            days = request.args.get('days', 7, type=int)
+            version = normalize_version(request.args.get('version'))
+            threshold = request.args.get('threshold', 90.0, type=float)
+
+            rows = db.get_build_health_impact(
+                version=version,
+                days=days,
+                threshold=threshold,
+                blocklist=blocklist,
+                excluded_job_keywords=excluded_job_keywords,
+            )
+
+            for row in rows:
+                total_p = row['total_platforms']
+                failed_p = row['failed_platforms']
+                if total_p > 0 and failed_p >= total_p:
+                    row['classification'] = 'systematic'
+                else:
+                    row['classification'] = 'flaky'
+
+            return jsonify({
+                'tests': rows,
+                'threshold': threshold,
+                'version': version,
+                'days': days,
+            })
+        except Exception as e:
+            logger.error(
+                "Build health impact query failed: %s", e, exc_info=True
+            )
+            return jsonify({'error': 'An internal error has occurred.'}), 500
+
     @app.route('/api/platform-tests')
     def api_platform_tests():
         """Get test results for a specific platform"""
