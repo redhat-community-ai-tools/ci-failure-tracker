@@ -33,7 +33,7 @@ def collector_with_wmco_map():
         'bucket': 'test',
         'branch_version_map': {'main': '5.1'},
         'wmco_version_map': {'10': '4', '11': '5'},
-        'fbc_default_version': '5.0',
+        'fbc_default_version': '5.1',
     })
 
 
@@ -45,7 +45,7 @@ def collector_with_public_gcsweb():
         'bucket': 'private-bucket',
         'branch_version_map': {'main': '5.1'},
         'wmco_version_map': {'10': '4', '11': '5'},
-        'fbc_default_version': '5.0',
+        'fbc_default_version': '5.1',
         'postsubmit_gcsweb': {
             'url': 'https://gcsweb-public.example.com',
             'bucket': 'public-bucket',
@@ -484,7 +484,7 @@ class TestExtractMetadataNewPatterns:
         )
         # No v\d+-\d+ or release-X.Y; fbc_default_version takes precedence
         # over branch_version_map for FBC postsubmit jobs.
-        assert meta['version'] == '5.0'
+        assert meta['version'] == '5.1'
         assert meta['platform'] == 'aws'
 
     def test_fbc_default_version_not_applied_to_periodic(self, collector_with_wmco_map):
@@ -1038,16 +1038,16 @@ class TestPublicGCSWebSource:
             '/gcs/private-bucket/logs/periodic-ci-winc-aws/')
 
     def test_fbc_version_50(self, collector_with_public_gcsweb):
-        """FBC postsubmit without version segment uses 5.0."""
+        """FBC postsubmit without version segment uses 5.1."""
         meta = collector_with_public_gcsweb._extract_metadata(
             'branch-ci-openshift-windows-machine-config-operator-'
             'fbc-main-aws-ipi-ovn-winc')
-        assert meta['version'] == '5.0'
+        assert meta['version'] == '5.1'
         assert meta['platform'] == 'aws'
 
     def test_fbc_version_50_all_platforms(
             self, collector_with_public_gcsweb):
-        """All 7 FBC postsubmit job names should resolve to 5.0."""
+        """All 7 FBC postsubmit job names should resolve to 5.1."""
         jobs = [
             'branch-ci-openshift-windows-machine-config-operator-'
             'fbc-main-aws-ipi-ovn-winc',
@@ -1066,7 +1066,7 @@ class TestPublicGCSWebSource:
         ]
         for job in jobs:
             meta = collector_with_public_gcsweb._extract_metadata(job)
-            assert meta['version'] == '5.0', f'{job} -> {meta}'
+            assert meta['version'] == '5.1', f'{job} -> {meta}'
 
     def test_negative_non_fbc_not_tracked_as_public(
             self, collector_with_public_gcsweb):
@@ -1294,7 +1294,7 @@ class TestFbcPrefixBreadth:
         )
         # No v\d+-\d+ segment and no release-X.Y, so
         # fbc_default_version applies.
-        assert meta['version'] == '5.0'
+        assert meta['version'] == '5.1'
         assert meta['platform'] == 'aws'
 
 

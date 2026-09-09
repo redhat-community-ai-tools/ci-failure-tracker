@@ -154,8 +154,8 @@ collector:
 
     # Default OCP version for FBC postsubmit jobs that have no v10-XX
     # variant in the job name (e.g., fbc-main-aws-winc).  These jobs
-    # target OCP 5.0 (ci-operator config uses version: "5.0").
-    fbc_default_version: "5.0"
+    # target OCP 5.1 (main branch builds WMCO 11.x for OCP 5.x).
+    fbc_default_version: "5.1"
 
     # Public gcsweb instance for postsubmit jobs from public repos.
     # FBC postsubmit jobs (openshift/windows-machine-config-operator-fbc)
