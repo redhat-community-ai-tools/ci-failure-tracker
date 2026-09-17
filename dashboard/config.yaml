@@ -162,7 +162,7 @@ collector:
     # are in the public origin-ci-test bucket, not qe-private-deck.
     postsubmit_gcsweb:
       url: "https://gcsweb-ci.apps.ci.l2s4.p1.openshiftapps.com"
-      bucket: "test-platform-results"
+      bucket: "test-platform-results-public"
       deck_url: "https://prow.ci.openshift.org"
 
     # How many recent builds to fetch per job (reduced for initial testing)
