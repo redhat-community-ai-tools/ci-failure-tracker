@@ -54,3 +54,19 @@ class TestBranchVersionMap:
         """branch_version_map maps main to 5.1 (WMCO 11.1.0 = OCP 5.1)."""
         branch_map = config['tracking']['branch_version_map']
         assert branch_map['main'] == '5.1'
+
+
+class TestPostsubmitBucket:
+    """Config-driven test: postsubmit bucket must be public (rule 11)."""
+
+    def test_postsubmit_bucket_is_public(self, config):
+        """postsubmit_gcsweb.bucket must be the public bucket.
+
+        FBC postsubmit jobs are in the public origin-ci-test / test-platform-
+        results-public bucket.  Anonymous access to the private bucket returns
+        HTTP 401, preventing job discovery.
+        """
+        bucket = config['collector']['gcsweb']['postsubmit_gcsweb']['bucket']
+        assert bucket == 'test-platform-results-public', (
+            f"FBC postsubmit bucket must be public; got '{bucket}'"
+        )
