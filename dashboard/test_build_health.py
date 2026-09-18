@@ -1959,6 +1959,67 @@ class TestGetBuildHealthImpact:
         assert 'OCP-11111' not in test_names
         assert 'OCP-33333' in test_names
 
+    def test_blocklist_does_not_exclude_adjacent_ids(self, tmp_path):
+        """Verify OCP-111110 is NOT excluded when OCP-11111 is blocklisted."""
+        from datetime import datetime
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        runs = [
+            JobRun(
+                job_name='job-aws', build_id='1',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=100, version='5.0', platform='aws',
+                total_tests=10, passed_tests=7, failed_tests=3,
+                skipped_tests=0, operator_version='11.0.0-aaa111',
+            ),
+        ]
+        database.insert_job_runs(runs)
+
+        test_results = [
+            # OCP-11111: should be excluded by blocklist
+            TestResult(
+                test_name='OCP-11111', test_description='Blocklisted test',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='error',
+                job_name='job-aws', build_id='1',
+                version='5.0', platform='aws',
+            ),
+            # OCP-11111:author:foo: colon-delimited variant, should also
+            # be excluded
+            TestResult(
+                test_name='OCP-11111:author:foo',
+                test_description='Blocklisted variant',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='error',
+                job_name='job-aws', build_id='1',
+                version='5.0', platform='aws',
+            ),
+            # OCP-111110: adjacent ID, must NOT be excluded
+            TestResult(
+                test_name='OCP-111110', test_description='Adjacent ID',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='different error',
+                job_name='job-aws', build_id='1',
+                version='5.0', platform='aws',
+            ),
+        ]
+        database.insert_test_results(test_results)
+
+        rows = database.get_build_health_impact(
+            version='5.0', days=7, threshold=90.0,
+            blocklist=['OCP-11111'],
+        )
+        test_names = {r['test_name'] for r in rows}
+        # OCP-11111 and its colon variant should be excluded
+        assert 'OCP-11111' not in test_names
+        assert 'OCP-11111:author:foo' not in test_names
+        # Adjacent ID must NOT be excluded
+        assert 'OCP-111110' in test_names
+
+        database.close()
+
     def test_excluded_job_keywords_filter(self, tmp_path):
         """Tests from excluded jobs are not counted."""
         from datetime import datetime
@@ -2337,3 +2398,63 @@ class TestBuildHealthImpactAPI:
         assert data['threshold'] == 85.0
         assert data['version'] == '5.0'
         assert data['days'] == 14
+
+
+# ---------------------------------------------------------------------------
+# Blocklist boundary tests (get_test_pass_rates)
+# ---------------------------------------------------------------------------
+
+class TestBlocklistBoundaryPassRates:
+    """Verify blocklist in get_test_pass_rates excludes exact ID and
+    colon-delimited variants but not adjacent IDs like OCP-111110."""
+
+    def test_blocklist_does_not_exclude_adjacent_ids(self, tmp_path):
+        """OCP-111110 is NOT excluded when OCP-11111 is blocklisted."""
+        from datetime import datetime, timedelta
+
+        db_path = str(tmp_path / 'test.db')
+        database = DashboardDatabase(db_path)
+
+        now = datetime.now()
+        start = now - timedelta(days=7)
+
+        test_results = [
+            # OCP-11111: should be excluded by blocklist
+            TestResult(
+                test_name='OCP-11111', test_description='Blocklisted',
+                status=TestStatus.FAILED, timestamp=now,
+                duration_seconds=10, error_message='error',
+                job_name='job-aws', build_id='1',
+                version='5.0', platform='aws',
+            ),
+            # OCP-11111:author:foo: colon variant, also excluded
+            TestResult(
+                test_name='OCP-11111:author:foo',
+                test_description='Blocklisted variant',
+                status=TestStatus.FAILED, timestamp=now,
+                duration_seconds=10, error_message='error',
+                job_name='job-aws', build_id='1',
+                version='5.0', platform='aws',
+            ),
+            # OCP-111110: adjacent ID, must NOT be excluded
+            TestResult(
+                test_name='OCP-111110',
+                test_description='Adjacent ID test',
+                status=TestStatus.FAILED, timestamp=now,
+                duration_seconds=10, error_message='different error',
+                job_name='job-aws', build_id='1',
+                version='5.0', platform='aws',
+            ),
+        ]
+        database.insert_test_results(test_results)
+
+        rows = database.get_test_pass_rates(
+            start_date=start, end_date=now,
+            version='5.0', blocklist=['OCP-11111'],
+        )
+        test_names = {r['test_name'] for r in rows}
+        assert 'OCP-11111' not in test_names
+        assert 'OCP-11111:author:foo' not in test_names
+        assert 'OCP-111110' in test_names
+
+        database.close()
