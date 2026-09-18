@@ -38,10 +38,13 @@ Most agent work targets the dashboard.
    tests exist for the changed module, create a test file.
 
 8. **False-positive testing.** When writing pattern-matching logic (regex,
-   string matching, classifiers), always include negative test cases that
-   verify similar-but-incorrect inputs are NOT matched. For pre-classifiers
-   that skip AI analysis, test that non-matching failure messages still fall
-   through to AI.
+   string matching, SQL LIKE/GLOB wildcards, classifiers), always include
+   negative test cases that verify similar-but-incorrect inputs are NOT
+   matched. For SQL LIKE patterns using prefix wildcards (e.g.,
+   `test_name LIKE 'OCP-11111%'`), test that adjacent IDs (e.g.,
+   `OCP-111110`) are not incorrectly matched. For pre-classifiers
+   that skip AI analysis, test that non-matching failure messages still
+   fall through to AI.
 
 9. **Config safety.** Changes to `config.yaml` must be backwards-compatible.
    New keys must have defaults. Never rename or remove existing keys.
