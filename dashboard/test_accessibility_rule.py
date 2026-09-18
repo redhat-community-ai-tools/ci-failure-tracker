@@ -1,6 +1,6 @@
 """Verify AGENTS.md includes accessibility requirements for interactive UI.
 
-This test ensures AGENTS.md rule 22 contains the required accessibility
+This test ensures AGENTS.md rule 23 contains the required accessibility
 keywords so that agents producing interactive UI components in
 dashboard.html include proper ARIA attributes and keyboard handlers.
 """
