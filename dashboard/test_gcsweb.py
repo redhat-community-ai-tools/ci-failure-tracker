@@ -9,11 +9,13 @@ PR job names, job type derivation, and PR log path construction.
 """
 
 import logging
+import os
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
 
 import pytest
+import yaml
 
 from src.collectors.gcsweb import GCSWebCollector
 from src.collectors.base import TestStatus
@@ -1544,3 +1546,42 @@ class TestPublicContinuity:
                 "/gcs/public-bucket/logs/fbc-job/1/finished.json")
 
         assert result == b'{"result": "SUCCESS"}'
+
+
+class TestFbcDefaultVersionMatchesConfig:
+    """Config-loading integration test for fbc_default_version.
+
+    Ensures fbc_default_version in config.yaml matches expectations
+    and that GcswebCollector uses it correctly (AGENTS.md rule 11).
+    """
+
+    @pytest.fixture
+    def config(self):
+        """Load the dashboard config.yaml."""
+        config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
+        with open(config_path) as f:
+            return yaml.safe_load(f)
+
+    def test_fbc_default_version_matches_config(self, config):
+        """Ensure fbc_default_version in config.yaml matches
+        expectations (AGENTS.md rule #11)."""
+        fbc_default = config['collector']['gcsweb']['fbc_default_version']
+        assert fbc_default == '5.1'
+
+    def test_collector_with_production_config_resolves_fbc_version(
+            self, config):
+        """GcswebCollector initialized with the production gcsweb
+        config resolves the correct version for an unsuffixed FBC
+        postsubmit job name."""
+        gcsweb_config = config['collector']['gcsweb']
+        gcsweb_config['branch_version_map'] = (
+            config['tracking']['branch_version_map']
+        )
+        collector = GCSWebCollector(gcsweb_config)
+
+        meta = collector._extract_metadata(
+            'branch-ci-openshift-windows-machine-config-operator-'
+            'fbc-main-aws-winc'
+        )
+        expected = config['collector']['gcsweb']['fbc_default_version']
+        assert meta['version'] == expected
