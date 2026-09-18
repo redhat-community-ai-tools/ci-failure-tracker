@@ -1951,12 +1951,25 @@ class TestGetBuildHealthImpact:
 
     def test_blocklist_excludes_tests(self, db_with_impact_data):
         """Blocklisted tests are excluded from results."""
+        from datetime import datetime
+
+        db_with_impact_data.insert_test_results([
+            TestResult(
+                test_name='OCP-111110', test_description='Adjacent test ID',
+                status=TestStatus.FAILED, timestamp=datetime.now(),
+                duration_seconds=10, error_message='timeout',
+                job_name='job-aws', build_id='1',
+                version='5.0', platform='aws',
+            ),
+        ])
+
         rows = db_with_impact_data.get_build_health_impact(
             version='5.0', days=7, threshold=90.0,
             blocklist=['OCP-11111'],
         )
         test_names = {r['test_name'] for r in rows}
         assert 'OCP-11111' not in test_names
+        assert 'OCP-111110' in test_names
         assert 'OCP-33333' in test_names
 
     def test_excluded_job_keywords_filter(self, tmp_path):

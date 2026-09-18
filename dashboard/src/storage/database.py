@@ -1216,8 +1216,8 @@ class DashboardDatabase:
 
         if blocklist:
             for test_id in blocklist:
-                query += " AND test_name NOT LIKE ?"
-                params.append(f"{test_id}%")
+                query += " AND NOT (test_name = ? OR test_name LIKE ?)"
+                params.extend([test_id, f"{test_id}:%"])
 
         query += """
             GROUP BY test_name
