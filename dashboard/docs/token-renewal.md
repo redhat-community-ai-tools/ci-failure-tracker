@@ -21,6 +21,10 @@ Check your dashboard URL to determine the cluster. For example, if your dashboar
 
 ## How to Renew the Token
 
+> **Tip:** User tokens expire every 24 hours. For production deployments,
+> consider using a [service account token](#automated-token-renewal-future)
+> which can last up to 1 year, avoiding daily manual renewal.
+
 ### Step 1: Get Token from Web UI
 
 Use the web console for your cluster to obtain a token.
@@ -42,6 +46,8 @@ The `oc login` command does not work for the l2s4 cluster (times out). Use the w
 4. Copy the token value (starts with `sha256~`)
 
 ### Step 3: Update the Secret
+
+The deployment names and projects below apply to both clusters (l2s4 and build10). The `oc project` command sets the namespace context; the same project names are used regardless of which cluster you are logged into.
 
 **For POC Dashboard:**
 

@@ -70,7 +70,11 @@ class TestTroubleshootingCoverage:
         assert 'build10' in section
 
     def test_token_test_curl_build10(self):
-        """The manual token-test curl section includes a build10 URL."""
+        """Documentation coverage: the manual token-test curl section includes a build10 URL.
+
+        This verifies the docs mention the build10 Prow endpoint, not that
+        the endpoint is reachable.
+        """
         content = _read_doc()
         assert (
             'https://qe-private-deck-ci.apps.build10.ci.devcluster.openshift.com'
