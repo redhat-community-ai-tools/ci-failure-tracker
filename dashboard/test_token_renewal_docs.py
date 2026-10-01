@@ -32,14 +32,15 @@ class TestClusterCoverage:
     def test_l2s4_token_url(self):
         content = _read_doc()
         assert (
-            'oauth-openshift.apps.ci.l2s4.p1.openshiftapps.com'
+            'https://oauth-openshift.apps.ci.l2s4.p1.openshiftapps.com'
             in content
         )
 
     def test_build10_console_url(self):
         content = _read_doc()
         assert (
-            'apps.build10.ci.devcluster.openshift.com' in content
+            'https://console-openshift-console.apps.build10.ci.devcluster.openshift.com'
+            in content
         )
 
 
@@ -72,6 +73,6 @@ class TestTroubleshootingCoverage:
         """The manual token-test curl section includes a build10 URL."""
         content = _read_doc()
         assert (
-            'qe-private-deck-ci.apps.build10.ci.devcluster.openshift.com'
+            'https://qe-private-deck-ci.apps.build10.ci.devcluster.openshift.com'
             in content
         )
