@@ -161,7 +161,7 @@ Most agent work targets the dashboard.
     the requested change is out of scope, or the needed change is blocked
     by a dependency. Do not silently produce zero changes.
 
-22. **Accessible interactive UI components.** When adding new interactive
+23. **Accessible interactive UI components.** When adding new interactive
     elements (dropdowns, menus, modals, popovers) to `dashboard.html`:
     (a) dropdown/menu trigger buttons must include `aria-haspopup="true"`
     and an `aria-expanded` attribute toggled between `"true"` and

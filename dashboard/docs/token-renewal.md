@@ -2,6 +2,17 @@
 
 When the dashboard shows authentication errors (HTTP 403), you need to renew the Prow API token.
 
+## Which Cluster?
+
+The dashboard can be deployed on different clusters. Identify which cluster your deployment uses before renewing the token:
+
+| Cluster | Web Console | Token Request URL |
+|---------|------------|-------------------|
+| **l2s4** | `apps.ci.l2s4.p1.openshiftapps.com` | https://oauth-openshift.apps.ci.l2s4.p1.openshiftapps.com/oauth/token/request |
+| **build10** | `apps.build10.ci.devcluster.openshift.com` | https://console-openshift-console.apps.build10.ci.devcluster.openshift.com |
+
+Check your dashboard URL to determine the cluster. For example, if your dashboard is at `https://winc-dashboard-winc-dashboard.apps.build10.ci.devcluster.openshift.com/`, you are on **build10**.
+
 ## Symptoms
 
 - Dashboard shows "Failed to connect to data source"
@@ -10,7 +21,15 @@ When the dashboard shows authentication errors (HTTP 403), you need to renew the
 
 ## How to Renew the Token
 
+> **Tip:** User tokens expire every 24 hours. For production deployments,
+> consider using a [service account token](#automated-token-renewal-future)
+> which can last up to 1 year, avoiding daily manual renewal.
+
 ### Step 1: Get Token from Web UI
+
+Use the web console for your cluster to obtain a token.
+
+**For l2s4 cluster:**
 
 The `oc login` command does not work for the l2s4 cluster (times out). Use the web UI instead:
 
@@ -19,7 +38,16 @@ The `oc login` command does not work for the l2s4 cluster (times out). Use the w
 3. Click "Display Token"
 4. Copy the token value (starts with `sha256~`)
 
+**For build10 cluster:**
+
+1. Open https://console-openshift-console.apps.build10.ci.devcluster.openshift.com
+2. Click your profile (top right) → "Copy login command"
+3. Click "Display Token"
+4. Copy the token value (starts with `sha256~`)
+
 ### Step 3: Update the Secret
+
+The deployment names and projects below apply to both clusters (l2s4 and build10). The `oc project` command sets the namespace context; the same project names are used regardless of which cluster you are logged into.
 
 **For POC Dashboard:**
 
@@ -127,9 +155,16 @@ https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest/
 
 ### Error: "You must be logged in to the server (Unauthorized)"
 
-Your token expired. Get a new one from the web UI:
+Your token expired. Get a new one from the web UI for your cluster:
+
+**l2s4:**
 1. Open https://oauth-openshift.apps.ci.l2s4.p1.openshiftapps.com/oauth/token/request
 2. Click "Display Token"
+3. Copy and update the secret (see Step 2 above)
+
+**build10:**
+1. Open https://console-openshift-console.apps.build10.ci.devcluster.openshift.com
+2. Click your profile → "Copy login command" → "Display Token"
 3. Copy and update the secret (see Step 2 above)
 
 ### Error: "secret 'prow-api-token' already exists"
@@ -160,10 +195,20 @@ oc create secret generic prow-api-token \
    ```
 
 4. Check if token works manually:
+
+   **l2s4:**
    ```bash
    TOKEN=$(oc get secret prow-api-token -o jsonpath='{.data.token}' | base64 -d)
    curl -H "Authorization: Bearer $TOKEN" \
      "https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com/prowjobs.js?var=allBuilds" \
+     | head -10
+   ```
+
+   **build10:**
+   ```bash
+   TOKEN=$(oc get secret prow-api-token -o jsonpath='{.data.token}' | base64 -d)
+   curl -H "Authorization: Bearer $TOKEN" \
+     "https://qe-private-deck-ci.apps.build10.ci.devcluster.openshift.com/prowjobs.js?var=allBuilds" \
      | head -10
    ```
 
@@ -192,6 +237,8 @@ oc logs -f deployment/winc-dashboard-zstream | grep -i "403\|forbidden\|unauthor
 ## Contact
 
 If token renewal doesn't fix the issue:
-1. Check Prow cluster status: https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com
+1. Check Prow cluster status:
+   - l2s4: https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com
+   - build10: https://qe-private-deck-ci.apps.build10.ci.devcluster.openshift.com
 2. Contact QE infrastructure team
 3. File GitHub issue: https://github.com/redhat-community-ai-tools/ci-failure-tracker/issues
