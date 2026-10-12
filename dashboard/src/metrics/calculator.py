@@ -250,25 +250,40 @@ class MetricsCalculator:
         avg_pass_rate = (passed_executions / total_executions * 100) if total_executions > 0 else 0
 
         # Calculate trend based on daily pass rates
-        daily_data = self.db.get_daily_pass_rates(start_date, end_date, version=version, platform=platform)
-        if daily_data and len(daily_data) > 1:
-            all_rates = [row['avg_pass_rate'] for row in daily_data]
-            midpoint = len(all_rates) // 2
-            if midpoint > 0:
-                first_half = sum(all_rates[:midpoint]) / midpoint
-                second_half = sum(all_rates[midpoint:]) / len(all_rates[midpoint:])
-                diff = second_half - first_half
+        # Guard: if all test executions passed, trend cannot be declining
+        if avg_pass_rate == 100:
+            trend = 'stable'
+        else:
+            daily_data = self.db.get_daily_pass_rates(start_date, end_date, version=version, platform=platform)
+            if daily_data and len(daily_data) > 1:
+                # Aggregate by date before splitting — each date may have
+                # multiple rows (one per platform) and splitting the flat
+                # row list skews the temporal comparison.
+                date_rates = defaultdict(list)
+                for row in daily_data:
+                    date_rates[row['date']].append(row['avg_pass_rate'])
+                sorted_dates = sorted(date_rates.keys())
+                daily_avgs = [
+                    sum(date_rates[d]) / len(date_rates[d])
+                    for d in sorted_dates
+                ]
 
-                if diff > 2:
-                    trend = 'improving'
-                elif diff < -2:
-                    trend = 'declining'
+                midpoint = len(daily_avgs) // 2
+                if midpoint > 0:
+                    first_half = sum(daily_avgs[:midpoint]) / midpoint
+                    second_half = sum(daily_avgs[midpoint:]) / len(daily_avgs[midpoint:])
+                    diff = second_half - first_half
+
+                    if diff > 2:
+                        trend = 'improving'
+                    elif diff < -2:
+                        trend = 'declining'
+                    else:
+                        trend = 'stable'
                 else:
                     trend = 'stable'
             else:
                 trend = 'stable'
-        else:
-            trend = 'stable'
 
         return {
             'total_tests': total_tests,
