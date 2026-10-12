@@ -498,10 +498,14 @@ class DashboardDatabase:
             params.append(platform)
 
         if blocklist:
-            # Use LIKE to match test ID prefix (e.g., OCP-60944 matches OCP-60944:author:...)
-            blocklist_conditions = ' AND '.join([f"test_name NOT LIKE ?" for _ in blocklist])
+            # Exclude exact test ID and colon-delimited variants (e.g., OCP-60944:author:...)
+            # but NOT adjacent IDs (e.g., OCP-609440)
+            blocklist_conditions = ' AND '.join(
+                ["NOT (test_name = ? OR test_name LIKE ?)" for _ in blocklist]
+            )
             query += f" AND ({blocklist_conditions})"
-            params.extend([f"{test_id}%" for test_id in blocklist])
+            for test_id in blocklist:
+                params.extend([test_id, f"{test_id}:%"])
 
         query += " GROUP BY test_name, version ORDER BY pass_rate ASC"
 
@@ -1216,8 +1220,8 @@ class DashboardDatabase:
 
         if blocklist:
             for test_id in blocklist:
-                query += " AND test_name NOT LIKE ?"
-                params.append(f"{test_id}%")
+                query += " AND NOT (test_name = ? OR test_name LIKE ?)"
+                params.extend([test_id, f"{test_id}:%"])
 
         query += """
             GROUP BY test_name
