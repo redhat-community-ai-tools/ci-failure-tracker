@@ -138,12 +138,22 @@ class TestTrendNotSkewedByPlatformDistribution:
     """Trend should aggregate by date before comparing halves."""
 
     def test_uneven_platforms_stable(self, db):
-        """Day 1: 3 platforms at 90%, Day 2: 1 platform at 90%.
+        """Day 1: 3 platforms with varying rates, Day 2: 1 platform.
 
-        Row-based midpoint split would put Day1-platformA and
-        Day1-platformB in first half, Day1-platformC and Day2-platformA
-        in second half — same rates but arbitrary split.  Date-based
-        aggregation gives the same average for both days -> stable.
+        With varying per-platform rates and uneven distribution, the old
+        row-based midpoint split skews the comparison:
+
+            rows = [aws_d1(75%), gcp_d1(85%), azure_d1(95%), aws_d2(85%)]
+            midpoint = 2
+            first_half = avg(75, 85) = 80%
+            second_half = avg(95, 85) = 90%
+            diff = +10 → "improving" (WRONG)
+
+        Date-based aggregation first averages per day:
+
+            day1 = avg(75, 85, 95) = 85%
+            day2 = 85%
+            diff = 0 → "stable" (CORRECT)
         """
         now = datetime.now()
         day1 = now - timedelta(days=2)
@@ -151,28 +161,35 @@ class TestTrendNotSkewedByPlatformDistribution:
         runs = []
         test_results = []
 
-        # Day 1: 3 platforms, all at 90% (18 total, 16 passed)
-        for i, platform in enumerate(['aws', 'gcp', 'azure']):
+        # Day 1: 3 platforms with different pass rates
+        #   aws:   75% (15/20 passed)
+        #   gcp:   85% (17/20 passed)
+        #   azure: 95% (19/20 passed)
+        day1_rates = [('aws', 15, 20), ('gcp', 17, 20), ('azure', 19, 20)]
+        for i, (platform, passed, total) in enumerate(day1_rates):
             bid = f'd1-{i}'
             jname = f'job-{platform}'
             runs.append(_make_job_run(
                 jname, bid, day1, '5.0', platform,
-                total_tests=18, passed_tests=16,
+                total_tests=total, passed_tests=passed,
             ))
-            for t in range(9):
-                status = TestStatus.PASSED if t < 8 else TestStatus.FAILED
+            # Test results matching the pass rate
+            n_tests = 10
+            n_passed = int(n_tests * passed / total)
+            for t in range(n_tests):
+                status = TestStatus.PASSED if t < n_passed else TestStatus.FAILED
                 test_results.append(_make_test_result(
                     f'OCP-{3000 + t}', bid, day1, '5.0', platform,
                     status, job_name=jname,
                 ))
 
-        # Day 2: 1 platform, also at 90% (18 total, 16 passed)
+        # Day 2: 1 platform at 85% (17/20 passed) — same as day1 average
         bid = 'd2-0'
         runs.append(_make_job_run(
             'job-aws', bid, day2, '5.0', 'aws',
-            total_tests=18, passed_tests=16,
+            total_tests=20, passed_tests=17,
         ))
-        for t in range(9):
+        for t in range(10):
             status = TestStatus.PASSED if t < 8 else TestStatus.FAILED
             test_results.append(_make_test_result(
                 f'OCP-{3000 + t}', bid, day2, '5.0', 'aws',

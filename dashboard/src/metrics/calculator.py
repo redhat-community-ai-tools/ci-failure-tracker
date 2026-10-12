@@ -250,8 +250,10 @@ class MetricsCalculator:
         avg_pass_rate = (passed_executions / total_executions * 100) if total_executions > 0 else 0
 
         # Calculate trend based on daily pass rates
-        # Guard: if all test executions passed, trend cannot be declining
-        if avg_pass_rate == 100:
+        # Guard: if all test executions passed, trend cannot be declining.
+        # Compare source integers rather than the derived float to avoid
+        # rounding gaps (e.g. 99.995 rounds to 100.0 for display).
+        if passed_executions == total_executions and total_executions > 0:
             trend = 'stable'
         else:
             daily_data = self.db.get_daily_pass_rates(start_date, end_date, version=version, platform=platform)
