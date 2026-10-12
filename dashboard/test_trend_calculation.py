@@ -8,13 +8,9 @@ Covers:
   actually change over time
 """
 
-import os
-import sys
 from datetime import datetime, timedelta
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 from src.collectors.base import JobRun, TestResult, TestStatus
 from src.storage.database import DashboardDatabase
