@@ -1562,6 +1562,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             return jsonify(analysis)
 
         except Exception as e:
+            logger.exception('AI analysis failed for %s/%s', test_name, version)
             return jsonify({
                 'error': 'Analysis failed',
                 'root_cause': 'Analysis service error',

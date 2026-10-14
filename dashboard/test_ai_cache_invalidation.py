@@ -2,19 +2,34 @@
 
 Validates that stale cached AI analyses are not returned when the
 underlying failure error message has changed (issue #244).
+
+Includes structural tests for the runAIAnalysis JS function changes
+in the dashboard template (AGENTS.md rule 16).
 """
 
 import hashlib
+import os
+import re
+import sqlite3
+import sys
+import tempfile
+
 import pytest
 
+# Add src to path so imports work like the main app
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+
 from src.storage.database import DashboardDatabase
+from web.server import create_app
 
 
 @pytest.fixture
 def db(tmp_path):
     """Create a temporary database for testing."""
     db_path = str(tmp_path / "test.db")
-    return DashboardDatabase(db_path)
+    database = DashboardDatabase(db_path)
+    yield database
+    database.close()
 
 
 class TestAICacheInvalidation:
@@ -152,3 +167,191 @@ class TestAICacheInvalidation:
         assert r2 is not None
         assert r1['root_cause'] == 'Cause for 11111'
         assert r2['root_cause'] == 'Cause for 22222'
+
+
+class TestMigrationPreservesErrorMessageHash:
+    """Test that the schema migration includes the error_message_hash column."""
+
+    def _hash(self, message):
+        """Compute SHA-256 hash of an error message."""
+        return hashlib.sha256(message.encode('utf-8')).hexdigest()
+
+    def test_migration_from_old_schema_includes_hash_column(self, tmp_path):
+        """Create a DB with the old schema (platform TEXT NOT NULL), then
+        open it with DashboardDatabase to trigger migration.  Verify
+        save_ai_analysis succeeds with error_message_hash."""
+        db_path = str(tmp_path / "migrate.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("""
+            CREATE TABLE ai_analyses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                test_name TEXT NOT NULL,
+                version TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                analysis_date DATETIME NOT NULL,
+                root_cause TEXT,
+                component TEXT,
+                confidence INTEGER,
+                failure_type TEXT,
+                platform_specific INTEGER,
+                affected_platforms TEXT,
+                evidence TEXT,
+                suggested_action TEXT,
+                issue_title TEXT,
+                issue_description TEXT,
+                analysis_mode TEXT,
+                cost REAL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(test_name, version, analysis_date)
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        # Opening with DashboardDatabase triggers _create_tables migration
+        database = DashboardDatabase(db_path)
+        try:
+            error_hash = self._hash('test error after migration')
+            database.save_ai_analysis(
+                'OCP-99999', '4.21',
+                analysis={
+                    'root_cause': 'Post-migration analysis',
+                    'confidence': 90,
+                    'failure_type': 'product_bug',
+                },
+                error_message_hash=error_hash,
+            )
+
+            result = database.get_ai_analysis(
+                'OCP-99999', '4.21',
+                current_error_hash=error_hash,
+            )
+            assert result is not None
+            assert result['root_cause'] == 'Post-migration analysis'
+            assert result['error_message_hash'] == error_hash
+        finally:
+            database.close()
+
+
+# -- Structural tests for runAIAnalysis JS changes (AGENTS.md rule 16) --
+
+@pytest.fixture
+def app(monkeypatch):
+    """Create a test Flask app with AI analysis enabled."""
+    monkeypatch.setenv('ENABLE_AI_ANALYSIS', 'true')
+    db_fd, db_path = tempfile.mkstemp(suffix='.db')
+    config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
+    application = create_app(db_path=db_path, config_file=config_path)
+    application.config['TESTING'] = True
+    yield application
+    os.close(db_fd)
+    os.unlink(db_path)
+
+
+@pytest.fixture
+def client(app):
+    return app.test_client()
+
+
+def _extract_script_body(html):
+    """Extract the main inline <script> block from the rendered HTML."""
+    matches = re.findall(
+        r'<\s*script\b[^>]*>(.*?)<\s*/\s*script\b[^>]*>',
+        html, re.IGNORECASE | re.DOTALL,
+    )
+    for block in reversed(matches):
+        if 'runAIAnalysis' in block:
+            return block
+    raise AssertionError("No <script> block containing runAIAnalysis found")
+
+
+def _extract_function_body(script, func_name):
+    """Extract the body of a named JS function from the script source."""
+    pattern = (
+        r'(?:async\s+)?function\s+'
+        + re.escape(func_name)
+        + r'\s*\([^)]*\)\s*\{'
+    )
+    match = re.search(pattern, script)
+    if not match:
+        raise AssertionError(f"Function {func_name} not found in script")
+    brace_start = match.end() - 1
+    depth = 1
+    pos = brace_start + 1
+    while pos < len(script) and depth > 0:
+        if script[pos] == '{':
+            depth += 1
+        elif script[pos] == '}':
+            depth -= 1
+        pos += 1
+    return script[brace_start:pos]
+
+
+class TestRunAIAnalysisStructure:
+    """Structural tests for the runAIAnalysis JS function.
+
+    Modelled on TestFetchCacheStructure in test_fetch_cache.py.
+    Renders the dashboard, extracts the function body, and asserts on
+    ordering and structural relationships.
+    """
+
+    def test_uses_cached_parameter_controls_fetch_payload(self, client):
+        """runAIAnalysis must pass the useCached parameter into the
+        fetch body as use_cached so the server can decide whether to
+        serve a cached result."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        script = _extract_script_body(html)
+        body = _extract_function_body(script, 'runAIAnalysis')
+
+        assert 'use_cached: useCached' in body or 'use_cached:useCached' in body, (
+            "runAIAnalysis must forward useCached into the fetch payload "
+            "as use_cached"
+        )
+
+    def test_default_uses_cached_is_true(self, client):
+        """When useCached is undefined, it must default to true so the
+        initial click uses the cache."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        script = _extract_script_body(html)
+        body = _extract_function_body(script, 'runAIAnalysis')
+
+        # The function should set useCached = true when undefined
+        assert 'useCached = true' in body, (
+            "runAIAnalysis must default useCached to true"
+        )
+
+    def test_reanalyze_button_replaces_success_button(self, client):
+        """On success, the button must be changed to offer re-analysis
+        with useCached=false rather than showing a static 'Analyzed'."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        script = _extract_script_body(html)
+        body = _extract_function_body(script, 'runAIAnalysis')
+
+        # Must contain Re-analyze text
+        assert 'Re-analyze' in body, (
+            "Success path must set button text to Re-analyze"
+        )
+        # Must re-bind onclick to call with false
+        assert 'runAIAnalysis(false)' in body, (
+            "Re-analyze button must call runAIAnalysis(false) to bypass cache"
+        )
+
+    def test_reanalyze_binding_after_success_content(self, client):
+        """The Re-analyze button binding must appear after the success
+        content is rendered, not before."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        script = _extract_script_body(html)
+        body = _extract_function_body(script, 'runAIAnalysis')
+
+        content_pos = body.find('content.innerHTML')
+        reanalyze_pos = body.find('Re-analyze')
+
+        assert content_pos != -1, "Success path must set content.innerHTML"
+        assert reanalyze_pos != -1, "Success path must reference Re-analyze"
+        assert content_pos < reanalyze_pos, (
+            "Content rendering must precede Re-analyze button setup"
+        )

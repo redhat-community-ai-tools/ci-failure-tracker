@@ -2,12 +2,15 @@
 SQLite database for storing historical test results and metrics
 """
 
+import logging
 import sqlite3
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 from collectors.base import JobRun, TestResult, TestStatus
+
+logger = logging.getLogger(__name__)
 
 
 class DashboardDatabase:
@@ -218,6 +221,7 @@ class DashboardDatabase:
                         issue_description TEXT,
                         analysis_mode TEXT,
                         cost REAL,
+                        error_message_hash TEXT,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(test_name, version, analysis_date)
                     )
