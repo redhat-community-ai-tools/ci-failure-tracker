@@ -1627,7 +1627,8 @@
         }
 
         {% if enable_ai %}
-        async function runAIAnalysis() {
+        async function runAIAnalysis(useCached) {
+            if (useCached === undefined) useCached = true;
             const section = document.getElementById('aiAnalysisSection');
             const content = document.getElementById('aiAnalysisContent');
             const btn = document.getElementById('aiAnalyzeBtn');
@@ -1656,7 +1657,7 @@
                         version: currentLogData.metadata.version,
                         platform: currentLogData.metadata.platform,
                         error_message: currentLogData.logContent,
-                        use_cached: true
+                        use_cached: useCached
                     })
                 });
 
@@ -1707,11 +1708,12 @@
                         }
                     }
 
-                    // Update button to show success
+                    // Update button to offer re-analysis
                     if (btn) {
-                        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M10 15.586L6.707 12.293a1 1 0 0 0-1.414 1.414l4 4a1 1 0 0 0 1.414 0l8-8a1 1 0 0 0-1.414-1.414L10 15.586z"/></svg> Analyzed';
+                        btn.innerHTML = '&#x21bb; Re-analyze';
                         btn.style.background = '#10b981';
                         btn.disabled = false;
+                        btn.onclick = function() { runAIAnalysis(false); };
                     }
                 } else {
                     content.innerHTML = `<div style="color: #dc2626; padding: 10px; background: #fee2e2; border-radius: 6px;">Error: ${data.error || 'Failed to analyze'}</div>`;
