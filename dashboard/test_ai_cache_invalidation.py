@@ -11,16 +11,18 @@ import hashlib
 import os
 import re
 import sqlite3
-import sys
 import tempfile
 
 import pytest
 
-# Add src to path so imports work like the main app
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-
+from conftest import extract_function_body
 from src.storage.database import DashboardDatabase
 from web.server import create_app
+
+
+def _hash(message):
+    """Compute SHA-256 hash of an error message."""
+    return hashlib.sha256(message.encode('utf-8')).hexdigest()
 
 
 @pytest.fixture
@@ -35,14 +37,10 @@ def db(tmp_path):
 class TestAICacheInvalidation:
     """Tests for error_message_hash cache invalidation."""
 
-    def _hash(self, message):
-        """Compute SHA-256 hash of an error message."""
-        return hashlib.sha256(message.encode('utf-8')).hexdigest()
-
     def test_cache_returned_when_error_unchanged(self, db):
         """Cached analysis is returned when error hash matches."""
         old_error = 'wrong kubelet version 1.28'
-        error_hash = self._hash(old_error)
+        error_hash = _hash(old_error)
 
         db.save_ai_analysis('OCP-33612', '4.21', analysis={
             'root_cause': 'Wrong kubelet version 1.28',
@@ -60,7 +58,7 @@ class TestAICacheInvalidation:
     def test_cache_invalidated_on_error_change(self, db):
         """Cached analysis is NOT returned when error message changed."""
         old_error = 'wrong kubelet version 1.28'
-        old_hash = self._hash(old_error)
+        old_hash = _hash(old_error)
 
         db.save_ai_analysis('OCP-33612', '4.21', analysis={
             'root_cause': 'Wrong kubelet version 1.28',
@@ -69,7 +67,7 @@ class TestAICacheInvalidation:
         }, error_message_hash=old_hash)
 
         new_error = 'wrong kubelet version 1.29'
-        new_hash = self._hash(new_error)
+        new_hash = _hash(new_error)
 
         result = db.get_ai_analysis(
             'OCP-33612', '4.21',
@@ -83,7 +81,7 @@ class TestAICacheInvalidation:
             'root_cause': 'Some root cause',
             'confidence': 90,
             'failure_type': 'transient',
-        }, error_message_hash=self._hash('some error'))
+        }, error_message_hash=_hash('some error'))
 
         result = db.get_ai_analysis('OCP-33612', '4.21')
         assert result is not None
@@ -100,7 +98,7 @@ class TestAICacheInvalidation:
 
         result = db.get_ai_analysis(
             'OCP-33612', '4.21',
-            current_error_hash=self._hash('any error'),
+            current_error_hash=_hash('any error'),
         )
         # Stored hash is NULL, so cache is not invalidated
         assert result is not None
@@ -108,14 +106,14 @@ class TestAICacheInvalidation:
 
     def test_new_analysis_overwrites_stale(self, db):
         """A new save with updated hash replaces the old analysis."""
-        old_hash = self._hash('old error')
+        old_hash = _hash('old error')
         db.save_ai_analysis('OCP-33612', '4.21', analysis={
             'root_cause': 'Old root cause',
             'confidence': 85,
             'failure_type': 'product_bug',
         }, error_message_hash=old_hash)
 
-        new_hash = self._hash('new error')
+        new_hash = _hash('new error')
         db.save_ai_analysis('OCP-33612', '4.21', analysis={
             'root_cause': 'New root cause',
             'confidence': 90,
@@ -132,7 +130,7 @@ class TestAICacheInvalidation:
 
     def test_hash_stored_in_database(self, db):
         """Verify the error_message_hash column is populated."""
-        error_hash = self._hash('test error message')
+        error_hash = _hash('test error message')
         db.save_ai_analysis('OCP-12345', '4.22', analysis={
             'root_cause': 'Test cause',
             'confidence': 75,
@@ -144,7 +142,7 @@ class TestAICacheInvalidation:
 
     def test_different_test_same_hash_independent(self, db):
         """Different tests with same error hash are independent entries."""
-        error_hash = self._hash('shared error')
+        error_hash = _hash('shared error')
         db.save_ai_analysis('OCP-11111', '4.21', analysis={
             'root_cause': 'Cause for 11111',
             'confidence': 80,
@@ -171,10 +169,6 @@ class TestAICacheInvalidation:
 
 class TestMigrationPreservesErrorMessageHash:
     """Test that the schema migration includes the error_message_hash column."""
-
-    def _hash(self, message):
-        """Compute SHA-256 hash of an error message."""
-        return hashlib.sha256(message.encode('utf-8')).hexdigest()
 
     def test_migration_from_old_schema_includes_hash_column(self, tmp_path):
         """Create a DB with the old schema (platform TEXT NOT NULL), then
@@ -211,7 +205,7 @@ class TestMigrationPreservesErrorMessageHash:
         # Opening with DashboardDatabase triggers _create_tables migration
         database = DashboardDatabase(db_path)
         try:
-            error_hash = self._hash('test error after migration')
+            error_hash = _hash('test error after migration')
             database.save_ai_analysis(
                 'OCP-99999', '4.21',
                 analysis={
@@ -265,28 +259,6 @@ def _extract_script_body(html):
     raise AssertionError("No <script> block containing runAIAnalysis found")
 
 
-def _extract_function_body(script, func_name):
-    """Extract the body of a named JS function from the script source."""
-    pattern = (
-        r'(?:async\s+)?function\s+'
-        + re.escape(func_name)
-        + r'\s*\([^)]*\)\s*\{'
-    )
-    match = re.search(pattern, script)
-    if not match:
-        raise AssertionError(f"Function {func_name} not found in script")
-    brace_start = match.end() - 1
-    depth = 1
-    pos = brace_start + 1
-    while pos < len(script) and depth > 0:
-        if script[pos] == '{':
-            depth += 1
-        elif script[pos] == '}':
-            depth -= 1
-        pos += 1
-    return script[brace_start:pos]
-
-
 class TestRunAIAnalysisStructure:
     """Structural tests for the runAIAnalysis JS function.
 
@@ -302,7 +274,7 @@ class TestRunAIAnalysisStructure:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'runAIAnalysis')
+        body = extract_function_body(script, 'runAIAnalysis')
 
         assert 'use_cached: useCached' in body or 'use_cached:useCached' in body, (
             "runAIAnalysis must forward useCached into the fetch payload "
@@ -315,7 +287,7 @@ class TestRunAIAnalysisStructure:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'runAIAnalysis')
+        body = extract_function_body(script, 'runAIAnalysis')
 
         # The function should set useCached = true when undefined
         assert 'useCached = true' in body, (
@@ -328,7 +300,7 @@ class TestRunAIAnalysisStructure:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'runAIAnalysis')
+        body = extract_function_body(script, 'runAIAnalysis')
 
         # Must contain Re-analyze text
         assert 'Re-analyze' in body, (
@@ -345,7 +317,7 @@ class TestRunAIAnalysisStructure:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'runAIAnalysis')
+        body = extract_function_body(script, 'runAIAnalysis')
 
         content_pos = body.find('content.innerHTML')
         reanalyze_pos = body.find('Re-analyze')
@@ -354,4 +326,41 @@ class TestRunAIAnalysisStructure:
         assert reanalyze_pos != -1, "Success path must reference Re-analyze"
         assert content_pos < reanalyze_pos, (
             "Content rendering must precede Re-analyze button setup"
+        )
+
+    def test_error_path_restores_default_onclick(self, client):
+        """When a non-OK response is received, the error path must
+        restore btn.onclick to the default cache-enabled behavior so
+        that a retry after a failed re-analysis uses the cache."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        script = _extract_script_body(html)
+        body = extract_function_body(script, 'runAIAnalysis')
+
+        # Find the else branch (error path) after the success if-block
+        # It should contain onclick restoration
+        else_pos = body.find("'Failed to analyze'")
+        assert else_pos != -1, "Error else-branch must exist"
+
+        # After the error content, the onclick should be restored
+        error_section = body[else_pos:]
+        assert 'btn.onclick' in error_section, (
+            "Error path must restore btn.onclick to default behavior"
+        )
+
+    def test_catch_path_restores_default_onclick(self, client):
+        """When a network error occurs, the catch path must restore
+        btn.onclick to the default cache-enabled behavior."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        script = _extract_script_body(html)
+        body = extract_function_body(script, 'runAIAnalysis')
+
+        # Find the catch block
+        catch_pos = body.find('} catch (error)')
+        assert catch_pos != -1, "Catch block must exist"
+
+        catch_section = body[catch_pos:]
+        assert 'btn.onclick' in catch_section, (
+            "Catch path must restore btn.onclick to default behavior"
         )

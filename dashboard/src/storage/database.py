@@ -144,6 +144,7 @@ class DashboardDatabase:
                 issue_description TEXT,
                 analysis_mode TEXT,
                 cost REAL,
+                error_message_hash TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(test_name, version, analysis_date)
             )
