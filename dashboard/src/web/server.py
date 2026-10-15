@@ -13,6 +13,7 @@ import os
 import logging
 import io
 import csv
+import hashlib
 from collections import OrderedDict
 import html as html_module
 import secrets
@@ -1457,14 +1458,10 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         if not all([test_name, version, platform]):
             return jsonify({'error': 'Missing required fields: test_name, version, platform'}), 400
 
-        # Check if we already have a recent analysis
         days = data.get('days', 7)
-        existing_analysis = db.get_ai_analysis(test_name, version, platform, days)
-        if existing_analysis and data.get('use_cached', True):
-            existing_analysis['cached'] = True
-            return jsonify(existing_analysis)
 
-        # Use provided error_message or get from database
+        # Resolve error_message before cache check so we can compute
+        # the hash and detect stale cached analyses.
         error_message = data.get('error_message')
         log_url = data.get('log_url', '')
         test_description = data.get('test_description', '')
@@ -1497,6 +1494,19 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             error_message = test_data[0] or 'No error message'
             log_url = test_data[1] or ''
             test_description = test_data[2] or ''
+
+        # Compute hash of current error message for cache invalidation
+        error_hash = hashlib.sha256(error_message.encode('utf-8')).hexdigest()
+
+        # Check if we already have a recent analysis whose error hash
+        # matches (i.e. the failure hasn't changed since the analysis).
+        existing_analysis = db.get_ai_analysis(
+            test_name, version, platform, days,
+            current_error_hash=error_hash,
+        )
+        if existing_analysis and data.get('use_cached', True):
+            existing_analysis['cached'] = True
+            return jsonify(existing_analysis)
 
         # Get pass rate for pre-classifier
         pass_rate = None
@@ -1541,15 +1551,20 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 recent_failures=recent_failures,
             )
 
-            # Save analysis to database
-            db.save_ai_analysis(test_name, version, platform, analysis)
+            # Save analysis to database with error hash for future
+            # cache invalidation
+            db.save_ai_analysis(
+                test_name, version, platform, analysis,
+                error_message_hash=error_hash,
+            )
 
             analysis['cached'] = False
             return jsonify(analysis)
 
         except Exception as e:
+            logger.exception('AI analysis failed for %s/%s', test_name, version)
             return jsonify({
-                'error': f'Analysis failed: {str(e)}',
+                'error': 'Analysis failed',
                 'root_cause': 'Analysis service error',
                 'confidence': 0
             }), 500

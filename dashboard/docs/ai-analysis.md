@@ -157,7 +157,16 @@ curl http://localhost:5001/health
 
 ### Analyses always show "cached"
 
-The system caches analyses for 7 days to save costs. To force a fresh analysis:
+The system caches analyses for 7 days to save costs. The cache is also
+automatically invalidated when the underlying error message changes
+(hash-based invalidation), so a new failure signature triggers a fresh
+analysis without manual intervention.
+
+To force a fresh analysis manually, click the **Re-analyze** button that
+appears after a successful analysis. This bypasses the cache and requests
+a new analysis from the AI service.
+
+Alternatively, you can use the browser console:
 
 ```javascript
 // In browser console:

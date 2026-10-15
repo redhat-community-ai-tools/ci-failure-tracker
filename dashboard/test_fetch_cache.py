@@ -19,6 +19,7 @@ import pytest
 # Add src to path so imports work like the main app
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
+from conftest import extract_function_body
 from web.server import create_app
 
 
@@ -52,34 +53,6 @@ def _extract_script_body(html):
     raise AssertionError("No <script> block containing fetchData found")
 
 
-def _extract_function_body(script, func_name):
-    """Extract the body of a named JS function from the script source.
-
-    Handles both sync and async function declarations.  Returns the
-    full brace-delimited body (including the outer braces).
-    """
-    pattern = (
-        r'(?:async\s+)?function\s+'
-        + re.escape(func_name)
-        + r'\s*\([^)]*\)\s*\{'
-    )
-    match = re.search(pattern, script)
-    if not match:
-        raise AssertionError(f"Function {func_name} not found in script")
-
-    brace_start = match.end() - 1
-    depth = 1
-    pos = brace_start + 1
-    while pos < len(script) and depth > 0:
-        if script[pos] == '{':
-            depth += 1
-        elif script[pos] == '}':
-            depth -= 1
-        pos += 1
-
-    return script[brace_start:pos]
-
-
 class TestFetchCacheStructure:
     """Verify structural correctness of the client-side cache logic.
 
@@ -96,7 +69,7 @@ class TestFetchCacheStructure:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'fetchData')
+        body = extract_function_body(script, 'fetchData')
 
         cache_read_pos = body.find('_fetchCache[cacheKey]')
         fetch_call_pos = body.find('await fetch(')
@@ -120,7 +93,7 @@ class TestFetchCacheStructure:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'fetchData')
+        body = extract_function_body(script, 'fetchData')
 
         ttl_pattern = re.search(
             r'Date\.now\(\)\s*-\s*cached\.time\s*\)\s*<\s*FETCH_CACHE_TTL_MS',
@@ -139,7 +112,7 @@ class TestFetchCacheStructure:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'fetchData')
+        body = extract_function_body(script, 'fetchData')
 
         ok_guard = re.search(
             r'if\s*\(\s*!response\.ok\s*\)\s*return\b', body
@@ -165,7 +138,7 @@ class TestFetchCacheStructure:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'invalidateFetchCache')
+        body = extract_function_body(script, 'invalidateFetchCache')
 
         assert 'Object.keys(_fetchCache)' in body, (
             "invalidateFetchCache must enumerate all cache keys"
@@ -182,7 +155,7 @@ class TestFetchCacheStructure:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'checkCollectionStatus')
+        body = extract_function_body(script, 'checkCollectionStatus')
 
         invalidate_pos = body.find('invalidateFetchCache()')
         refresh_pos = body.find('refreshDashboard()')
@@ -206,7 +179,7 @@ class TestFetchCacheStructure:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'refreshDashboard')
+        body = extract_function_body(script, 'refreshDashboard')
 
         invalidate_pos = body.find('invalidateFetchCache()')
         fetch_pos = body.find('fetchData(')
@@ -229,7 +202,7 @@ class TestFetchCacheStructure:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'showTab')
+        body = extract_function_body(script, 'showTab')
 
         bh_branch = body.find("'build-health'")
         assert bh_branch != -1, (
@@ -258,7 +231,7 @@ class TestFetchCacheStructure:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'fetchData')
+        body = extract_function_body(script, 'fetchData')
 
         cache_write = re.search(
             r'_fetchCache\[cacheKey\]\s*=\s*\{[^}]*\bdata\b[^}]*'
@@ -284,7 +257,7 @@ class TestFetchCacheStructure:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'fetchData')
+        body = extract_function_body(script, 'fetchData')
 
         key_construction = re.search(
             r'cacheKey\s*=\s*`\$\{endpoint\}[^`]*\$\{queryString\}`',
@@ -312,7 +285,7 @@ class TestSessionExpiredHandling:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'fetchData')
+        body = extract_function_body(script, 'fetchData')
 
         check_403 = re.search(
             r'response\.status\s*===\s*403\s*&&\s*!contentType\.includes\('
@@ -332,7 +305,7 @@ class TestSessionExpiredHandling:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'fetchData')
+        body = extract_function_body(script, 'fetchData')
 
         check_403_pos = re.search(
             r'response\.status\s*===\s*403', body
@@ -362,7 +335,7 @@ class TestSessionExpiredHandling:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'fetchData')
+        body = extract_function_body(script, 'fetchData')
 
         # Find the block that handles 403 + non-JSON
         check_403 = re.search(
@@ -393,7 +366,7 @@ class TestSessionExpiredHandling:
         response = client.get('/')
         html = response.data.decode('utf-8')
         script = _extract_script_body(html)
-        body = _extract_function_body(script, 'fetchData')
+        body = extract_function_body(script, 'fetchData')
 
         # The 403 check must include a content-type guard so JSON 403s
         # fall through to normal error handling

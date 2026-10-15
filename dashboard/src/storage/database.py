@@ -2,12 +2,15 @@
 SQLite database for storing historical test results and metrics
 """
 
+import logging
 import sqlite3
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 from collectors.base import JobRun, TestResult, TestStatus
+
+logger = logging.getLogger(__name__)
 
 
 class DashboardDatabase:
@@ -141,6 +144,7 @@ class DashboardDatabase:
                 issue_description TEXT,
                 analysis_mode TEXT,
                 cost REAL,
+                error_message_hash TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(test_name, version, analysis_date)
             )
@@ -187,6 +191,12 @@ class DashboardDatabase:
         except sqlite3.OperationalError:
             pass
 
+        # Add error_message_hash column to ai_analyses if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE ai_analyses ADD COLUMN error_message_hash TEXT")
+        except sqlite3.OperationalError:
+            pass
+
         # Migrate ai_analyses: make platform nullable and fix UNIQUE constraint
         try:
             cursor.execute("SELECT sql FROM sqlite_master WHERE name='ai_analyses'")
@@ -212,6 +222,7 @@ class DashboardDatabase:
                         issue_description TEXT,
                         analysis_mode TEXT,
                         cost REAL,
+                        error_message_hash TEXT,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(test_name, version, analysis_date)
                     )
@@ -567,7 +578,8 @@ class DashboardDatabase:
         test_name: str,
         version: str,
         platform: str = None,
-        analysis: Dict[str, Any] = None
+        analysis: Dict[str, Any] = None,
+        error_message_hash: str = None
     ) -> int:
         """
         Save AI analysis to database (shared across all platforms)
@@ -577,6 +589,8 @@ class DashboardDatabase:
             version: OpenShift version
             platform: Platform name (ignored - analysis is shared across platforms)
             analysis: Analysis dictionary with keys like root_cause, component, etc.
+            error_message_hash: SHA-256 hash of the error message that triggered
+                this analysis, used for cache invalidation when the error changes.
 
         Returns:
             Number of rows inserted (1 if successful)
@@ -590,8 +604,8 @@ class DashboardDatabase:
                     root_cause, component, confidence, failure_type,
                     platform_specific, affected_platforms, evidence,
                     suggested_action, issue_title, issue_description,
-                    analysis_mode, cost
-                ) VALUES (?, ?, NULL, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    analysis_mode, cost, error_message_hash
+                ) VALUES (?, ?, NULL, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 test_name,
                 version,
@@ -606,7 +620,8 @@ class DashboardDatabase:
                 analysis.get('issue_title'),
                 analysis.get('issue_description'),
                 analysis.get('analysis_mode'),
-                analysis.get('cost', 0.0)
+                analysis.get('cost', 0.0),
+                error_message_hash,
             ))
 
             self.conn.commit()
@@ -620,7 +635,8 @@ class DashboardDatabase:
         test_name: str,
         version: str,
         platform: str = None,
-        days: int = 30
+        days: int = 30,
+        current_error_hash: str = None
     ) -> Optional[Dict[str, Any]]:
         """
         Get most recent AI analysis for a test (shared across all platforms)
@@ -630,9 +646,13 @@ class DashboardDatabase:
             version: OpenShift version
             platform: Platform name (ignored - analysis is shared across platforms)
             days: How many days back to look
+            current_error_hash: SHA-256 hash of the current error message.
+                When provided, if the cached analysis was generated from a
+                different error message (different hash), returns None to
+                force re-analysis.
 
         Returns:
-            Analysis dictionary or None if not found
+            Analysis dictionary or None if not found or stale
         """
         cursor = self.conn.cursor()
 
@@ -648,6 +668,12 @@ class DashboardDatabase:
         row = cursor.fetchone()
         if row:
             analysis = dict(row)
+
+            # Invalidate cache when error message has changed
+            if current_error_hash and analysis.get('error_message_hash'):
+                if analysis['error_message_hash'] != current_error_hash:
+                    return None
+
             # Convert affected_platforms back to list
             if analysis.get('affected_platforms'):
                 analysis['affected_platforms'] = analysis['affected_platforms'].split(',')
