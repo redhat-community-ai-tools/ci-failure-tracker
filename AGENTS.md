@@ -172,3 +172,20 @@ Most agent work targets the dashboard.
     (`target="_blank"`) must include `rel="noopener noreferrer"`. These
     requirements apply to new interactive components; retrofitting
     existing components (e.g., the export menu) is a separate task.
+
+24. **CodeQL-safe URL assertions in tests.** When writing test assertions
+    that verify URLs, hostnames, or domain names appear in file content
+    (e.g., documentation coverage tests), do not use bare
+    `assert 'url-or-hostname' in content` patterns. CodeQL's
+    "Incomplete URL substring sanitization"
+    (`py/incomplete-url-substring-sanitization`) flags these as
+    high-severity findings regardless of whether the code performs
+    actual URL validation. Adding an `https://` prefix does not resolve
+    the alert — the concern is substring matching, not missing schemes.
+    Instead: (a) assert a short, unique, non-URL text fragment that
+    appears near the URL in the document (e.g., a heading, label, or
+    description), or (b) if the full URL must be verified, assign it
+    to a local variable and use `assert url_var in content` with an
+    inline `# noqa` or CodeQL suppression comment
+    (`# lgtm[py/incomplete-url-substring-sanitization]`) explaining
+    the assertion is documentation coverage, not URL sanitization.
