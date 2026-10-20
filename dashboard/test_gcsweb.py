@@ -1567,6 +1567,12 @@ class TestDisconnectedJobPatterns:
         'amd64-nightly-vsphere-ipi-proxy-ovn-winc-f7'
     )
 
+    REHEARSE_JOB = (
+        'rehearse-86851-periodic-ci-openshift-openshift-tests-private-'
+        'release-5.0-amd64-nightly-vsphere-ipi-disconnected-ovn-'
+        'winc-zstream-f7'
+    )
+
     # Intentionally mirrors the config.yaml gcsweb job_names pattern for
     # isolated unit testing; config-driven validation lives in
     # TestDisconnectedJobInConfig (test_config_versions.py).
@@ -1602,23 +1608,13 @@ class TestDisconnectedJobPatterns:
     def test_rehearse_disconnected_job_metadata(self, collector):
         """Rehearse variant of the disconnected job extracts version
         after prefix stripping."""
-        rehearse_name = (
-            'rehearse-86851-periodic-ci-openshift-openshift-tests-private-'
-            'release-5.0-amd64-nightly-vsphere-ipi-disconnected-ovn-'
-            'winc-zstream-f7'
-        )
-        meta = collector._extract_metadata(rehearse_name)
+        meta = collector._extract_metadata(self.REHEARSE_JOB)
         assert meta['version'] == '5.0'
         assert meta['platform'] == 'vsphere'
 
     def test_rehearse_disconnected_job_type(self, collector):
         """Rehearse variant should be classified as rehearse."""
-        rehearse_name = (
-            'rehearse-86851-periodic-ci-openshift-openshift-tests-private-'
-            'release-5.0-amd64-nightly-vsphere-ipi-disconnected-ovn-'
-            'winc-zstream-f7'
-        )
-        assert collector._derive_job_type(rehearse_name) == 'rehearse'
+        assert collector._derive_job_type(self.REHEARSE_JOB) == 'rehearse'
 
     def test_non_winc_disconnected_does_not_match(self):
         """Negative: disconnected job without 'winc' must not match."""
