@@ -8,6 +8,7 @@ Also validates version extraction for rehearse, postsubmit FBC, and
 PR job names, job type derivation, and PR log path construction.
 """
 
+import fnmatch
 import logging
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
@@ -1566,6 +1567,9 @@ class TestDisconnectedJobPatterns:
         'amd64-nightly-vsphere-ipi-proxy-ovn-winc-f7'
     )
 
+    # Intentionally mirrors the config.yaml gcsweb job_names pattern for
+    # isolated unit testing; config-driven validation lives in
+    # TestDisconnectedJobInConfig (test_config_versions.py).
     PATTERN = (
         'periodic-ci-openshift-openshift-tests-private-'
         'release-5.0-*-winc-*'
@@ -1573,12 +1577,10 @@ class TestDisconnectedJobPatterns:
 
     def test_disconnected_job_matches_pattern(self):
         """Disconnected zstream job matches the release-5.0 wildcard."""
-        import fnmatch
         assert fnmatch.fnmatch(self.DISCONNECTED_JOB, self.PATTERN)
 
     def test_proxy_job_matches_pattern(self):
         """Proxy job variant also matches the release-5.0 wildcard."""
-        import fnmatch
         assert fnmatch.fnmatch(self.PROXY_JOB, self.PATTERN)
 
     def test_disconnected_job_metadata(self, collector):
@@ -1620,7 +1622,6 @@ class TestDisconnectedJobPatterns:
 
     def test_non_winc_disconnected_does_not_match(self):
         """Negative: disconnected job without 'winc' must not match."""
-        import fnmatch
         non_winc = (
             'periodic-ci-openshift-openshift-tests-private-release-5.0-'
             'amd64-nightly-vsphere-ipi-disconnected-ovn-network-f7'
@@ -1630,7 +1631,6 @@ class TestDisconnectedJobPatterns:
     def test_wrong_version_does_not_match(self):
         """Negative: disconnected job for a different version must not
         match the 5.0 pattern."""
-        import fnmatch
         wrong_version = (
             'periodic-ci-openshift-openshift-tests-private-release-4.18-'
             'amd64-nightly-vsphere-ipi-disconnected-ovn-winc-zstream-f7'
