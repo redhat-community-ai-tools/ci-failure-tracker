@@ -4,6 +4,7 @@ Validates that tracked versions, job patterns, and job names in
 config.yaml include all expected version entries (AGENTS.md rule 11).
 """
 
+import fnmatch
 import os
 
 import yaml
@@ -69,4 +70,56 @@ class TestPostsubmitBucket:
         bucket = config['collector']['gcsweb']['postsubmit_gcsweb']['bucket']
         assert bucket == 'test-platform-results-public', (
             f"FBC postsubmit bucket must be public; got '{bucket}'"
+        )
+
+
+class TestDisconnectedJobInConfig:
+    """Config-driven test: disconnected job matches a configured pattern.
+
+    Validates that the disconnected job name reported in issue #249
+    is matched by at least one gcsweb job_names pattern from config.yaml
+    (AGENTS.md rule 11). Also verifies version 5.0 and platform vsphere
+    are tracked.
+    """
+
+    DISCONNECTED_JOB = (
+        'periodic-ci-openshift-openshift-tests-private-release-5.0-'
+        'amd64-nightly-vsphere-ipi-disconnected-ovn-winc-zstream-f7'
+    )
+
+    def test_disconnected_job_matches_configured_pattern(self, config):
+        """The disconnected job name must match at least one configured
+        gcsweb job_names pattern."""
+        patterns = config['collector']['gcsweb']['job_names']
+        matched = any(
+            fnmatch.fnmatch(self.DISCONNECTED_JOB, p) for p in patterns
+        )
+        assert matched, (
+            f"Job '{self.DISCONNECTED_JOB}' does not match any "
+            f"gcsweb job_names pattern in config.yaml"
+        )
+
+    def test_version_5_0_is_tracked(self, config):
+        """Version 5.0 (extracted from the disconnected job) must be
+        in tracking.versions."""
+        versions = config['tracking']['versions']
+        assert '5.0' in versions
+
+    def test_platform_vsphere_is_tracked(self, config):
+        """Platform vsphere (extracted from the disconnected job) must
+        be in tracking.platforms."""
+        platforms = config['tracking']['platforms']
+        assert 'vsphere' in platforms
+
+    def test_non_winc_job_does_not_match(self, config):
+        """Negative: a similar job without 'winc' must not match any
+        configured pattern."""
+        patterns = config['collector']['gcsweb']['job_names']
+        non_winc = (
+            'periodic-ci-openshift-openshift-tests-private-release-5.0-'
+            'amd64-nightly-vsphere-ipi-disconnected-ovn-network-f7'
+        )
+        matched = any(fnmatch.fnmatch(non_winc, p) for p in patterns)
+        assert not matched, (
+            f"Non-winc job '{non_winc}' should NOT match any pattern"
         )

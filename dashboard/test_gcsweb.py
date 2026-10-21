@@ -8,6 +8,7 @@ Also validates version extraction for rehearse, postsubmit FBC, and
 PR job names, job type derivation, and PR log path construction.
 """
 
+import fnmatch
 import logging
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
@@ -1544,3 +1545,90 @@ class TestPublicContinuity:
                 "/gcs/public-bucket/logs/fbc-job/1/finished.json")
 
         assert result == b'{"result": "SUCCESS"}'
+
+
+class TestDisconnectedJobPatterns:
+    """Tests for disconnected/proxy job variant pattern matching (issue #249).
+
+    Validates that the wildcard pattern for release-5.0 winc jobs
+    correctly matches disconnected and proxy variants, and that
+    _extract_metadata returns the expected version and platform.
+
+    Includes negative test cases per AGENTS.md rule 8.
+    """
+
+    DISCONNECTED_JOB = (
+        'periodic-ci-openshift-openshift-tests-private-release-5.0-'
+        'amd64-nightly-vsphere-ipi-disconnected-ovn-winc-zstream-f7'
+    )
+
+    PROXY_JOB = (
+        'periodic-ci-openshift-openshift-tests-private-release-5.0-'
+        'amd64-nightly-vsphere-ipi-proxy-ovn-winc-f7'
+    )
+
+    REHEARSE_JOB = (
+        'rehearse-86851-periodic-ci-openshift-openshift-tests-private-'
+        'release-5.0-amd64-nightly-vsphere-ipi-disconnected-ovn-'
+        'winc-zstream-f7'
+    )
+
+    # Intentionally mirrors the config.yaml gcsweb job_names pattern for
+    # isolated unit testing; config-driven validation lives in
+    # TestDisconnectedJobInConfig (test_config_versions.py).
+    PATTERN = (
+        'periodic-ci-openshift-openshift-tests-private-'
+        'release-5.0-*-winc-*'
+    )
+
+    def test_disconnected_job_matches_pattern(self):
+        """Disconnected zstream job matches the release-5.0 wildcard."""
+        assert fnmatch.fnmatch(self.DISCONNECTED_JOB, self.PATTERN)
+
+    def test_proxy_job_matches_pattern(self):
+        """Proxy job variant also matches the release-5.0 wildcard."""
+        assert fnmatch.fnmatch(self.PROXY_JOB, self.PATTERN)
+
+    def test_disconnected_job_metadata(self, collector):
+        """Metadata extraction returns version 5.0 and platform vsphere."""
+        meta = collector._extract_metadata(self.DISCONNECTED_JOB)
+        assert meta['version'] == '5.0'
+        assert meta['platform'] == 'vsphere'
+
+    def test_proxy_job_metadata(self, collector):
+        """Proxy variant also extracts version 5.0 and platform vsphere."""
+        meta = collector._extract_metadata(self.PROXY_JOB)
+        assert meta['version'] == '5.0'
+        assert meta['platform'] == 'vsphere'
+
+    def test_disconnected_job_type_is_periodic(self, collector):
+        """Disconnected job should be classified as periodic."""
+        assert collector._derive_job_type(self.DISCONNECTED_JOB) == 'periodic'
+
+    def test_rehearse_disconnected_job_metadata(self, collector):
+        """Rehearse variant of the disconnected job extracts version
+        after prefix stripping."""
+        meta = collector._extract_metadata(self.REHEARSE_JOB)
+        assert meta['version'] == '5.0'
+        assert meta['platform'] == 'vsphere'
+
+    def test_rehearse_disconnected_job_type(self, collector):
+        """Rehearse variant should be classified as rehearse."""
+        assert collector._derive_job_type(self.REHEARSE_JOB) == 'rehearse'
+
+    def test_non_winc_disconnected_does_not_match(self):
+        """Negative: disconnected job without 'winc' must not match."""
+        non_winc = (
+            'periodic-ci-openshift-openshift-tests-private-release-5.0-'
+            'amd64-nightly-vsphere-ipi-disconnected-ovn-network-f7'
+        )
+        assert not fnmatch.fnmatch(non_winc, self.PATTERN)
+
+    def test_wrong_version_does_not_match(self):
+        """Negative: disconnected job for a different version must not
+        match the 5.0 pattern."""
+        wrong_version = (
+            'periodic-ci-openshift-openshift-tests-private-release-4.18-'
+            'amd64-nightly-vsphere-ipi-disconnected-ovn-winc-zstream-f7'
+        )
+        assert not fnmatch.fnmatch(wrong_version, self.PATTERN)
