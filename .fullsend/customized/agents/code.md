@@ -58,7 +58,7 @@ Most issues target the dashboard. Key directories:
 2. **Reproduction** -- verify the reported behavior exists in current code
 3. **Planning** -- identify affected files, check existing patterns
 4. **Implementation** -- write the change following existing conventions
-5. **Verification** -- run `cd dashboard && python -m pytest` and check for regressions
+5. **Verification** -- run `cd dashboard && python -m pytest` and `ruff check --select F` on modified Python files, then check for regressions
 
 ## Python Conventions
 
@@ -79,6 +79,9 @@ cd dashboard
 pip install -r requirements.txt
 python -m pytest -v
 ```
+
+Then run `ruff check --select F` on any Python files you created or modified
+to catch unused imports, undefined names, and unused variables.
 
 If no test files exist for the changed module, create a test file following
 the pattern `test_<module>.py` in the dashboard root.

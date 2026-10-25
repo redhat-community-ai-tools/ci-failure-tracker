@@ -65,11 +65,23 @@ class TestAgentsMdRuleNumbering:
 class TestAgentsMdLintingRule:
     """Verify AGENTS.md rule 7 includes ruff linting step (issue #261)."""
 
-    def test_rule7_includes_ruff_check(self):
-        """Rule 7 should instruct agents to run ruff check --select F."""
+    def _get_rule7_text(self):
+        """Extract the text of rule 7 from AGENTS.md."""
         with open(AGENTS_MD_PATH) as f:
             content = f.read()
-        assert 'ruff check --select F' in content, (
+        # Match rule 7 up to the next rule number
+        match = re.search(
+            r'^7\.\s.*?(?=^\d+\.\s|\Z)',
+            content,
+            re.MULTILINE | re.DOTALL,
+        )
+        assert match is not None, 'Rule 7 not found in AGENTS.md'
+        return match.group(0)
+
+    def test_rule7_includes_ruff_check(self):
+        """Rule 7 should instruct agents to run ruff check --select F."""
+        rule7 = self._get_rule7_text()
+        assert 'ruff check --select F' in rule7, (
             'AGENTS.md rule 7 should include ruff check --select F step'
         )
 
