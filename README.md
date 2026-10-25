@@ -433,7 +433,7 @@ This repository is enrolled in [fullsend](https://github.com/fullsend-ai/fullsen
 | **Fix** | Review requests changes | Reads feedback, implements fix, pushes (max 2 rounds) |
 | **Retro** | PR merged | Post-merge retrospective |
 
-Agents are inert until GitHub Apps are installed and GCP Workload Identity Federation is configured.
+Agents are inert until GitHub Apps are installed, GCP Workload Identity Federation is configured, and the `ENMAAS_KEY` secret is set.
 
 **Documentation:**
 - [Fullsend Architecture](docs/FULLSEND_ARCHITECTURE.md) -- system diagrams, self-healing loop, security model

@@ -461,8 +461,8 @@ upstream-sync.yml (GitHub Action)               |
 ### GitHub
 
 - Fullsend GitHub Apps installed (triage, coder, review roles)
-- Repo variables: `FULLSEND_MINT_URL`
-- Repo secrets: `ENMAAS_KEY`
+- Repo variables: `FULLSEND_MINT_URL`, `FULLSEND_GCP_REGION`, `FULLSEND_PROJECT_NUMBER`
+- Repo secrets: `FULLSEND_GCP_WIF_PROVIDER`, `FULLSEND_GCP_PROJECT_ID`, `ENMAAS_KEY`
 
 ### enMaas (AI Inference)
 
