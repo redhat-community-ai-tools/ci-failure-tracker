@@ -113,6 +113,26 @@ def test_tls_volume_defined(deployment):
     assert tls_vol["secret"]["secretName"] == "winc-dashboard-poc-tls"
 
 
+def test_oauth_proxy_cookie_secret_volume_mount(deployment):
+    """The oauth-proxy must mount the cookie-secret volume."""
+    containers = deployment["spec"]["template"]["spec"]["containers"]
+    proxy = [c for c in containers if c["name"] == "oauth-proxy"][0]
+    mount_names = [vm["name"] for vm in proxy.get("volumeMounts", [])]
+    assert "cookie-secret" in mount_names
+    cookie_mount = [vm for vm in proxy["volumeMounts"] if vm["name"] == "cookie-secret"][0]
+    assert cookie_mount["mountPath"] == "/var/run/secrets/oauth-proxy"
+    assert cookie_mount.get("readOnly") is True
+
+
+def test_cookie_secret_volume_defined(deployment):
+    """The Deployment must define a volume for the cookie-secret Secret."""
+    volumes = deployment["spec"]["template"]["spec"].get("volumes", [])
+    vol_names = [v["name"] for v in volumes]
+    assert "cookie-secret" in vol_names
+    cookie_vol = [v for v in volumes if v["name"] == "cookie-secret"][0]
+    assert cookie_vol["secret"]["secretName"] == "oauth-proxy-secret"
+
+
 # --- Service regression tests ---
 
 

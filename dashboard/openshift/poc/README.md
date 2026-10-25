@@ -31,6 +31,9 @@ oc create secret generic reportportal-token \
 oc create secret generic webhook-secret \
   --from-literal=WebHookSecretKey=$(openssl rand -hex 20)
 
+oc create secret generic oauth-proxy-secret \
+  --from-literal=cookie-secret=$(openssl rand -base64 32)
+
 # 3. Deploy prow-mcp-server
 oc apply -f mcp-imagestream.yaml
 oc apply -f mcp-buildconfig.yaml
@@ -68,18 +71,18 @@ oc get route winc-dashboard-poc -o jsonpath='{.spec.host}'
 ┌─────────────────────────────────────────────────────────────┐
 │ Namespace: winc-dashboard-poc                               │
 │                                                              │
-│  ┌────────────────────┐       ┌─────────────────────────┐  │
-│  │ prow-mcp-server    │       │ winc-dashboard-poc      │  │
-│  │                    │       │                         │  │
-│  │ Port: 8000         │←─────│ ProwMCPCollector        │  │
-│  │ Service: 3000      │       │ Config: prow_mcp        │  │
-│  │                    │       │                         │  │
-│  │ FROM: rrasouli/    │       │ FROM: rrasouli/         │  │
-│  │  prow-mcp-server   │       │  ci-failure-tracker     │  │
-│  │  (main branch)     │       │  (poc-prow-mcp branch)  │  │
-│  └────────────────────┘       └─────────────────────────┘  │
-│           ↓                              ↓                  │
-│    Prow CI / GCS                   SQLite DB (PVC)         │
+│  ┌────────────────────┐       ┌─────────────────────────────────┐  │
+│  │ prow-mcp-server    │       │ winc-dashboard-poc (pod)         │  │
+│  │                    │       │                                   │  │
+│  │ Port: 8000         │       │  ┌───────────┐  ┌────────────┐  │  │
+│  │ Service: 3000      │←─────│  │ oauth-    │  │ dashboard  │  │  │
+│  │                    │       │  │ proxy     │→│ :8080      │  │  │
+│  │ FROM: rrasouli/    │       │  │ :8443     │  │            │  │  │
+│  │  prow-mcp-server   │       │  └───────────┘  └────────────┘  │  │
+│  │  (main branch)     │       │        ↑ HTTPS        ↑          │  │
+│  └────────────────────┘       └────────│──────────────│──────────┘  │
+│           ↓                     Route (reencrypt)   SQLite (PVC)   │
+│    Prow CI / GCS                                                    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
