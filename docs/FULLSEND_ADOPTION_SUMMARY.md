@@ -66,7 +66,7 @@ existing development workflow.
 | Self-healing scope | Full (dashboard + collector + upstream bugs) | Maximize value: agents fix their own bugs AND file product bugs to Jira |
 | Progress tracking | GitHub Issues in fullsend repo | Centralized tracking with `ci-dashboard` label |
 | Installation mode | Per-repo (ADR-0033) | Single repo, no org-wide rollout needed |
-| Agent model | Claude Opus via enMaas gateway | Matches fullsend defaults |
+| Agent model | Claude Opus via enMaas gateway (agents; dashboard uses GLM-5.3) | Matches fullsend defaults |
 | Auto-merge | Disabled | Human approval required for all agent PRs |
 
 ---

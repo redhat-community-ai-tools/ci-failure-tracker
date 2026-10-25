@@ -464,9 +464,20 @@ upstream-sync.yml (GitHub Action)               |
 - Repo variables: `FULLSEND_MINT_URL`, `FULLSEND_GCP_REGION`, `FULLSEND_PROJECT_NUMBER`
 - Repo secrets: `FULLSEND_GCP_WIF_PROVIDER`, `FULLSEND_GCP_PROJECT_ID`, `ENMAAS_KEY`
 
+### GCP Workload Identity Federation (Sandbox Auth)
+
+- GCP project with Workload Identity Federation configured
+- OIDC token exchange enables the fullsend platform to authenticate
+  sandbox containers — this is platform infrastructure, not AI inference
+- Repo variables `FULLSEND_GCP_REGION` and `FULLSEND_PROJECT_NUMBER`
+  and repo secrets `FULLSEND_GCP_WIF_PROVIDER` and
+  `FULLSEND_GCP_PROJECT_ID` (listed under GitHub above) are consumed by
+  the fullsend shim workflow for this purpose
+
 ### enMaas (AI Inference)
 
-- enMaas API key for GLM-5.3 inference
+- enMaas API key for AI inference (GLM-5.3 for dashboard analysis,
+  Claude Opus for fullsend agents)
 
 ### OpenShift (Dashboard Deployment)
 
