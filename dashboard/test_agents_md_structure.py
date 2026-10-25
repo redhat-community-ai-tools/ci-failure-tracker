@@ -93,6 +93,6 @@ class TestAgentsMdLintingRule:
         req_path = os.path.join(DASHBOARD_DIR, 'requirements.txt')
         with open(req_path) as f:
             content = f.read()
-        assert 'ruff' in content, (
+        assert re.search(r'^ruff\b', content, re.MULTILINE), (
             'ruff should be listed in dashboard/requirements.txt'
         )
