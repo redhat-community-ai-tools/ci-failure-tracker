@@ -106,7 +106,7 @@ OpenShell Sandbox   (isolated container with agent runtime)
        +-- Activates: .fullsend/customized/skills/*
        |
        v
-Agent executes (Claude via Vertex AI)
+Agent executes (GLM-5.3 via enMaas)
        |
        v
 post_script.sh   (push branch, create PR, post comments)
@@ -242,7 +242,7 @@ Iteration capped at 2 rounds. `/fs-fix-stop` disables.
 
 ## Self-Healing Loop
 
-The dashboard detects CI failures and has AI analysis (Vertex AI / Claude).
+The dashboard detects CI failures and has AI analysis (GLM-5.3 via enMaas).
 This creates a feedback loop where detected failures become agent-managed
 issues.
 
@@ -438,13 +438,13 @@ upstream-sync.yml (GitHub Action)               |
 | GH_TOKEN (sandbox) | Read-only (contents, issues, PRs) | Inside sandbox |
 | PUSH_TOKEN (runner) | Write (push branches, create PRs) | Runner only, never in sandbox |
 | REVIEW_TOKEN (runner) | Write (post review comments) | Runner only |
-| GCP credentials | Vertex AI inference | Mounted as file in sandbox |
+| enMaas credentials | GLM-5.3 inference | Mounted as file in sandbox |
 | Jira API token | Create/search issues | Dashboard env var, not in sandbox |
 
 ### Sandbox Isolation
 
 - Agents run in OpenShell containers with L7 network policies
-- Network restricted to: Vertex AI, GitHub API, PyPI (code agent only)
+- Network restricted to: enMaas gateway, GitHub API, PyPI (code agent only)
 - `curl` excluded from allowed binaries (prevents disallowedTools bypass)
 - `pull_request_target` prevents PR authors from modifying the shim workflow
 - Config always read from base branch, not PR branch

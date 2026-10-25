@@ -66,8 +66,6 @@ class TestAnalysisStats:
         assert stats['local_count'] == 2
         # Savings must be zero — GLM via enMaas is free
         assert stats['savings'] == 0.0
-        # Ensure the stale Vertex AI constant is not used
-        assert stats['savings'] != 2 * 0.024
 
     def test_savings_zero_when_no_local_analyses(self, db):
         """Savings must be zero when there are no local analyses."""
