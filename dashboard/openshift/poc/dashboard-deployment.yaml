@@ -90,6 +90,14 @@ spec:
             - name: cookie-secret
               mountPath: /var/run/secrets/oauth-proxy
               readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /oauth/healthz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
           resources:
             requests:
               memory: "64Mi"

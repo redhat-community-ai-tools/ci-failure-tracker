@@ -42,6 +42,15 @@ def serviceaccount():
         return yaml.safe_load(f)
 
 
+@pytest.fixture
+def oauth_proxy(deployment):
+    """Return the oauth-proxy sidecar container from the Deployment."""
+    containers = deployment["spec"]["template"]["spec"]["containers"]
+    proxy = [c for c in containers if c["name"] == "oauth-proxy"]
+    assert len(proxy) == 1
+    return proxy[0]
+
+
 def test_has_image_change_trigger_annotation(deployment):
     """The Deployment must have the image.openshift.io/triggers annotation."""
     annotations = deployment["metadata"].get("annotations", {})
@@ -80,11 +89,9 @@ def test_deployment_sets_service_account_name(deployment):
     assert sa_name == "winc-dashboard-poc"
 
 
-def test_oauth_proxy_service_account_arg(deployment):
+def test_oauth_proxy_service_account_arg(oauth_proxy):
     """The oauth-proxy must pass --openshift-service-account."""
-    containers = deployment["spec"]["template"]["spec"]["containers"]
-    proxy = [c for c in containers if c["name"] == "oauth-proxy"][0]
-    args = proxy.get("args", [])
+    args = oauth_proxy.get("args", [])
     assert "--openshift-service-account=winc-dashboard-poc" in args
 
 
@@ -95,29 +102,24 @@ def test_oauth_proxy_sidecar_present(deployment):
     assert len(proxy) == 1
 
 
-def test_oauth_proxy_listens_on_8443(deployment):
+def test_oauth_proxy_listens_on_8443(oauth_proxy):
     """The oauth-proxy must listen on port 8443."""
-    containers = deployment["spec"]["template"]["spec"]["containers"]
-    proxy = [c for c in containers if c["name"] == "oauth-proxy"][0]
-    ports = [p["containerPort"] for p in proxy.get("ports", [])]
+    ports = [p["containerPort"] for p in oauth_proxy.get("ports", [])]
     assert 8443 in ports
 
 
-def test_oauth_proxy_upstream_targets_dashboard(deployment):
+def test_oauth_proxy_upstream_targets_dashboard(oauth_proxy):
     """The oauth-proxy must forward to the dashboard on localhost:8080."""
-    containers = deployment["spec"]["template"]["spec"]["containers"]
-    proxy = [c for c in containers if c["name"] == "oauth-proxy"][0]
-    args = proxy.get("args", [])
+    args = oauth_proxy.get("args", [])
     assert "--upstream=http://localhost:8080" in args
 
 
-def test_oauth_proxy_tls_volume_mount(deployment):
+def test_oauth_proxy_tls_volume_mount(oauth_proxy):
     """The oauth-proxy must mount the TLS secret volume."""
-    containers = deployment["spec"]["template"]["spec"]["containers"]
-    proxy = [c for c in containers if c["name"] == "oauth-proxy"][0]
-    mount_names = [vm["name"] for vm in proxy.get("volumeMounts", [])]
+    volume_mounts = oauth_proxy.get("volumeMounts", [])
+    mount_names = [vm["name"] for vm in volume_mounts]
     assert "tls" in mount_names
-    tls_mount = [vm for vm in proxy["volumeMounts"] if vm["name"] == "tls"][0]
+    tls_mount = [vm for vm in volume_mounts if vm["name"] == "tls"][0]
     assert tls_mount["mountPath"] == "/etc/tls/private"
     assert tls_mount.get("readOnly") is True
 
@@ -131,13 +133,12 @@ def test_tls_volume_defined(deployment):
     assert tls_vol["secret"]["secretName"] == "winc-dashboard-poc-tls"
 
 
-def test_oauth_proxy_cookie_secret_volume_mount(deployment):
+def test_oauth_proxy_cookie_secret_volume_mount(oauth_proxy):
     """The oauth-proxy must mount the cookie-secret volume."""
-    containers = deployment["spec"]["template"]["spec"]["containers"]
-    proxy = [c for c in containers if c["name"] == "oauth-proxy"][0]
-    mount_names = [vm["name"] for vm in proxy.get("volumeMounts", [])]
+    volume_mounts = oauth_proxy.get("volumeMounts", [])
+    mount_names = [vm["name"] for vm in volume_mounts]
     assert "cookie-secret" in mount_names
-    cookie_mount = [vm for vm in proxy["volumeMounts"] if vm["name"] == "cookie-secret"][0]
+    cookie_mount = [vm for vm in volume_mounts if vm["name"] == "cookie-secret"][0]
     assert cookie_mount["mountPath"] == "/var/run/secrets/oauth-proxy"
     assert cookie_mount.get("readOnly") is True
 
@@ -149,6 +150,15 @@ def test_cookie_secret_volume_defined(deployment):
     assert "cookie-secret" in vol_names
     cookie_vol = [v for v in volumes if v["name"] == "cookie-secret"][0]
     assert cookie_vol["secret"]["secretName"] == "oauth-proxy-secret"
+
+
+def test_oauth_proxy_readiness_probe(oauth_proxy):
+    """The oauth-proxy must have a readinessProbe on the healthz endpoint."""
+    probe = oauth_proxy.get("readinessProbe")
+    assert probe is not None
+    assert probe["httpGet"]["path"] == "/oauth/healthz"
+    assert probe["httpGet"]["port"] == 8443
+    assert probe["httpGet"]["scheme"] == "HTTPS"
 
 
 def test_service_has_serving_cert_annotation(service):
