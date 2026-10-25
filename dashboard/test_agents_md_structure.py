@@ -9,6 +9,7 @@ import re
 
 
 AGENTS_MD_PATH = os.path.join(os.path.dirname(__file__), '..', 'AGENTS.md')
+DASHBOARD_DIR = os.path.dirname(__file__)
 
 
 class TestAgentsMdRuleNumbering:
@@ -58,4 +59,25 @@ class TestAgentsMdRuleNumbering:
         duplicates = [n for n in set(numbers) if numbers.count(n) > 1]
         assert len(duplicates) == 0, (
             f'Duplicate rule numbers found: {sorted(duplicates)}'
+        )
+
+
+class TestAgentsMdLintingRule:
+    """Verify AGENTS.md rule 7 includes ruff linting step (issue #261)."""
+
+    def test_rule7_includes_ruff_check(self):
+        """Rule 7 should instruct agents to run ruff check --select F."""
+        with open(AGENTS_MD_PATH) as f:
+            content = f.read()
+        assert 'ruff check --select F' in content, (
+            'AGENTS.md rule 7 should include ruff check --select F step'
+        )
+
+    def test_ruff_in_requirements(self):
+        """ruff must be listed in dashboard/requirements.txt."""
+        req_path = os.path.join(DASHBOARD_DIR, 'requirements.txt')
+        with open(req_path) as f:
+            content = f.read()
+        assert 'ruff' in content, (
+            'ruff should be listed in dashboard/requirements.txt'
         )

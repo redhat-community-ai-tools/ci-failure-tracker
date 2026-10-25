@@ -35,7 +35,10 @@ Most agent work targets the dashboard.
    not add type hints to files that do not already use them.
 
 7. **Testing.** Run `cd dashboard && pip install -r requirements.txt -q && python -m pytest -v` after changes. If no
-   tests exist for the changed module, create a test file.
+   tests exist for the changed module, create a test file. Then run
+   `ruff check --select F` on any Python files you created or modified
+   to catch unused imports, undefined names, and unused variables before
+   committing.
 
 8. **False-positive testing.** When writing pattern-matching logic (regex,
    string matching, SQL LIKE/GLOB wildcards, classifiers), always include
