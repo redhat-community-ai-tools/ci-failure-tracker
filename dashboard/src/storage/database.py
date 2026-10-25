@@ -661,6 +661,7 @@ class DashboardDatabase:
             WHERE test_name = ?
             AND version = ?
             AND analysis_date >= datetime('now', ? || ' days')
+            AND (analysis_mode IS NULL OR analysis_mode != 'failed')
             ORDER BY analysis_date DESC
             LIMIT 1
         """, (test_name, version, f'-{days}'))

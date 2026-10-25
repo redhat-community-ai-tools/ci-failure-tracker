@@ -7,7 +7,6 @@ Includes structural tests for the runAIAnalysis JS function changes
 in the dashboard template (AGENTS.md rule 16).
 """
 
-import hashlib
 import os
 import re
 import sqlite3
@@ -15,14 +14,9 @@ import tempfile
 
 import pytest
 
-from conftest import extract_function_body
+from conftest import error_message_hash as _hash, extract_function_body
 from src.storage.database import DashboardDatabase
 from web.server import create_app
-
-
-def _hash(message):
-    """Compute SHA-256 hash of an error message."""
-    return hashlib.sha256(message.encode('utf-8')).hexdigest()
 
 
 @pytest.fixture

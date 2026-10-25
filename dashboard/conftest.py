@@ -5,11 +5,17 @@ Adds the src directory to sys.path so that server.py's internal imports
 when tests are run from the ``dashboard/`` directory.
 """
 
+import hashlib
 import os
 import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+
+
+def error_message_hash(message):
+    """Compute SHA-256 hash of an error message."""
+    return hashlib.sha256(message.encode('utf-8')).hexdigest()
 
 
 def extract_function_body(script, func_name):
