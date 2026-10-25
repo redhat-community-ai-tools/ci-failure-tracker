@@ -462,7 +462,7 @@ upstream-sync.yml (GitHub Action)               |
 
 - Fullsend GitHub Apps installed (triage, coder, review roles)
 - Repo variables: `FULLSEND_MINT_URL`, `FULLSEND_GCP_REGION`, `FULLSEND_PROJECT_NUMBER`
-- Repo secrets: `FULLSEND_GCP_WIF_PROVIDER`, `FULLSEND_GCP_PROJECT_ID`, `ENMAAS_KEY`
+- Repo secrets: `FULLSEND_GCP_WIF_PROVIDER`, `FULLSEND_GCP_PROJECT_ID`, `FULLSEND_OPENAI_API_KEY`
 
 ### GCP Workload Identity Federation (Sandbox Auth)
 
@@ -478,6 +478,9 @@ upstream-sync.yml (GitHub Action)               |
 
 - enMaas API key for AI inference (GLM-5.3 for dashboard analysis,
   Claude Opus for fullsend agents)
+- The `FULLSEND_OPENAI_API_KEY` repo secret (listed under GitHub above)
+  is forwarded by the shim workflow; the platform maps it to `ENMAAS_KEY`
+  inside the sandbox
 
 ### OpenShift (Dashboard Deployment)
 

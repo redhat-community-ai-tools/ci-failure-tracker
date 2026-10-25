@@ -225,9 +225,8 @@ automated SDLC pipeline.
 Current blockers before activation:
 1. Fullsend GitHub Apps must be installed on `rrasouli/ci-failure-tracker`
 2. GCP Workload Identity Federation must be configured
-3. `ENMAAS_KEY` secret must be set in GitHub Settings
-4. Repo variables/secrets must be set in GitHub Settings
-5. The fullsend team should review the customized harness/agent files
+3. Repo variables/secrets must be set in GitHub Settings (including `FULLSEND_OPENAI_API_KEY` for enMaas inference)
+4. The fullsend team should review the customized harness/agent files
 
 **Recommendation:** Start with a dry run -- commit the `.fullsend/`
 directory but do not install the GitHub Apps yet. This lets the files be
@@ -251,7 +250,7 @@ activating.
    `AGENTS.md` in the POC repo before committing
 2. **Dry run** -- commit files to a branch, review PR, but do not install
    GitHub Apps yet
-3. **Set up infrastructure** -- GCP WIF, `ENMAAS_KEY`, GitHub Apps, repo variables/secrets
+3. **Set up infrastructure** -- GCP WIF, GitHub Apps, repo variables/secrets (including `FULLSEND_OPENAI_API_KEY`)
 4. **Manual validation** -- activate agents and test with `/fs-triage` on
    a few real issues
 5. **Iterate** -- adjust agent prompts and skills based on triage quality
