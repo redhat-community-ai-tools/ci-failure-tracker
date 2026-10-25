@@ -239,8 +239,7 @@ Each agent invocation costs:
 - enMaas: $0 per inference call (GLM-5.3 is free)
 - Estimated monthly: GitHub Actions runner time only
 
-Set up GCP budget alerts and GitHub Actions usage monitoring before
-activating.
+Set up GitHub Actions usage monitoring before activating.
 
 ---
 

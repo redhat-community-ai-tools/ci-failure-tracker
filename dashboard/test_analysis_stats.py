@@ -68,4 +68,4 @@ class TestAnalysisStats:
         _save_one(db, 'OCP-88888', 'glm-ai')
         stats = db.get_analysis_stats()
         assert stats['local_count'] == 0
-        assert stats['savings'] == 0
+        assert stats['savings'] == 0.0

@@ -796,7 +796,7 @@ class DashboardDatabase:
             'total_analyses': 0,
             'local_count': 0,
             'api_count': 0,
-            'total_cost': 0,
+            'total_cost': 0.0,
             'savings': 0.0
         }
 
