@@ -23,6 +23,7 @@ spec:
           ports:
             - containerPort: 8080
               protocol: TCP
+              name: http
           env:
             - name: REPORTPORTAL_API_TOKEN
               valueFrom:

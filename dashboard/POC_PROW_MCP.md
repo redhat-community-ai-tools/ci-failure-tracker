@@ -125,6 +125,9 @@ oc create secret generic reportportal-token \
 oc create secret generic webhook-secret \
   --from-literal=WebHookSecretKey=$(openssl rand -hex 20)
 
+oc create secret generic oauth-proxy-secret \
+  --from-literal=cookie-secret=$(openssl rand -base64 32)
+
 # Deploy prow-mcp-server
 oc apply -f mcp-imagestream.yaml
 oc apply -f mcp-buildconfig.yaml

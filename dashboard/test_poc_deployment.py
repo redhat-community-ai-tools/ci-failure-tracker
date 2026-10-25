@@ -67,8 +67,6 @@ def test_no_top_level_triggers(deployment):
     assert "triggers" not in deployment.get("spec", {})
 
 
-# --- oauth-proxy sidecar regression tests ---
-
 
 def test_oauth_proxy_sidecar_present(deployment):
     """The Deployment must include an oauth-proxy sidecar container."""
@@ -133,8 +131,6 @@ def test_cookie_secret_volume_defined(deployment):
     assert cookie_vol["secret"]["secretName"] == "oauth-proxy-secret"
 
 
-# --- Service regression tests ---
-
 
 def test_service_has_serving_cert_annotation(service):
     """The Service must have the serving-cert-secret-name annotation."""
@@ -160,8 +156,6 @@ def test_service_retains_http_port(service):
     assert len(http_ports) == 1
     assert http_ports[0]["port"] == 8080
 
-
-# --- Route regression tests ---
 
 
 def test_route_uses_reencrypt_tls(route):
