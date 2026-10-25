@@ -73,6 +73,9 @@ The analyzer uses a 2-tier system:
 2. **GLM AI (enMaas)** - Failures that reach the AI are analyzed
    with structured prompts
 
+**Note:** When using Re-analyze, pre-classifiers are bypassed and the
+failure is sent directly to GLM for a fresh AI analysis.
+
 ## Environment Variables
 
 The following environment variable controls GLM access:

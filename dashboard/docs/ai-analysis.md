@@ -80,7 +80,8 @@ oc rollout restart deployment/winc-dashboard-poc
 ## Analysis Modes
 
 ### Pattern Matching Mode (FREE)
-- Runs first on every failure
+- Runs first on every first-time analysis; bypassed when Re-analyze
+  is used (see below)
 - Pre-classifiers catch SSH/DNS/quota/timeout flakes and
   cross-platform correlations
 - Results carry `analysis_mode: "pre-classifier"`
@@ -91,7 +92,9 @@ oc rollout restart deployment/winc-dashboard-poc
 analysis_mode: "glm-ai"
 ```
 - Uses GLM-5.3 via the internal enMaas gateway
-- Only used for failures the pre-classifiers cannot classify
+- Used for failures the pre-classifiers cannot classify, and also
+  invoked unconditionally during explicit re-analysis (Re-analyze
+  bypasses pre-classifiers)
 - Structured prompts with historical pass rate and test repo context
 - Low-confidence results (below 60) are flagged
   `needs_human_review: true`
@@ -170,8 +173,10 @@ for that test will trigger a fresh analysis automatically rather than
 returning the failed result.
 
 To force a fresh analysis manually, click the **Re-analyze** button
-that appears after a successful analysis. This bypasses the cache and
-requests a new analysis from the AI service.
+that appears after a successful analysis. This bypasses the cache,
+skips all offline pre-classifiers (SSH, DNS, timeout, known-flaky,
+cross-platform), and sends the failure directly to GLM for a fresh
+AI analysis.
 
 Alternatively, you can use the browser console:
 
