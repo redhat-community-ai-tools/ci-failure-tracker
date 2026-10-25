@@ -865,13 +865,15 @@ class HybridFailureAnalyzer:
                     )
                     return cross_platform_result
 
-            # Step 1f: Check if test was recently modified in the test repo
-            # (recent commits suggest automation_bug, not product_bug)
-            test_repo_changes = _check_test_repo_recent_changes(test_name)
-        else:
-            # Explicit re-analysis: bypass all pre-classifiers and send
-            # directly to GLM so the user gets a fresh AI classification.
-            test_repo_changes = None
+        # Step 1f: Check if test was recently modified in the test repo
+        # (recent commits suggest automation_bug, not product_bug).
+        # This is NOT a pre-classifier — it never short-circuits the
+        # analysis.  It enriches the GLM prompt so the AI can weigh
+        # recent test-repo activity when classifying the failure.
+        # It runs unconditionally (even when force_ai=True) because
+        # skipping it would make re-analysis less informed than a
+        # normal first-time analysis.
+        test_repo_changes = _check_test_repo_recent_changes(test_name)
 
         # Step 2: Use GLM AI for analysis
         logger.info(f"Analyzing {test_name} with GLM AI")

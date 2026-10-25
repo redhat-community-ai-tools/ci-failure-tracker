@@ -939,7 +939,7 @@ class TestDetectCrossPlatformFailure:
         assert result is None
 
 
-class TestForceAiBypassesPreclassifiers:
+class TestAnalyzeFailureForceAi:
     """Tests for force_ai flag that bypasses all pre-classifiers."""
 
     def test_force_ai_bypasses_timeout_preclassifier(self, monkeypatch):
@@ -1088,6 +1088,60 @@ class TestForceAiBypassesPreclassifiers:
 
         assert result['pre_classified'] is True
         assert result['pre_classifier'] == 'timeout_flake_detector'
+
+    def test_force_ai_bypasses_cross_platform_preclassifier(self, monkeypatch):
+        """Cross-platform failure must reach GLM when force_ai=True."""
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+        analyzer = HybridFailureAnalyzer()
+
+        monkeypatch.setattr(
+            analyzer_module.requests, 'post',
+            lambda *a, **k: _glm_fake_response({
+                'content': _sample_glm_response_text(),
+            }),
+        )
+
+        hash_a = 'a' * 64
+        hash_b = 'b' * 64
+        hash_c = 'c' * 64
+        hash_d = 'd' * 64
+        result = analyzer.analyze_failure(
+            test_name='OCP-42204',
+            error_message=(
+                f'failed to load task: no running task found: '
+                f'task {hash_a} not found'
+            ),
+            log_url='',
+            platform='nutanix',
+            version='4.18',
+            recent_failures=[
+                {
+                    'platform': 'vsphere',
+                    'error_message': (
+                        f'failed to load task: no running task '
+                        f'found: task {hash_b} not found'
+                    ),
+                },
+                {
+                    'platform': 'aws',
+                    'error_message': (
+                        f'failed to load task: no running task '
+                        f'found: task {hash_c} not found'
+                    ),
+                },
+                {
+                    'platform': 'azure',
+                    'error_message': (
+                        f'failed to load task: no running task '
+                        f'found: task {hash_d} not found'
+                    ),
+                },
+            ],
+            force_ai=True,
+        )
+
+        assert result['analysis_mode'] == 'glm-ai'
+        assert result.get('pre_classified') is not True
 
 
 class TestAnalyzeFailureCrossPlatform:
