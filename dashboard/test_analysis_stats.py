@@ -53,3 +53,25 @@ class TestAnalysisStats:
         stats = db.get_analysis_stats()
         assert stats['api_count'] == 1
         assert stats['total_analyses'] == 2
+
+    def test_savings_reflects_zero_cost_model(self, db):
+        """Savings must reflect current cost model (GLM is free).
+
+        The old Vertex AI constant (0.024) was removed in #254.
+        With GLM-5.3 via enMaas at zero cost, savings should be 0.
+        """
+        _save_one(db, 'OCP-66666', 'local-claude-code')
+        _save_one(db, 'OCP-77777', 'local-claude-code')
+        stats = db.get_analysis_stats()
+        assert stats['local_count'] == 2
+        # Savings must be zero — GLM via enMaas is free
+        assert stats['savings'] == 0.0
+        # Ensure the stale Vertex AI constant is not used
+        assert stats['savings'] != 2 * 0.024
+
+    def test_savings_zero_when_no_local_analyses(self, db):
+        """Savings must be zero when there are no local analyses."""
+        _save_one(db, 'OCP-88888', 'glm-ai')
+        stats = db.get_analysis_stats()
+        assert stats['local_count'] == 0
+        assert stats['savings'] == 0

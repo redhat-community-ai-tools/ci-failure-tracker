@@ -1443,7 +1443,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     @app.route('/api/analyze-failure', methods=['POST'])
     def api_analyze_failure():
         """
-        Analyze test failure with AI (hybrid: local Claude Code or Anthropic API)
+        Analyze test failure with AI (GLM-5.3 via enMaas gateway)
         """
         from ai.analyzer import HybridFailureAnalyzer
 

@@ -788,7 +788,9 @@ class DashboardDatabase:
         row = cursor.fetchone()
         if row:
             stats = dict(row)
-            stats['savings'] = stats['local_count'] * 0.024 if stats['local_count'] else 0
+            # GLM-5.3 via enMaas is free (cost=0.0); the old Vertex AI
+            # constant (0.024) no longer applies.
+            stats['savings'] = stats['local_count'] * 0.0 if stats['local_count'] else 0
             return stats
 
         return {
