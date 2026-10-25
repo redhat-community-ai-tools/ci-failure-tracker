@@ -11,22 +11,16 @@ Validates that:
   instead of hardcoding 7 (issue #255, defect 2)
 """
 
-import hashlib
 import os
 import sqlite3
-import tempfile
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import pytest
 
+from conftest import error_message_hash as _hash
 from src.storage.database import DashboardDatabase
 from web.server import create_app
-
-
-def _hash(message):
-    """Compute SHA-256 hash of an error message."""
-    return hashlib.sha256(message.encode('utf-8')).hexdigest()
 
 
 @pytest.fixture
@@ -171,6 +165,36 @@ class TestFailedAnalysisCacheExclusion:
         assert stats['total_analyses'] == 2
         assert stats['api_count'] == 1
 
+    def test_legacy_null_analysis_mode_returned_from_cache(self, db):
+        """Legacy rows with NULL analysis_mode must still be served.
+
+        The SQL filter ``(analysis_mode IS NULL OR analysis_mode != 'failed')``
+        relies on the explicit IS NULL check because ``NULL != 'failed'``
+        evaluates to NULL (falsy) in SQL, not TRUE.  This test guards against
+        a future simplification to just ``analysis_mode != 'failed'`` which
+        would silently exclude legacy cached analyses.
+        """
+        # Save an analysis without analysis_mode so the column stores NULL
+        db.save_ai_analysis('OCP-44444', '4.21', analysis={
+            'root_cause': 'Legacy analysis without mode',
+            'confidence': 75,
+            'failure_type': 'product_bug',
+        })
+
+        # Verify the stored row actually has NULL analysis_mode
+        cursor = db.conn.cursor()
+        cursor.execute(
+            "SELECT analysis_mode FROM ai_analyses WHERE test_name = ?",
+            ('OCP-44444',),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row[0] is None
+
+        result = db.get_ai_analysis('OCP-44444', '4.21')
+        assert result is not None
+        assert result['confidence'] == 75
+
     def test_successful_overwrites_failed_in_cache(self, db):
         """After a failed row, a new successful analysis must be served."""
         error_hash = _hash('transient error')
@@ -210,16 +234,15 @@ class TestResolverDaysParameter:
         config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
         application = create_app(db_path=db_path, config_file=config_path)
         application.config['TESTING'] = True
-        yield application, db_path
+        yield application
 
     @pytest.fixture
     def client(self, app):
-        application, _ = app
-        return application.test_client()
+        return app.test_client()
 
-    def test_resolver_finds_failure_within_requested_days(self, app, monkeypatch):
+    def test_resolver_finds_failure_within_requested_days(self, app, tmp_path, monkeypatch):
         """POST with days=30 must find a failure 15 days old."""
-        application, db_path = app
+        db_path = str(tmp_path / "test.db")
         db = DashboardDatabase(db_path)
 
         # Insert a failure 15 days ago
@@ -235,7 +258,7 @@ class TestResolverDaysParameter:
         db.conn.commit()
         db.close()
 
-        client = application.test_client()
+        client = app.test_client()
         with patch('ai.analyzer.HybridFailureAnalyzer') as mock_cls:
             mock_analyzer = mock_cls.return_value
             mock_analyzer.analyze_failure.return_value = {
@@ -256,9 +279,9 @@ class TestResolverDaysParameter:
 
         assert resp.status_code == 200
 
-    def test_resolver_404_when_failure_outside_days_window(self, app):
+    def test_resolver_404_when_failure_outside_days_window(self, app, tmp_path):
         """POST with days=7 must NOT find a 15-day-old failure."""
-        application, db_path = app
+        db_path = str(tmp_path / "test.db")
         db = DashboardDatabase(db_path)
 
         old_date = datetime.now() - timedelta(days=15)
@@ -273,7 +296,7 @@ class TestResolverDaysParameter:
         db.conn.commit()
         db.close()
 
-        client = application.test_client()
+        client = app.test_client()
         resp = client.post('/api/analyze-failure', json={
             'test_name': 'OCP-28632',
             'version': '5.1',
@@ -283,9 +306,9 @@ class TestResolverDaysParameter:
 
         assert resp.status_code == 404
 
-    def test_resolver_caps_days_at_30(self, app):
+    def test_resolver_caps_days_at_30(self, app, tmp_path):
         """POST with days=90 must be bounded to 30 days."""
-        application, db_path = app
+        db_path = str(tmp_path / "test.db")
         db = DashboardDatabase(db_path)
 
         # Insert a failure 45 days ago — beyond the 30-day cap
@@ -301,7 +324,7 @@ class TestResolverDaysParameter:
         db.conn.commit()
         db.close()
 
-        client = application.test_client()
+        client = app.test_client()
         resp = client.post('/api/analyze-failure', json={
             'test_name': 'OCP-28632',
             'version': '5.1',

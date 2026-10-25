@@ -163,6 +163,12 @@ also automatically invalidated when the underlying error message
 changes (hash-based invalidation), so a new failure signature triggers
 a fresh analysis without manual intervention.
 
+**Note:** Analyses that failed (e.g., due to API errors or missing
+credentials, stored with `analysis_mode='failed'`) are excluded from
+cache serving. If a previous analysis attempt failed, the next request
+for that test will trigger a fresh analysis automatically rather than
+returning the failed result.
+
 To force a fresh analysis manually, click the **Re-analyze** button
 that appears after a successful analysis. This bypasses the cache and
 requests a new analysis from the AI service.
