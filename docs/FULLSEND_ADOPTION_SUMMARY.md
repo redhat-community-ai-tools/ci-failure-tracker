@@ -97,7 +97,7 @@ existing development workflow.
 
 **Sandbox policies:**
 - `.fullsend/customized/policies/code.yaml` -- PyPI access, Python binaries
-- `.fullsend/customized/policies/triage.yaml` -- GitHub API + enMaas gateway only
+- `.fullsend/customized/policies/triage.yaml` -- GitHub API + Vertex AI only
 
 **Python environment:**
 - `.fullsend/customized/env/python-agent.env` -- virtualenv, PYTHONDONTWRITEBYTECODE
