@@ -47,7 +47,6 @@ def oauth_proxy(deployment):
     """Return the oauth-proxy sidecar container from the Deployment."""
     containers = deployment["spec"]["template"]["spec"]["containers"]
     proxy = [c for c in containers if c["name"] == "oauth-proxy"]
-    assert len(proxy) == 1
     return proxy[0]
 
 
@@ -93,6 +92,12 @@ def test_oauth_proxy_service_account_arg(oauth_proxy):
     """The oauth-proxy must pass --openshift-service-account."""
     args = oauth_proxy.get("args", [])
     assert "--openshift-service-account=winc-dashboard-poc" in args
+
+
+def test_oauth_proxy_provider_openshift(oauth_proxy):
+    """The oauth-proxy must use --provider=openshift."""
+    args = oauth_proxy.get("args", [])
+    assert "--provider=openshift" in args
 
 
 def test_oauth_proxy_sidecar_present(deployment):

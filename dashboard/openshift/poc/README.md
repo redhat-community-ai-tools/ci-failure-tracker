@@ -256,7 +256,7 @@ curl -X POST http://localhost:3000/mcp/tools/get_latest_job_run \
 
 ```bash
 # Watch dashboard logs for collection activity
-oc logs -f deployment/winc-dashboard-poc
+oc logs -f deployment/winc-dashboard-poc -c dashboard
 
 # Expected logs:
 # INFO - Using collector type: prow_mcp
@@ -281,7 +281,7 @@ curl -I https://${POC_URL}
 Visit dashboard and click "Refresh Data" button. Watch logs:
 
 ```bash
-oc logs -f deployment/winc-dashboard-poc | grep -i "prow_mcp\|collection"
+oc logs -f deployment/winc-dashboard-poc -c dashboard | grep -i "prow_mcp\|collection"
 ```
 
 ## Troubleshooting
@@ -313,7 +313,7 @@ oc exec deployment/prow-mcp-server -- netstat -tlnp | grep 8000
 oc get svc prow-mcp-server
 
 # Test connectivity from dashboard pod
-oc exec deployment/winc-dashboard-poc -- curl -v http://prow-mcp-server:3000/health
+oc exec deployment/winc-dashboard-poc -c dashboard -- curl -v http://prow-mcp-server:3000/health
 
 # Expected: HTTP 200 OK
 ```
