@@ -1501,11 +1501,13 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
 
         # Check if we already have a recent analysis whose error hash
         # matches (i.e. the failure hasn't changed since the analysis).
+        use_cached = data.get('use_cached', True)
+
         existing_analysis = db.get_ai_analysis(
             test_name, version, platform, days,
             current_error_hash=error_hash,
         )
-        if existing_analysis and data.get('use_cached', True):
+        if existing_analysis and use_cached:
             existing_analysis['cached'] = True
             return jsonify(existing_analysis)
 
@@ -1550,6 +1552,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 pass_rate=pass_rate,
                 test_description=test_description,
                 recent_failures=recent_failures,
+                force_ai=not use_cached,
             )
 
             # Save analysis to database with error hash for future
