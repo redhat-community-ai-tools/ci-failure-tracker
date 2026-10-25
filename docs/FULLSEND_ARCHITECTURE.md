@@ -20,7 +20,7 @@ process.
                 v                                       v
 +-------------------------------+       +-------------------------------+
 |   CI Dashboard Tracker        |       |   GitHub Issues               |
-|   (Flask / SQLite / GLM)      |       |   (ci-failure-tracker repo)   |
+|   (Flask / SQLite / GLM-5.3)  |       |   (ci-failure-tracker repo)   |
 |                               |       |                               |
 |   Collectors --> DB --> UI    |       |   bug_report                  |
 |                    |          |       |   feature_request             |

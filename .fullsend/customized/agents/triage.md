@@ -50,7 +50,7 @@ This project receives several categories of issues:
   problems. Look at: `dashboard/src/collectors/`, `dashboard/config.yaml`
 - **Config problems** -- invalid job patterns, wrong version/platform lists,
   blocklist issues. Look at: `dashboard/config.yaml`
-- **AI analysis issues** -- GLM/enMaas errors, incorrect classifications, cost
+- **AI analysis issues** -- GLM-5.3/enMaas errors, incorrect classifications, cost
   concerns. Look at: `dashboard/src/ai/analyzer.py`
 - **Jira integration issues** -- ticket creation failures, duplicate detection,
   field mapping. Look at: `dashboard/src/integrations/jira_integration.py`
@@ -140,7 +140,7 @@ If validation fails, read the error output, fix the JSON file, and re-validate.
 - `adoption` -- teams needing onboarding help
 - `collector` -- data collection issues
 - `config` -- configuration problems
-- `ai-analysis` -- GLM/enMaas analyzer issues
+- `ai-analysis` -- GLM-5.3/enMaas analyzer issues
 - `jira-integration` -- Jira ticket creation issues
 - `question` -- support questions or clarification requests
 - `upstream-bug` -- product bugs detected by the dashboard
