@@ -1469,7 +1469,8 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         if not error_message:
             # Get test error details from database
             end_date = datetime.now()
-            start_date = end_date - timedelta(days=7)
+            resolver_days = min(days, 30)
+            start_date = end_date - timedelta(days=resolver_days)
 
             query = """
                 SELECT error_message, log_url, test_description
