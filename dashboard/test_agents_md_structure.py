@@ -12,21 +12,25 @@ AGENTS_MD_PATH = os.path.join(os.path.dirname(__file__), '..', 'AGENTS.md')
 DASHBOARD_DIR = os.path.dirname(__file__)
 
 
+def _get_rules_section():
+    """Extract the ## Rules section text from AGENTS.md."""
+    with open(AGENTS_MD_PATH) as f:
+        content = f.read()
+    rules_match = re.search(r'^## Rules\s*$', content, re.MULTILINE)
+    assert rules_match is not None, '## Rules section not found in AGENTS.md'
+    rules_section = content[rules_match.end():]
+    next_heading = re.search(r'^#', rules_section, re.MULTILINE)
+    if next_heading:
+        rules_section = rules_section[:next_heading.start()]
+    return rules_section
+
+
 class TestAgentsMdRuleNumbering:
     """Verify AGENTS.md rules under ## Rules are numbered sequentially."""
 
     def _get_rule_numbers(self):
         """Extract rule numbers from the ## Rules section of AGENTS.md."""
-        with open(AGENTS_MD_PATH) as f:
-            content = f.read()
-        # Find the ## Rules section
-        rules_match = re.search(r'^## Rules\s*$', content, re.MULTILINE)
-        assert rules_match is not None, '## Rules section not found in AGENTS.md'
-        rules_section = content[rules_match.end():]
-        # Stop at the next heading (## or #) if any
-        next_heading = re.search(r'^#', rules_section, re.MULTILINE)
-        if next_heading:
-            rules_section = rules_section[:next_heading.start()]
+        rules_section = _get_rules_section()
         # Extract top-level rule numbers (lines starting with digits
         # followed by a dot at the start of a line)
         numbers = [
@@ -63,19 +67,11 @@ class TestAgentsMdRuleNumbering:
 
 
 class TestAgentsMdLintingRule:
-    """Verify AGENTS.md rule 7 includes ruff linting step (issue #261)."""
+    """Verify AGENTS.md rule 7 includes ruff linting step."""
 
     def _get_rule7_text(self):
         """Extract the text of rule 7 from AGENTS.md."""
-        with open(AGENTS_MD_PATH) as f:
-            content = f.read()
-        # Scope to ## Rules section first (matches _get_rule_numbers pattern)
-        rules_match = re.search(r'^## Rules\s*$', content, re.MULTILINE)
-        assert rules_match is not None, '## Rules section not found in AGENTS.md'
-        rules_section = content[rules_match.end():]
-        next_heading = re.search(r'^#', rules_section, re.MULTILINE)
-        if next_heading:
-            rules_section = rules_section[:next_heading.start()]
+        rules_section = _get_rules_section()
         # Match rule 7 up to the next rule number
         match = re.search(
             r'^7\.\s.*?(?=^\d+\.\s|\Z)',
