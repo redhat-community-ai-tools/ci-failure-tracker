@@ -9,6 +9,20 @@ import re
 
 
 AGENTS_MD_PATH = os.path.join(os.path.dirname(__file__), '..', 'AGENTS.md')
+DASHBOARD_DIR = os.path.dirname(__file__)
+
+
+def _get_rules_section():
+    """Extract the ## Rules section text from AGENTS.md."""
+    with open(AGENTS_MD_PATH) as f:
+        content = f.read()
+    rules_match = re.search(r'^## Rules\s*$', content, re.MULTILINE)
+    assert rules_match is not None, '## Rules section not found in AGENTS.md'
+    rules_section = content[rules_match.end():]
+    next_heading = re.search(r'^#', rules_section, re.MULTILINE)
+    if next_heading:
+        rules_section = rules_section[:next_heading.start()]
+    return rules_section
 
 
 class TestAgentsMdRuleNumbering:
@@ -16,16 +30,7 @@ class TestAgentsMdRuleNumbering:
 
     def _get_rule_numbers(self):
         """Extract rule numbers from the ## Rules section of AGENTS.md."""
-        with open(AGENTS_MD_PATH) as f:
-            content = f.read()
-        # Find the ## Rules section
-        rules_match = re.search(r'^## Rules\s*$', content, re.MULTILINE)
-        assert rules_match is not None, '## Rules section not found in AGENTS.md'
-        rules_section = content[rules_match.end():]
-        # Stop at the next heading (## or #) if any
-        next_heading = re.search(r'^#', rules_section, re.MULTILINE)
-        if next_heading:
-            rules_section = rules_section[:next_heading.start()]
+        rules_section = _get_rules_section()
         # Extract top-level rule numbers (lines starting with digits
         # followed by a dot at the start of a line)
         numbers = [
@@ -58,4 +63,36 @@ class TestAgentsMdRuleNumbering:
         duplicates = [n for n in set(numbers) if numbers.count(n) > 1]
         assert len(duplicates) == 0, (
             f'Duplicate rule numbers found: {sorted(duplicates)}'
+        )
+
+
+class TestAgentsMdLintingRule:
+    """Verify AGENTS.md rule 7 includes ruff linting step."""
+
+    def _get_rule7_text(self):
+        """Extract the text of rule 7 from AGENTS.md."""
+        rules_section = _get_rules_section()
+        # Match rule 7 up to the next rule number
+        match = re.search(
+            r'^7\.\s.*?(?=^\d+\.\s|\Z)',
+            rules_section,
+            re.MULTILINE | re.DOTALL,
+        )
+        assert match is not None, 'Rule 7 not found in AGENTS.md'
+        return match.group(0)
+
+    def test_rule7_includes_ruff_check(self):
+        """Rule 7 should instruct agents to run ruff check --select F."""
+        rule7 = self._get_rule7_text()
+        assert 'ruff check --select F' in rule7, (
+            'AGENTS.md rule 7 should include ruff check --select F step'
+        )
+
+    def test_ruff_in_requirements(self):
+        """ruff must be listed in dashboard/requirements.txt."""
+        req_path = os.path.join(DASHBOARD_DIR, 'requirements.txt')
+        with open(req_path) as f:
+            content = f.read()
+        assert re.search(r'^ruff\b', content, re.MULTILINE), (
+            'ruff should be listed in dashboard/requirements.txt'
         )

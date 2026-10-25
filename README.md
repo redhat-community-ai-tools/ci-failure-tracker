@@ -428,7 +428,7 @@ This repository is enrolled in [fullsend](https://github.com/fullsend-ai/fullsen
 | Agent | Trigger | What it does |
 |-------|---------|--------------|
 | **Triage** | Issue opened/edited | Classifies, labels, checks duplicates, assesses info completeness |
-| **Code** | `/fs-code` on issue | Reads issue, implements fix, runs pytest, pushes branch, opens PR |
+| **Code** | `/fs-code` on issue | Reads issue, implements fix, runs pytest and ruff linting, pushes branch, opens PR |
 | **Review** | PR opened/synced | Reviews for PEP 8, SQLite safety, collector ABC compliance, security |
 | **Fix** | Review requests changes | Reads feedback, implements fix, pushes (max 2 rounds) |
 | **Retro** | PR merged | Post-merge retrospective |
