@@ -797,9 +797,12 @@ class HybridFailureAnalyzer:
         """
         Analyze failure using pre-classifier + GLM (internal enMaas OpenAI-compatible API).
 
-        Step 1: Check for known infrastructure patterns (SSH flakes) -- free, instant
-        Step 1e: Check cross-platform failure correlation
-        Step 2: If not pre-classified, use GLM-5.3 via enMaas
+        Steps 1–1e: Check for known infrastructure patterns (SSH,
+            DNS/quota, timeout, known-flaky, cross-platform) -- free,
+            instant.  Skipped when force_ai=True.
+        Step 1.5: Enrich context with recent test-repo changes -- runs
+            unconditionally (not a pre-classifier).
+        Step 2: Use GLM-5.3 via enMaas for AI analysis.
 
         Args:
             test_name: Test identifier (e.g., OCP-39030)
