@@ -1459,6 +1459,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             return jsonify({'error': 'Missing required fields: test_name, version, platform'}), 400
 
         days = data.get('days', 7)
+        use_cached = data.get('use_cached', True)
 
         # Resolve error_message before cache check so we can compute
         # the hash and detect stale cached analyses.
@@ -1501,8 +1502,6 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
 
         # Check if we already have a recent analysis whose error hash
         # matches (i.e. the failure hasn't changed since the analysis).
-        use_cached = data.get('use_cached', True)
-
         existing_analysis = db.get_ai_analysis(
             test_name, version, platform, days,
             current_error_hash=error_hash,
