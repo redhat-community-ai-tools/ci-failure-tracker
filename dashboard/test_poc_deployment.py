@@ -47,6 +47,7 @@ def oauth_proxy(deployment):
     """Return the oauth-proxy sidecar container from the Deployment."""
     containers = deployment["spec"]["template"]["spec"]["containers"]
     proxy = [c for c in containers if c["name"] == "oauth-proxy"]
+    assert len(proxy) == 1
     return proxy[0]
 
 
@@ -124,7 +125,9 @@ def test_oauth_proxy_tls_volume_mount(oauth_proxy):
     volume_mounts = oauth_proxy.get("volumeMounts", [])
     mount_names = [vm["name"] for vm in volume_mounts]
     assert "tls" in mount_names
-    tls_mount = [vm for vm in volume_mounts if vm["name"] == "tls"][0]
+    tls_mounts = [vm for vm in volume_mounts if vm["name"] == "tls"]
+    assert len(tls_mounts) == 1
+    tls_mount = tls_mounts[0]
     assert tls_mount["mountPath"] == "/etc/tls/private"
     assert tls_mount.get("readOnly") is True
 
@@ -134,7 +137,9 @@ def test_tls_volume_defined(deployment):
     volumes = deployment["spec"]["template"]["spec"].get("volumes", [])
     vol_names = [v["name"] for v in volumes]
     assert "tls" in vol_names
-    tls_vol = [v for v in volumes if v["name"] == "tls"][0]
+    tls_vols = [v for v in volumes if v["name"] == "tls"]
+    assert len(tls_vols) == 1
+    tls_vol = tls_vols[0]
     assert tls_vol["secret"]["secretName"] == "winc-dashboard-poc-tls"
 
 
@@ -143,7 +148,9 @@ def test_oauth_proxy_cookie_secret_volume_mount(oauth_proxy):
     volume_mounts = oauth_proxy.get("volumeMounts", [])
     mount_names = [vm["name"] for vm in volume_mounts]
     assert "cookie-secret" in mount_names
-    cookie_mount = [vm for vm in volume_mounts if vm["name"] == "cookie-secret"][0]
+    cookie_mounts = [vm for vm in volume_mounts if vm["name"] == "cookie-secret"]
+    assert len(cookie_mounts) == 1
+    cookie_mount = cookie_mounts[0]
     assert cookie_mount["mountPath"] == "/var/run/secrets/oauth-proxy"
     assert cookie_mount.get("readOnly") is True
 
@@ -153,7 +160,9 @@ def test_cookie_secret_volume_defined(deployment):
     volumes = deployment["spec"]["template"]["spec"].get("volumes", [])
     vol_names = [v["name"] for v in volumes]
     assert "cookie-secret" in vol_names
-    cookie_vol = [v for v in volumes if v["name"] == "cookie-secret"][0]
+    cookie_vols = [v for v in volumes if v["name"] == "cookie-secret"]
+    assert len(cookie_vols) == 1
+    cookie_vol = cookie_vols[0]
     assert cookie_vol["secret"]["secretName"] == "oauth-proxy-secret"
 
 

@@ -55,7 +55,7 @@ oc rollout restart deployment/winc-dashboard-poc
 The deployment will automatically pick up this secret if it exists. Check the logs:
 
 ```bash
-oc logs deployment/winc-dashboard-poc | grep -i glm
+oc logs deployment/winc-dashboard-poc -c dashboard | grep -i glm
 ```
 
 You should see:
@@ -115,7 +115,7 @@ To test if GLM AI is working:
 
 ```bash
 # Check if client initialized
-oc logs deployment/winc-dashboard-poc | grep "GLM client initialized"
+oc logs deployment/winc-dashboard-poc -c dashboard | grep "GLM client initialized"
 
 # Trigger an analysis
 curl -X POST https://winc-dashboard-poc-winc-dashboard-poc.apps.build10.ci.devcluster.openshift.com/api/analyze-failure \

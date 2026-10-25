@@ -106,6 +106,11 @@ ServiceAccount (`winc-dashboard-poc`) annotated with
 `serviceaccounts.openshift.io/oauth-redirectreference.dashboard`. This
 allows the OpenShift OAuth server to register the redirect URI for this
 client. See `docs/SAML_AUTHENTICATION.md` for the full pattern.
+Note: the POC diverges from `SAML_AUTHENTICATION.md` in two ways:
+the cookie secret is delivered via a file mount
+(`--cookie-secret-file`) rather than an environment variable
+(`--cookie-secret=$(COOKIE_SECRET)`), and the TLS volume is named
+`tls` rather than `oauth-tls`.
 
 No `--openshift-sar` argument is configured. Any user who can
 authenticate to the OpenShift cluster can access the POC dashboard.
