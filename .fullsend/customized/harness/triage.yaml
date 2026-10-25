@@ -17,11 +17,6 @@ host_files:
   - src: env/enmaas.env
     dest: /sandbox/workspace/.env.d/enmaas.env
     expand: true
-  - src: ${GOOGLE_APPLICATION_CREDENTIALS}
-    dest: /tmp/.gcp-credentials.json
-  - src: ${GCP_OIDC_TOKEN_FILE}
-    dest: /sandbox/workspace/.gcp-oidc-token
-    optional: true
   - src: env/triage.env
     dest: /sandbox/workspace/.env.d/triage.env
     expand: true

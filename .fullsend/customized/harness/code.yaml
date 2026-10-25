@@ -22,11 +22,6 @@ host_files:
   - src: env/python-agent.env
     dest: /sandbox/workspace/.env.d/python-agent.env
     expand: true
-  - src: ${GOOGLE_APPLICATION_CREDENTIALS}
-    dest: /tmp/.gcp-credentials.json
-  - src: ${GCP_OIDC_TOKEN_FILE}
-    dest: /sandbox/workspace/.gcp-oidc-token
-    optional: true
 
 pre_script: scripts/pre-code.sh
 post_script: scripts/post-code.sh

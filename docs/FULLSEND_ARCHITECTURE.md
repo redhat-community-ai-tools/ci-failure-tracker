@@ -461,14 +461,12 @@ upstream-sync.yml (GitHub Action)               |
 ### GitHub
 
 - Fullsend GitHub Apps installed (triage, coder, review roles)
-- Repo variables: `FULLSEND_MINT_URL`, `FULLSEND_GCP_REGION`
-- Repo secrets: `FULLSEND_GCP_WIF_PROVIDER`, `FULLSEND_GCP_PROJECT_ID`
+- Repo variables: `FULLSEND_MINT_URL`
+- Repo secrets: `ENMAAS_KEY`
 
-### Google Cloud Platform
+### enMaas (AI Inference)
 
 - enMaas API key for GLM-5.3 inference
-- Workload Identity Federation for OIDC token exchange
-- Service account with `aiplatform.endpoints.predict` permission
 
 ### OpenShift (Dashboard Deployment)
 

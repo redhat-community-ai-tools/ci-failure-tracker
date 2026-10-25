@@ -224,7 +224,7 @@ automated SDLC pipeline.
 
 Current blockers before activation:
 1. Fullsend GitHub Apps must be installed on `rrasouli/ci-failure-tracker`
-2. GCP project needs Workload Identity Federation configured
+2. `ENMAAS_KEY` secret must be set in GitHub Settings
 3. Repo variables/secrets must be set in GitHub Settings
 4. The fullsend team should review the customized harness/agent files
 
@@ -236,10 +236,10 @@ reviewed and iterated on before any agents activate.
 
 Each agent invocation costs:
 - GitHub Actions: ~2-10 minutes of runner time per agent
-- enMaas: ~$0.02-0.10 per inference call (GLM-5.3)
+- enMaas: ~$0.02-0.10 per inference call (Claude Opus)
 - Estimated monthly: depends on issue volume; 20 issues/month ~ $5-10
 
-Set up GCP budget alerts and GitHub Actions usage monitoring before
+Set up enMaas usage monitoring and GitHub Actions usage monitoring before
 activating.
 
 ---
