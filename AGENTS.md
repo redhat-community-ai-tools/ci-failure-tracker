@@ -36,7 +36,7 @@ Most agent work targets the dashboard.
 
 7. **Testing.** Run `cd dashboard && pip install -r requirements.txt -q && python -m pytest -v` after changes. If no
    tests exist for the changed module, create a test file. Then run
-   `ruff check --select F path/to/changed_file.py` on any Python files you created or modified
+   `ruff check --select F` on any Python files you created or modified
    to catch unused imports, undefined names, and unused variables before
    committing.
 
