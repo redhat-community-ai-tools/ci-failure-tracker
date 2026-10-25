@@ -174,7 +174,7 @@ returning the failed result.
 
 To force a fresh analysis manually, click the **Re-analyze** button
 that appears after a successful analysis. This bypasses the cache,
-skips all offline pre-classifiers (SSH, DNS, timeout, known-flaky,
+skips all offline pre-classifiers (SSH, DNS, quota, timeout, known-flaky,
 cross-platform), and sends the failure directly to GLM for a fresh
 AI analysis.
 

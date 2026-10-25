@@ -942,7 +942,7 @@ class TestDetectCrossPlatformFailure:
 class TestAnalyzeFailureForceAi:
     """Tests for force_ai flag that bypasses all pre-classifiers."""
 
-    def test_force_ai_bypasses_timeout_preclassifier(self, monkeypatch):
+    def test_force_ai_bypasses_timeout_pre_classifier(self, monkeypatch):
         """A timeout-shaped failure must reach GLM when force_ai=True."""
         monkeypatch.setenv('ENMAAS_KEY', 'test-key')
         analyzer = HybridFailureAnalyzer()
@@ -979,7 +979,7 @@ class TestAnalyzeFailureForceAi:
         assert result['root_cause'] == 'Kubelet version mismatch'
         assert result.get('pre_classified') is not True
 
-    def test_force_ai_bypasses_ssh_preclassifier(self, monkeypatch):
+    def test_force_ai_bypasses_ssh_pre_classifier(self, monkeypatch):
         """SSH-shaped failure must reach GLM when force_ai=True."""
         monkeypatch.setenv('ENMAAS_KEY', 'test-key')
         analyzer = HybridFailureAnalyzer()
@@ -1004,7 +1004,7 @@ class TestAnalyzeFailureForceAi:
         assert result['analysis_mode'] == 'glm-ai'
         assert result.get('pre_classified') is not True
 
-    def test_force_ai_bypasses_dns_preclassifier(self, monkeypatch):
+    def test_force_ai_bypasses_dns_pre_classifier(self, monkeypatch):
         """DNS-shaped failure must reach GLM when force_ai=True."""
         monkeypatch.setenv('ENMAAS_KEY', 'test-key')
         analyzer = HybridFailureAnalyzer()
@@ -1028,7 +1028,7 @@ class TestAnalyzeFailureForceAi:
         assert result['analysis_mode'] == 'glm-ai'
         assert result.get('pre_classified') is not True
 
-    def test_force_ai_bypasses_known_flaky_preclassifier(self, monkeypatch):
+    def test_force_ai_bypasses_known_flaky_pre_classifier(self, monkeypatch):
         """Known-flaky test must reach GLM when force_ai=True."""
         monkeypatch.setenv('ENMAAS_KEY', 'test-key')
         analyzer = HybridFailureAnalyzer()
@@ -1054,7 +1054,7 @@ class TestAnalyzeFailureForceAi:
         assert result['analysis_mode'] == 'glm-ai'
         assert result.get('pre_classified') is not True
 
-    def test_normal_analysis_still_uses_timeout_preclassifier(self):
+    def test_normal_analysis_still_uses_timeout_pre_classifier(self):
         """Without force_ai, timeout-shaped failure is still pre-classified."""
         analyzer = HybridFailureAnalyzer()
         result = analyzer.analyze_failure(
@@ -1089,7 +1089,7 @@ class TestAnalyzeFailureForceAi:
         assert result['pre_classified'] is True
         assert result['pre_classifier'] == 'timeout_flake_detector'
 
-    def test_force_ai_bypasses_cross_platform_preclassifier(self, monkeypatch):
+    def test_force_ai_bypasses_cross_platform_pre_classifier(self, monkeypatch):
         """Cross-platform failure must reach GLM when force_ai=True."""
         monkeypatch.setenv('ENMAAS_KEY', 'test-key')
         analyzer = HybridFailureAnalyzer()
