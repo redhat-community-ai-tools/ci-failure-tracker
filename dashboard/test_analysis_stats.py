@@ -55,11 +55,7 @@ class TestAnalysisStats:
         assert stats['total_analyses'] == 2
 
     def test_savings_reflects_zero_cost_model(self, db):
-        """Savings must reflect current cost model (GLM is free).
-
-        The old Vertex AI constant (0.024) was removed in #254.
-        With GLM-5.3 via enMaas at zero cost, savings should be 0.
-        """
+        """Savings must be zero because GLM-5.3 via enMaas is free."""
         _save_one(db, 'OCP-66666', 'local-claude-code')
         _save_one(db, 'OCP-77777', 'local-claude-code')
         stats = db.get_analysis_stats()

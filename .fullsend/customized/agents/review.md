@@ -53,7 +53,7 @@ project conventions.
 ### AI Analysis
 - Changes to `analyzer.py` must preserve the JSON output schema
 - Cost estimates must be updated if prompt size changes significantly
-- Vertex AI model references must use stable model identifiers
+- enMaas model references must use stable model identifiers
 
 ## Review Output
 

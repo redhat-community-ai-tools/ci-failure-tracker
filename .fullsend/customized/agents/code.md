@@ -47,7 +47,7 @@ Most issues target the dashboard. Key directories:
 - `dashboard/src/collectors/` -- pluggable data collectors (BaseCollector ABC)
 - `dashboard/src/storage/database.py` -- SQLite schema and CRUD
 - `dashboard/src/web/server.py` -- Flask routes and background collection
-- `dashboard/src/ai/analyzer.py` -- Vertex AI failure analysis (Claude via GCP)
+- `dashboard/src/ai/analyzer.py` -- GLM-5.3 failure analysis (via enMaas gateway)
 - `dashboard/src/integrations/jira_integration.py` -- Jira issue creation
 - `dashboard/src/metrics/calculator.py` -- pass rate calculations
 - `dashboard/config.yaml` -- team-customizable configuration

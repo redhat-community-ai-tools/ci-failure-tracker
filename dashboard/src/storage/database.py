@@ -797,7 +797,7 @@ class DashboardDatabase:
             'local_count': 0,
             'api_count': 0,
             'total_cost': 0,
-            'savings': 0
+            'savings': 0.0
         }
 
     def get_affected_platforms(

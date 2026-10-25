@@ -34,7 +34,7 @@ process -- including filing upstream Jira bugs.
 
 - **Backend:** Python 3.10, Flask 3.1.3, Gunicorn, SQLite (WAL mode)
 - **Frontend:** Vanilla JavaScript, single HTML template
-- **AI:** Claude Sonnet 4 via Google Vertex AI (`anthropic[vertex]`)
+- **AI:** GLM-5.3 via enMaas gateway
 - **Data Sources:** Pluggable collectors (ReportPortal, gcsweb, Prow GCS, Prow MCP)
 - **Integrations:** Jira (issues.redhat.com), OpenPyXL exports
 - **Deployment:** Docker, OpenShift (BuildConfig + Deployment + PVC)
@@ -66,7 +66,7 @@ existing development workflow.
 | Self-healing scope | Full (dashboard + collector + upstream bugs) | Maximize value: agents fix their own bugs AND file product bugs to Jira |
 | Progress tracking | GitHub Issues in fullsend repo | Centralized tracking with `ci-dashboard` label |
 | Installation mode | Per-repo (ADR-0033) | Single repo, no org-wide rollout needed |
-| Agent model | Claude Opus via Vertex AI | Matches fullsend defaults |
+| Agent model | GLM-5.3 via enMaas | Matches fullsend defaults |
 | Auto-merge | Disabled | Human approval required for all agent PRs |
 
 ---
@@ -97,7 +97,7 @@ existing development workflow.
 
 **Sandbox policies:**
 - `.fullsend/customized/policies/code.yaml` -- PyPI access, Python binaries
-- `.fullsend/customized/policies/triage.yaml` -- GitHub API + Vertex AI only
+- `.fullsend/customized/policies/triage.yaml` -- GitHub API + enMaas gateway only
 
 **Python environment:**
 - `.fullsend/customized/env/python-agent.env` -- virtualenv, PYTHONDONTWRITEBYTECODE
@@ -173,7 +173,7 @@ activity until a human merges an agent's PR.
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | GitHub Actions minute consumption | Quota usage | Monitor usage; set per-repo limits |
-| Vertex AI inference costs | ~$0.02-0.10 per agent run | Budget alerts on GCP project |
+| enMaas inference costs | $0 (GLM-5.3 is free) | No action needed |
 | Agent loop (fix -> review -> fix cycle) | Wasted compute | Fix iteration capped at 2 rounds |
 | Noisy agents on busy repos | Developer fatigue | Start with manual `/fs-*` commands only |
 
@@ -236,8 +236,8 @@ reviewed and iterated on before any agents activate.
 
 Each agent invocation costs:
 - GitHub Actions: ~2-10 minutes of runner time per agent
-- Vertex AI: ~$0.02-0.10 per inference call (Claude Opus)
-- Estimated monthly: depends on issue volume; 20 issues/month ~ $5-10
+- enMaas: $0 per inference call (GLM-5.3 is free)
+- Estimated monthly: GitHub Actions runner time only
 
 Set up GCP budget alerts and GitHub Actions usage monitoring before
 activating.
