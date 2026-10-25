@@ -11,7 +11,7 @@ spec:
     kind: Service
     name: winc-dashboard-poc
   port:
-    targetPort: http
+    targetPort: https
   tls:
-    termination: edge
+    termination: reencrypt
     insecureEdgeTerminationPolicy: Redirect

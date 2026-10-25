@@ -67,6 +67,33 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 15
             timeoutSeconds: 10
+        - name: oauth-proxy
+          image: quay.io/openshift/origin-oauth-proxy:4.14
+          ports:
+            - containerPort: 8443
+              protocol: TCP
+              name: https
+          args:
+            - --provider=openshift
+            - --upstream=http://localhost:8080
+            - --https-address=:8443
+            - --tls-cert=/etc/tls/private/tls.crt
+            - --tls-key=/etc/tls/private/tls.key
+            - --cookie-secret-file=/var/run/secrets/oauth-proxy/cookie-secret
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/tls/private
+              readOnly: true
+            - name: cookie-secret
+              mountPath: /var/run/secrets/oauth-proxy
+              readOnly: true
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -74,3 +101,9 @@ spec:
         - name: config
           configMap:
             name: dashboard-config-poc
+        - name: tls
+          secret:
+            secretName: winc-dashboard-poc-tls
+        - name: cookie-secret
+          secret:
+            secretName: oauth-proxy-secret
