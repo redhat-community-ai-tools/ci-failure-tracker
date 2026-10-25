@@ -20,8 +20,8 @@ skills:
   - skills/dashboard-context
 
 host_files:
-  - src: env/gcp-vertex.env
-    dest: /sandbox/workspace/.env.d/gcp-vertex.env
+  - src: env/enmaas.env
+    dest: /sandbox/workspace/.env.d/enmaas.env
     expand: true
   - src: ${GOOGLE_APPLICATION_CREDENTIALS}
     dest: /tmp/.gcp-credentials.json

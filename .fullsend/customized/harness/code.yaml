@@ -16,8 +16,8 @@ role: coder
 slug: fullsend-ai-coder
 
 host_files:
-  - src: env/gcp-vertex.env
-    dest: /sandbox/workspace/.env.d/gcp-vertex.env
+  - src: env/enmaas.env
+    dest: /sandbox/workspace/.env.d/enmaas.env
     expand: true
   - src: env/python-agent.env
     dest: /sandbox/workspace/.env.d/python-agent.env

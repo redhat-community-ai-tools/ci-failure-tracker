@@ -42,7 +42,7 @@ ci-failure-tracker/
         templates/
           dashboard.html         # Single-page app (vanilla JS)
       ai/
-        analyzer.py              # Vertex AI failure analysis (Claude)
+        analyzer.py              # GLM-5.3 failure analysis (via enMaas)
       integrations/
         jira_integration.py      # Jira issue creation/search
       metrics/
@@ -57,7 +57,7 @@ ci-failure-tracker/
 - **Web Framework:** Flask 3.1.3 + Gunicorn (single worker)
 - **Database:** SQLite with WAL mode for concurrency
 - **Frontend:** Vanilla JavaScript in a single HTML template
-- **AI:** Claude Sonnet 4 via Google Vertex AI (`anthropic[vertex]`)
+- **AI:** GLM-5.3 via enMaas gateway (OpenAI-compatible API)
 - **HTTP Client:** requests 2.32.4
 - **Config:** PyYAML 6.0
 - **Export:** OpenPyXL 3.1.0 (XLSX), CSV, Markdown
