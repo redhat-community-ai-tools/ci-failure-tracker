@@ -4,13 +4,19 @@ The dashboard includes AI-powered failure analysis that can help identify root c
 
 ## How It Works
 
-The system uses a **3-tier fallback approach**:
+The system uses a **2-tier approach**:
 
-1. **Try Local First (FREE)** - If you're running the local AI service, it uses Claude Code for free analysis
-2. **Fall Back to API (Small Cost)** - If local service isn't running AND API key is set, uses Anthropic API (~$0.02 per analysis)
-3. **Fall Back to Pattern Matching (FREE)** - If API key isn't set, uses built-in pattern matching for common Windows failures
+1. **Pattern Matching (FREE, instant)** - Known infrastructure failure
+   patterns (SSH flakes, DNS failures, cloud quota errors, timeout
+   flake patterns, cross-platform failure correlation) are caught by
+   built-in pre-classifiers with no AI call
+2. **GLM AI (enMaas)** - Failures that are not pre-classified are
+   analyzed with GLM-5.3 via the internal enMaas OpenAI-compatible
+   gateway (model `rits/zai-org/glm-5-3`)
 
-**No API key required!** The pattern matching fallback means analysis always works, even without an Anthropic API key.
+**No API key required!** Pattern matching always works, even without
+`ENMAAS_KEY` set. Failures that are not pre-classified are flagged
+`needs_human_review` in that case.
 
 ## Setup
 
@@ -25,25 +31,27 @@ The "AI Analyze" button works out of the box with **built-in pattern matching**:
 
 Just click "AI Analyze" and it will work!
 
-### Optional: API Mode (Higher Quality Analysis)
+### Optional: GLM Mode (Full Analysis for New Failure Patterns)
 
-If you want higher quality analysis using Anthropic's Claude API:
+For higher-quality analysis of failures the pre-classifiers don't recognize:
 
-1. Get an Anthropic API key from: https://console.anthropic.com/settings/keys
+1. Get an enMaas API key with access to the RITS GLM model (see
+   [GLM_AI_SETUP.md](GLM_AI_SETUP.md))
 
 2. Create OpenShift secret in POC:
 ```bash
 oc project winc-dashboard-poc
-oc create secret generic claude-api-key \
-  --from-literal=api-key=sk-ant-api03-YOUR_KEY_HERE
+oc create secret generic enmaas-api-key \
+  --from-literal=api-key=YOUR_ENMAAS_API_KEY
 ```
 
-3. Apply deployment config:
+3. Apply deployment config and restart the pod to load the new env var:
 ```bash
 oc apply -f openshift/poc/dashboard-deployment.yaml
+oc rollout restart deployment/winc-dashboard-poc
 ```
 
-**Cost:** ~$0.02 per analysis (pattern matching is still FREE fallback)
+**Verify:** check the logs for `GLM client initialized (model: rits/zai-org/glm-5-3, endpoint: https://api.enmaas.devshift.net/v1/chat/completions)`.
 
 ## Using the Feature
 
@@ -55,13 +63,13 @@ oc apply -f openshift/poc/dashboard-deployment.yaml
 
 4. Find a failing test (pass rate < 100%)
 
-5. Click "🤖 Analyze" button
+5. Click "AI Analyze" button
 
 6. Wait a few seconds for analysis
 
 7. Review:
    - Root cause
-   - Affected component  
+   - Affected component
    - Confidence level
    - Evidence from logs
    - Suggested action
@@ -71,26 +79,24 @@ oc apply -f openshift/poc/dashboard-deployment.yaml
 
 ## Analysis Modes
 
-### Local Claude Code Mode (FREE)
-```
-🆓 FREE (Local Claude Code)
-```
-- Uses your local Claude Code instance
-- No API costs
-- Only works when you're running the local service
-- Perfect for development and debugging
+### Pattern Matching Mode (FREE)
+- Runs first on every failure
+- Pre-classifiers catch SSH/DNS/quota/timeout flakes and
+  cross-platform correlations
+- Results carry `analysis_mode: "pre-classifier"`
+- Perfect default for CI triage
 
-### Anthropic API Mode ($0.02)
+### GLM Mode (enMaas)
 ```
-💰 API (~$0.02)
+analysis_mode: "glm-ai"
 ```
-- Uses Anthropic's Claude API
-- Small cost per analysis (~$0.024)
-- Always available
-- Works for all team members
-- Perfect for production
+- Uses GLM-5.3 via the internal enMaas gateway
+- Only used for failures the pre-classifiers cannot classify
+- Structured prompts with historical pass rate and test repo context
+- Low-confidence results (below 60) are flagged
+  `needs_human_review: true`
 
-## Cost Tracking
+## Analysis Statistics
 
 View analysis statistics at:
 ```bash
@@ -103,10 +109,14 @@ Returns:
   "total_analyses": 50,
   "local_count": 30,
   "api_count": 20,
-  "total_cost": 0.48,
+  "total_cost": 0.0,
   "savings": 0.72
 }
 ```
+
+Note: `api_count` includes all AI analyses regardless of backend,
+including legacy mode strings (`anthropic-api`, `vertex-ai`) and the
+current `glm-ai`.
 
 ## Example Analysis
 
@@ -130,41 +140,32 @@ Returns:
 ### "Analysis failed" error
 
 **Check:**
-1. Is Claude API key set in OpenShift secret?
+1. Is `ENMAAS_KEY` set in the OpenShift secret?
 2. Is the secret mounted to the pod?
 3. Are there any errors in pod logs?
 
 ```bash
 oc project winc-dashboard-poc
-oc get secret claude-api-key
-oc logs deployment/winc-dashboard-poc -c dashboard | grep -i "claude\|anthropic"
+oc get secret enmaas-api-key
+oc logs deployment/winc-dashboard-poc -c dashboard | grep -i glm
 ```
 
-### Local service not being used
-
-**Check:**
-1. Is local service running? (`http://localhost:5001/health`)
-2. Is dashboard trying to connect to it?
-3. Check if LOCAL_AI_SERVICE_URL is set correctly
-
+You can also verify the gateway is reachable with:
 ```bash
-# Test local service
-curl http://localhost:5001/health
-
-# Should return:
-# {"status":"ok","mode":"local-claude-code"}
+curl -Ss https://api.enmaas.devshift.net/v1/models \
+  -H "Authorization: Bearer $ENMAAS_KEY"
 ```
 
 ### Analyses always show "cached"
 
-The system caches analyses for 7 days to save costs. The cache is also
-automatically invalidated when the underlying error message changes
-(hash-based invalidation), so a new failure signature triggers a fresh
-analysis without manual intervention.
+The system caches analyses for 7 days to save latency. The cache is
+also automatically invalidated when the underlying error message
+changes (hash-based invalidation), so a new failure signature triggers
+a fresh analysis without manual intervention.
 
-To force a fresh analysis manually, click the **Re-analyze** button that
-appears after a successful analysis. This bypasses the cache and requests
-a new analysis from the AI service.
+To force a fresh analysis manually, click the **Re-analyze** button
+that appears after a successful analysis. This bypasses the cache and
+requests a new analysis from the AI service.
 
 Alternatively, you can use the browser console:
 

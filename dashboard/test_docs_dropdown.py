@@ -119,12 +119,12 @@ class TestDocsDropdownPresent:
         )
         assert expected in html
 
-    def test_vertex_ai_setup_link(self, client_with_repo):
-        """VERTEX_AI_SETUP.md link is present with correct URL."""
+    def test_glm_ai_setup_link(self, client_with_repo):
+        """GLM_AI_SETUP.md link is present with correct URL."""
         html = _get_html(client_with_repo)
         expected = (
             'https://github.com/org/test-repo/blob/master'
-            '/dashboard/docs/VERTEX_AI_SETUP.md'
+            '/dashboard/docs/GLM_AI_SETUP.md'
         )
         assert expected in html
 
@@ -154,7 +154,7 @@ class TestDocsDropdownPresent:
             '/README.md',
             '/USER_GUIDE.md',
             '/QUICK_START.md',
-            '/docs/VERTEX_AI_SETUP.md',
+            '/docs/GLM_AI_SETUP.md',
             '/docs/ai-analysis.md',
             '/docs/token-renewal.md',
         ]

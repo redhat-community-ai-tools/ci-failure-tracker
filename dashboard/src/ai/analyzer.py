@@ -1,10 +1,10 @@
 """
-AI analyzer with infrastructure pre-classifiers and improved Vertex AI
+AI analyzer with infrastructure pre-classifiers and improved GLM (enMaas)
 prompt engineering.
 
 Pre-classifies known infrastructure failure patterns (SSH flakes, DNS
 failures, cloud quota errors) and cross-platform failure correlation
-before sending to Vertex AI. For failures that reach the AI, uses
+before sending to GLM. For failures that reach the AI, uses
 structured prompts with historical context and chain-of-thought
 reasoning to improve classification accuracy.
 """
@@ -14,12 +14,79 @@ import re
 import requests
 import json
 import logging
-from typing import Dict, Any, Optional, List
+import yaml
+from typing import Dict, Any, Optional, List, Tuple
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
 # Confidence threshold below which results are flagged for human review
 LOW_CONFIDENCE_THRESHOLD = 60
+
+# Built-in GLM defaults, used when config.yaml has no 'ai' section
+# (then any path without that key runs unchanged; backwards-compatible)
+AI_DEFAULT_ENDPOINT = 'https://api.enmaas.devshift.net/v1/chat/completions'
+AI_DEFAULT_MODEL = 'rits/zai-org/glm-5-3'
+
+# Host of the trusted internal gateway; the API key is never sent
+# to any endpoint on a different host
+AI_GATEWAY_HOST = 'api.enmaas.devshift.net'
+
+
+def _validate_endpoint(endpoint: str) -> str:
+    """
+    Restrict the API-key-bearing endpoint to the internal enMaas gateway.
+
+    The endpoint is config-driven, so a modified ConfigMap could point
+    it at an external server to capture the Authorization header.
+    Endpoints that are not https URLs on the gateway host are ignored
+    and the built-in default is used instead.
+    """
+    parsed = None
+    hostname = ''
+    try:
+        parsed = urlparse(endpoint)
+        hostname = parsed.hostname or ''
+    except ValueError:
+        pass
+    if parsed and parsed.scheme == 'https' and hostname == AI_GATEWAY_HOST:
+        return endpoint
+    logger.warning(
+        f"AI endpoint {endpoint!r} is not an https URL on "
+        f"{AI_GATEWAY_HOST}; using the built-in default endpoint instead."
+    )
+    return AI_DEFAULT_ENDPOINT
+
+
+def _load_ai_settings(config_path: str = 'config.yaml') -> Dict[str, str]:
+    """
+    Load GLM endpoint and model from config.yaml ('ai' section).
+
+    Falls back to the built-in defaults above when the file is
+    missing, unreadable, or not a mapping, when the section is absent
+    or not a mapping, or when the endpoint is outside the approved
+    gateway domain.
+    """
+    settings = {'endpoint': AI_DEFAULT_ENDPOINT, 'model': AI_DEFAULT_MODEL}
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        if not isinstance(config, dict):
+            return settings
+        ai = config.get('ai')
+        if not isinstance(ai, dict):
+            return settings
+        # Accept only non-empty strings so malformed YAML values
+        # (numbers, booleans, empty keys) fall back to the defaults
+        if isinstance(ai.get('endpoint'), str) and ai['endpoint']:
+            settings['endpoint'] = _validate_endpoint(ai['endpoint'])
+        if isinstance(ai.get('model'), str) and ai['model']:
+            settings['model'] = ai['model']
+    except OSError as e:
+        logger.debug(f"Could not read AI config from {config_path}: {e}")
+    except yaml.YAMLError as e:
+        logger.debug(f"Invalid AI config YAML in {config_path}: {e}")
+    return settings
 
 SSH_PATTERNS = [
     re.compile(r'SSH attempt \d+ failed', re.IGNORECASE),
@@ -690,34 +757,30 @@ def _check_test_repo_recent_changes(
 
 class HybridFailureAnalyzer:
     """
-    Real AI failure analyzer using Google Vertex AI.
+    CI test failure analyzer using GLM-5.3 via the enMaas gateway.
 
-    Uses Claude via Vertex AI API (~$0.02 per analysis).
-    NO pattern matching - real AI only.
+    Two-tier design: infrastructure pre-classifiers (SSH flakes, DNS
+    failures, quota errors, timeout patterns, known-flaky tests,
+    cross-platform correlation) run first and are free; GLM-5.3 is
+    invoked only for failures that pass through all pre-classifier
+    checks.
     """
 
     def __init__(self):
-        self.vertex_project_id = os.getenv('ANTHROPIC_VERTEX_PROJECT_ID')
-        self.vertex_region = os.getenv('ANTHROPIC_VERTEX_REGION')
+        self.api_key = os.getenv('ENMAAS_KEY')
 
-        # Initialize Vertex AI client
-        if self.vertex_project_id and self.vertex_region:
-            try:
-                import anthropic
-                self.claude_client = anthropic.AnthropicVertex(
-                    project_id=self.vertex_project_id,
-                    region=self.vertex_region
-                )
-                logger.info(f"Vertex AI client initialized (project: {self.vertex_project_id}, region: {self.vertex_region})")
-            except ImportError:
-                self.claude_client = None
-                logger.warning("anthropic[vertex] package not installed - run: pip install 'anthropic[vertex]'")
-            except Exception as e:
-                self.claude_client = None
-                logger.warning(f"Failed to initialize Vertex AI client: {e}")
+        # GLM endpoint/model from config.yaml ('ai' section, optional).
+        # Built-in defaults are used when the section is absent.
+        ai_settings = _load_ai_settings()
+        self.endpoint = ai_settings['endpoint']
+        self.model = ai_settings['model']
+
+        if self.api_key:
+            logger.info(
+                f"GLM client initialized (model: {self.model}, endpoint: {self.endpoint})"
+            )
         else:
-            self.claude_client = None
-            logger.warning("Vertex AI credentials not set. Set ANTHROPIC_VERTEX_PROJECT_ID and ANTHROPIC_VERTEX_REGION environment variables.")
+            logger.warning("enMaas API key not set. Set ENMAAS_KEY environment variable.")
 
     def analyze_failure(
         self,
@@ -731,11 +794,11 @@ class HybridFailureAnalyzer:
         recent_failures: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """
-        Analyze failure using pre-classifier + Vertex AI (Claude via Google Cloud).
+        Analyze failure using pre-classifier + GLM (internal enMaas OpenAI-compatible API).
 
         Step 1: Check for known infrastructure patterns (SSH flakes) -- free, instant
         Step 1e: Check cross-platform failure correlation
-        Step 2: If not pre-classified, use Vertex AI (~$0.02 per analysis)
+        Step 2: If not pre-classified, use GLM-5.3 via enMaas
 
         Args:
             test_name: Test identifier (e.g., OCP-39030)
@@ -760,19 +823,19 @@ class HybridFailureAnalyzer:
 
         pre_result = detect_ssh_flake(error_message, pass_rate, log_text=logs)
         if pre_result:
-            logger.info(f"Pre-classified {test_name} as SSH flake (skipping Vertex AI, saved ~$0.024)")
+            logger.info(f"Pre-classified {test_name} as SSH flake (skipping AI analysis)")
             return pre_result
 
         # Step 1b: Check DNS and quota infrastructure patterns
         infra_result = detect_infra_flake(error_message, log_text=logs)
         if infra_result:
-            logger.info(f"Pre-classified {test_name} as infrastructure issue (skipping Vertex AI)")
+            logger.info(f"Pre-classified {test_name} as infrastructure issue (skipping AI analysis)")
             return infra_result
 
         # Step 1c: Check timeout/precondition flake patterns
         timeout_result = detect_timeout_flake(error_message, pass_rate)
         if timeout_result:
-            logger.info(f"Pre-classified {test_name} as timeout flake (skipping Vertex AI)")
+            logger.info(f"Pre-classified {test_name} as timeout flake (skipping AI analysis)")
             return timeout_result
 
         # Step 1d: Check test name for known flaky test categories
@@ -781,7 +844,7 @@ class HybridFailureAnalyzer:
             test_name, test_description, pass_rate, error_message
         )
         if flaky_result:
-            logger.info(f"Pre-classified {test_name} by test name as known flaky (skipping Vertex AI)")
+            logger.info(f"Pre-classified {test_name} by test name as known flaky (skipping AI analysis)")
             return flaky_result
 
         # Step 1e: Check cross-platform failure correlation
@@ -792,7 +855,7 @@ class HybridFailureAnalyzer:
             if cross_platform_result:
                 logger.info(
                     f"Pre-classified {test_name} as cross-platform "
-                    "failure (skipping Vertex AI)"
+                    "failure (skipping AI analysis)"
                 )
                 return cross_platform_result
 
@@ -800,29 +863,38 @@ class HybridFailureAnalyzer:
         # (recent commits suggest automation_bug, not product_bug)
         test_repo_changes = _check_test_repo_recent_changes(test_name)
 
-        # Step 2: Use Vertex AI for analysis
-        logger.info(f"Analyzing {test_name} with Vertex AI")
-        api_result = self._try_api_analysis(
+        # Step 2: Use GLM AI for analysis
+        logger.info(f"Analyzing {test_name} with GLM AI")
+        api_result, fallback_reason = self._try_api_analysis(
             test_name, error_message, log_url, platform, version,
             pass_rate=pass_rate,
             test_repo_changes=test_repo_changes,
         )
 
         if api_result:
-            logger.info(f"Used Vertex AI (cost: ~$0.024) for {test_name}")
-            api_result['cost'] = 0.024  # Approximate cost with Sonnet
-            api_result['analysis_mode'] = 'vertex-ai'
+            logger.info(f"Used GLM-5.3 (enMaas) for {test_name}")
+            api_result['cost'] = 0.0  # actual API cost not tracked
+            api_result['analysis_mode'] = 'glm-ai'
             # Post-process: derive is_product_bug and flag low confidence
             api_result = _derive_is_product_bug(api_result)
             api_result = _apply_confidence_review(api_result)
+            if fallback_reason:
+                # Applied after _apply_confidence_review, which resets
+                # needs_human_review to False for high-confidence results
+                api_result['needs_human_review'] = True
+                existing_reason = api_result.get('review_reason')
+                api_result['review_reason'] = (
+                    f'{existing_reason} {fallback_reason}'
+                    if existing_reason else fallback_reason
+                )
             return api_result
 
-        # Vertex AI failed - return error
-        logger.error(f"Vertex AI analysis failed for {test_name}")
+        # AI analysis failed - return error
+        logger.error(f"GLM AI analysis failed for {test_name}")
         return {
-            'error': 'Vertex AI analysis failed',
-            'root_cause': 'Vertex AI analysis failed - check credentials and quota',
-            'component': 'vertex-ai',
+            'error': 'GLM AI analysis failed',
+            'root_cause': 'GLM analysis failed - check ENMAAS_KEY and quota',
+            'component': 'glm-ai',
             'confidence': 0,
             'analysis_mode': 'failed',
             'cost': 0.0,
@@ -839,12 +911,20 @@ class HybridFailureAnalyzer:
         version: str,
         pass_rate: Optional[float] = None,
         test_repo_changes: Optional[Dict[str, Any]] = None,
-    ) -> Optional[Dict[str, Any]]:
-        """Analyze failure using Vertex AI with structured prompt."""
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """
+        Analyze failure using GLM AI with structured prompt.
+
+        Returns:
+            Tuple of `(analysis, fallback_reason)`. `analysis` is the
+            parsed analysis dict, or None on failure. `fallback_reason`
+            explains when the analysis was derived from the partial
+            reasoning stream instead of final content, None otherwise.
+        """
         try:
-            if not self.claude_client:
-                logger.error("No Claude API client available")
-                return None
+            if not self.api_key:
+                logger.error("No enMaas API key available")
+                return None, None
 
             # Fetch logs (truncated for cost optimization)
             logs = _fetch_logs(log_url)
@@ -894,26 +974,52 @@ class HybridFailureAnalyzer:
                 repo_context=repo_context,
             )
 
-            # Call Claude API
-            response = self.claude_client.messages.create(
-                model="claude-sonnet-4",  # Cheaper, still capable
-                max_tokens=2048,
-                messages=[{
-                    "role": "user",
-                    "content": prompt
-                }]
+            # Call GLM API (OpenAI-compatible chat/completions)
+            response = requests.post(
+                self.endpoint,
+                headers={
+                    'Authorization': f'Bearer {self.api_key}',
+                    'Content-Type': 'application/json',
+                },
+                json={
+                    'model': self.model,
+                    'max_tokens': 8192,
+                    'messages': [{
+                        'role': 'user',
+                        'content': prompt
+                    }]
+                },
+                timeout=120,
+                # Do not forward the Authorization header on redirects
+                allow_redirects=False,
             )
+            response.raise_for_status()
+            response_data = response.json()
 
-            # Parse response
-            response_text = response.content[0].text
+            # Parse response. GLM-5.3 is a thinking model: if the reasoning
+            # stream overruns the token budget, 'content' is null and the
+            # partial JSON may only exist in 'reasoning_content'. An empty
+            # or missing content both fall back to the reasoning stream;
+            # the degraded parse is reported back for human review.
+            message = response_data['choices'][0]['message']
+            content = message.get('content')
+            response_text = content or message.get('reasoning_content') or ''
+
+            fallback_reason = None
+            if not content:
+                fallback_reason = (
+                    'Analysis derived from GLM partial reasoning stream '
+                    '(final content missing); result may be degraded.'
+                )
+
             analysis = self._parse_analysis_response(
                 response_text, platform
             )
-            return analysis
+            return analysis, fallback_reason
 
         except Exception as e:
             logger.error(f"API analysis error: {e}")
-            return None
+            return None, None
 
     def _build_analysis_prompt(
         self,
@@ -925,7 +1031,7 @@ class HybridFailureAnalyzer:
         history_context: str,
         repo_context: str = '',
     ) -> str:
-        """Build the structured analysis prompt for Vertex AI."""
+        """Build the structured analysis prompt for GLM AI."""
         return f"""Analyze this Windows Containers OpenShift CI test failure step by step.
 
 ## Test Context
