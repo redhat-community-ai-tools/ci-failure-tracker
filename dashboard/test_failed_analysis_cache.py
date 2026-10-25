@@ -12,7 +12,6 @@ Validates that:
 """
 
 import os
-import sqlite3
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
@@ -240,7 +239,7 @@ class TestResolverDaysParameter:
     def client(self, app):
         return app.test_client()
 
-    def test_resolver_finds_failure_within_requested_days(self, app, tmp_path, monkeypatch):
+    def test_resolver_finds_failure_within_requested_days(self, client, tmp_path):
         """POST with days=30 must find a failure 15 days old."""
         db_path = str(tmp_path / "test.db")
         db = DashboardDatabase(db_path)
@@ -258,7 +257,6 @@ class TestResolverDaysParameter:
         db.conn.commit()
         db.close()
 
-        client = app.test_client()
         with patch('ai.analyzer.HybridFailureAnalyzer') as mock_cls:
             mock_analyzer = mock_cls.return_value
             mock_analyzer.analyze_failure.return_value = {
@@ -279,7 +277,7 @@ class TestResolverDaysParameter:
 
         assert resp.status_code == 200
 
-    def test_resolver_404_when_failure_outside_days_window(self, app, tmp_path):
+    def test_resolver_404_when_failure_outside_days_window(self, client, tmp_path):
         """POST with days=7 must NOT find a 15-day-old failure."""
         db_path = str(tmp_path / "test.db")
         db = DashboardDatabase(db_path)
@@ -296,7 +294,6 @@ class TestResolverDaysParameter:
         db.conn.commit()
         db.close()
 
-        client = app.test_client()
         resp = client.post('/api/analyze-failure', json={
             'test_name': 'OCP-28632',
             'version': '5.1',
@@ -306,7 +303,7 @@ class TestResolverDaysParameter:
 
         assert resp.status_code == 404
 
-    def test_resolver_caps_days_at_30(self, app, tmp_path):
+    def test_resolver_caps_days_at_30(self, client, tmp_path):
         """POST with days=90 must be bounded to 30 days."""
         db_path = str(tmp_path / "test.db")
         db = DashboardDatabase(db_path)
@@ -324,7 +321,6 @@ class TestResolverDaysParameter:
         db.conn.commit()
         db.close()
 
-        client = app.test_client()
         resp = client.post('/api/analyze-failure', json={
             'test_name': 'OCP-28632',
             'version': '5.1',
