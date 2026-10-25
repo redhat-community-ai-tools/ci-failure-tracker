@@ -35,6 +35,13 @@ def route():
         return yaml.safe_load(f)
 
 
+@pytest.fixture
+def serviceaccount():
+    """Load the POC ServiceAccount manifest."""
+    with open("openshift/poc/dashboard-serviceaccount.yaml") as f:
+        return yaml.safe_load(f)
+
+
 def test_has_image_change_trigger_annotation(deployment):
     """The Deployment must have the image.openshift.io/triggers annotation."""
     annotations = deployment["metadata"].get("annotations", {})
@@ -67,12 +74,25 @@ def test_no_top_level_triggers(deployment):
     assert "triggers" not in deployment.get("spec", {})
 
 
+def test_deployment_sets_service_account_name(deployment):
+    """The Deployment must set serviceAccountName for oauth-proxy."""
+    sa_name = deployment["spec"]["template"]["spec"].get("serviceAccountName")
+    assert sa_name == "winc-dashboard-poc"
+
+
+def test_oauth_proxy_service_account_arg(deployment):
+    """The oauth-proxy must pass --openshift-service-account."""
+    containers = deployment["spec"]["template"]["spec"]["containers"]
+    proxy = [c for c in containers if c["name"] == "oauth-proxy"][0]
+    args = proxy.get("args", [])
+    assert "--openshift-service-account=winc-dashboard-poc" in args
+
 
 def test_oauth_proxy_sidecar_present(deployment):
     """The Deployment must include an oauth-proxy sidecar container."""
     containers = deployment["spec"]["template"]["spec"]["containers"]
     proxy = [c for c in containers if c["name"] == "oauth-proxy"]
-    assert len(proxy) == 1, "oauth-proxy sidecar container is missing"
+    assert len(proxy) == 1
 
 
 def test_oauth_proxy_listens_on_8443(deployment):
@@ -131,7 +151,6 @@ def test_cookie_secret_volume_defined(deployment):
     assert cookie_vol["secret"]["secretName"] == "oauth-proxy-secret"
 
 
-
 def test_service_has_serving_cert_annotation(service):
     """The Service must have the serving-cert-secret-name annotation."""
     annotations = service["metadata"].get("annotations", {})
@@ -144,7 +163,7 @@ def test_service_exposes_https_port(service):
     """The Service must expose port 8443 named https."""
     ports = service["spec"]["ports"]
     https_ports = [p for p in ports if p.get("name") == "https"]
-    assert len(https_ports) == 1, "Service must have an https port"
+    assert len(https_ports) == 1
     assert https_ports[0]["port"] == 8443
     assert https_ports[0]["targetPort"] == 8443
 
@@ -157,7 +176,6 @@ def test_service_retains_http_port(service):
     assert http_ports[0]["port"] == 8080
 
 
-
 def test_route_uses_reencrypt_tls(route):
     """The Route must use reencrypt TLS termination."""
     tls = route["spec"]["tls"]
@@ -167,3 +185,21 @@ def test_route_uses_reencrypt_tls(route):
 def test_route_targets_https_port(route):
     """The Route must target the https port, not http."""
     assert route["spec"]["port"]["targetPort"] == "https"
+
+
+def test_serviceaccount_has_oauth_redirect_annotation(serviceaccount):
+    """The ServiceAccount must have the oauth-redirectreference annotation."""
+    annotations = serviceaccount["metadata"].get("annotations", {})
+    key = "serviceaccounts.openshift.io/oauth-redirectreference.dashboard"
+    assert key in annotations
+    redirect = json.loads(annotations[key])
+    assert redirect["kind"] == "OAuthRedirectReference"
+    assert redirect["reference"]["kind"] == "Route"
+    assert redirect["reference"]["name"] == "winc-dashboard-poc"
+
+
+def test_serviceaccount_name_matches_deployment(serviceaccount, deployment):
+    """The ServiceAccount name must match the Deployment serviceAccountName."""
+    sa_name = serviceaccount["metadata"]["name"]
+    deploy_sa = deployment["spec"]["template"]["spec"].get("serviceAccountName")
+    assert sa_name == deploy_sa

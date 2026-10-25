@@ -51,6 +51,7 @@ oc apply -f dashboard-imagestream.yaml
 oc apply -f dashboard-buildconfig.yaml
 oc apply -f dashboard-configmap.yaml
 oc apply -f dashboard-pvc.yaml
+oc apply -f dashboard-serviceaccount.yaml
 oc apply -f dashboard-service.yaml
 oc apply -f dashboard-route.yaml
 oc apply -f dashboard-deployment.yaml
@@ -95,6 +96,29 @@ oc get route winc-dashboard-poc -o jsonpath='{.spec.host}'
 | Data Source | ReportPortal API | prow-mcp-server → GCS |
 | Branch | `master` | `poc-prow-mcp` |
 | URL | `winc-dashboard-winc-dashboard.apps.build10...` | `winc-dashboard-poc-winc-dashboard-poc.apps.build10...` |
+
+## Design Decisions
+
+### Authentication
+
+The oauth-proxy sidecar uses `--provider=openshift` with a dedicated
+ServiceAccount (`winc-dashboard-poc`) annotated with
+`serviceaccounts.openshift.io/oauth-redirectreference.dashboard`. This
+allows the OpenShift OAuth server to register the redirect URI for this
+client. See `docs/SAML_AUTHENTICATION.md` for the full pattern.
+
+No `--openshift-sar` argument is configured. Any user who can
+authenticate to the OpenShift cluster can access the POC dashboard.
+This permissive model is intentional for the POC phase to simplify
+testing. Add a SAR argument before promoting to production.
+
+### Internal HTTP port
+
+The Service exposes both port 8080 (HTTP) and 8443 (HTTPS). The Route
+directs external traffic through the oauth-proxy on 8443, while port
+8080 remains available for cluster-internal access (e.g., readiness
+probes, debugging). This matches the pattern in
+`docs/SAML_AUTHENTICATION.md`.
 
 ## Deployment Details
 

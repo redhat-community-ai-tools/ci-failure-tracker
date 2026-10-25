@@ -16,6 +16,7 @@ spec:
       labels:
         app: winc-dashboard-poc
     spec:
+      serviceAccountName: winc-dashboard-poc
       containers:
         - name: dashboard
           image: image-registry.openshift-image-registry.svc:5000/winc-dashboard-poc/winc-dashboard-poc:latest
@@ -76,6 +77,7 @@ spec:
               name: https
           args:
             - --provider=openshift
+            - --openshift-service-account=winc-dashboard-poc
             - --upstream=http://localhost:8080
             - --https-address=:8443
             - --tls-cert=/etc/tls/private/tls.crt
