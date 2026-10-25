@@ -825,7 +825,9 @@ class HybridFailureAnalyzer:
             Analysis dictionary with root_cause, component, confidence, etc.
         """
 
-        if not force_ai:
+        if force_ai:
+            logger.info(f"force_ai=True: bypassing pre-classifiers for {test_name}, sending directly to GLM")
+        else:
             # Step 1: Pre-classify known infrastructure patterns
             # Fetch logs once for all pre-classifiers to avoid duplicate requests
             logs = _fetch_logs(log_url) if log_url else ''
