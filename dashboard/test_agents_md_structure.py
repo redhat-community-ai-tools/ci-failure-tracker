@@ -69,10 +69,17 @@ class TestAgentsMdLintingRule:
         """Extract the text of rule 7 from AGENTS.md."""
         with open(AGENTS_MD_PATH) as f:
             content = f.read()
+        # Scope to ## Rules section first (matches _get_rule_numbers pattern)
+        rules_match = re.search(r'^## Rules\s*$', content, re.MULTILINE)
+        assert rules_match is not None, '## Rules section not found in AGENTS.md'
+        rules_section = content[rules_match.end():]
+        next_heading = re.search(r'^#', rules_section, re.MULTILINE)
+        if next_heading:
+            rules_section = rules_section[:next_heading.start()]
         # Match rule 7 up to the next rule number
         match = re.search(
             r'^7\.\s.*?(?=^\d+\.\s|\Z)',
-            content,
+            rules_section,
             re.MULTILINE | re.DOTALL,
         )
         assert match is not None, 'Rule 7 not found in AGENTS.md'
