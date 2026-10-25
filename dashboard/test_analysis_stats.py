@@ -60,7 +60,6 @@ class TestAnalysisStats:
         _save_one(db, 'OCP-77777', 'local-claude-code')
         stats = db.get_analysis_stats()
         assert stats['local_count'] == 2
-        # Savings must be zero — GLM via enMaas is free
         assert stats['savings'] == 0.0
 
     def test_savings_zero_when_no_local_analyses(self, db):
