@@ -5,8 +5,11 @@ confidence thresholds, is_product_bug derivation, and response parsing.
 """
 
 import json
+import os
+import yaml
 import pytest
 
+from src.ai import analyzer as analyzer_module
 from src.ai.analyzer import (
     detect_ssh_flake,
     detect_infra_flake,
@@ -502,8 +505,8 @@ class TestParseAnalysisResponse:
 class TestAnalyzeFailureIntegration:
     """Integration tests for the full analyze_failure flow."""
 
-    def test_ssh_flake_skips_vertex_ai(self):
-        """SSH flake should be pre-classified without calling Vertex AI."""
+    def test_ssh_flake_skips_ai(self):
+        """SSH flake should be pre-classified without calling GLM AI."""
         analyzer = HybridFailureAnalyzer()
         result = analyzer.analyze_failure(
             test_name='OCP-12345',
@@ -517,7 +520,7 @@ class TestAnalyzeFailureIntegration:
         assert result['classification'] == 'transient'
         assert result['cost'] == 0.0
 
-    def test_dns_flake_skips_vertex_ai(self):
+    def test_dns_flake_skips_ai(self):
         """DNS failure should be pre-classified."""
         analyzer = HybridFailureAnalyzer()
         result = analyzer.analyze_failure(
@@ -531,7 +534,7 @@ class TestAnalyzeFailureIntegration:
         assert result['classification'] == 'system_issue'
         assert result['cost'] == 0.0
 
-    def test_quota_flake_skips_vertex_ai(self):
+    def test_quota_flake_skips_ai(self):
         """Quota exceeded should be pre-classified."""
         analyzer = HybridFailureAnalyzer()
         result = analyzer.analyze_failure(
@@ -545,8 +548,8 @@ class TestAnalyzeFailureIntegration:
         assert result['classification'] == 'system_issue'
         assert result['pre_classifier'] == 'quota_detector'
 
-    def test_timeout_flake_skips_vertex_ai(self):
-        """Timeout flake should be pre-classified without Vertex AI."""
+    def test_timeout_flake_skips_ai(self):
+        """Timeout flake should be pre-classified without GLM AI."""
         analyzer = HybridFailureAnalyzer()
         result = analyzer.analyze_failure(
             test_name='OCP-55555',
@@ -565,8 +568,9 @@ class TestAnalyzeFailureIntegration:
         assert result['cost'] == 0.0
         assert result['pre_classifier'] == 'timeout_flake_detector'
 
-    def test_timeout_low_pass_rate_falls_through(self):
+    def test_timeout_low_pass_rate_falls_through(self, monkeypatch):
         """Timeout with low pass rate should NOT be pre-classified."""
+        monkeypatch.delenv('ENMAAS_KEY', raising=False)
         analyzer = HybridFailureAnalyzer()
         result = analyzer.analyze_failure(
             test_name='OCP-77777',
@@ -576,10 +580,10 @@ class TestAnalyzeFailureIntegration:
             version='4.18',
             pass_rate=40.0,
         )
-        # Should fall through to Vertex AI (which fails without client)
+        # Should fall through to GLM AI (which fails without client)
         assert result.get('pre_classified') is not True
 
-    def test_known_flaky_test_skips_vertex_ai(self):
+    def test_known_flaky_test_skips_ai(self):
         """Cert rotation test with corrupted output caught by test name."""
         analyzer = HybridFailureAnalyzer()
         result = analyzer.analyze_failure(
@@ -596,8 +600,9 @@ class TestAnalyzeFailureIntegration:
         assert 'WINC-1931' in result['suggested_action']
         assert result['cost'] == 0.0
 
-    def test_no_client_returns_failed(self):
-        """Without Vertex AI client, non-infra failures return error."""
+    def test_no_client_returns_failed(self, monkeypatch):
+        """Without GLM AI client, non-infra failures return error."""
+        monkeypatch.delenv('ENMAAS_KEY', raising=False)
         analyzer = HybridFailureAnalyzer()
         result = analyzer.analyze_failure(
             test_name='OCP-11111',
@@ -937,7 +942,7 @@ class TestDetectCrossPlatformFailure:
 class TestAnalyzeFailureCrossPlatform:
     """Integration tests for cross-platform correlation in analyze_failure."""
 
-    def test_cross_platform_skips_vertex_ai(self):
+    def test_cross_platform_skips_ai(self):
         """Cross-platform failure should be pre-classified."""
         analyzer = HybridFailureAnalyzer()
         hash_a = 'a' * 64
@@ -982,8 +987,11 @@ class TestAnalyzeFailureCrossPlatform:
         assert result['cost'] == 0.0
         assert result['pre_classifier'] == 'cross_platform_detector'
 
-    def test_no_recent_failures_falls_through(self):
+    def test_no_recent_failures_falls_through(self, monkeypatch):
         """Without recent_failures, cross-platform check is skipped."""
+        # Deliberately exercise the no-key path so pytest is offline-safe
+        # even when a developer has ENMAAS_KEY configured locally.
+        monkeypatch.delenv('ENMAAS_KEY', raising=False)
         analyzer = HybridFailureAnalyzer()
         result = analyzer.analyze_failure(
             test_name='OCP-42204',
@@ -992,7 +1000,7 @@ class TestAnalyzeFailureCrossPlatform:
             platform='nutanix',
             version='4.18',
         )
-        # Falls through to Vertex AI (which fails without client)
+        # Falls through to GLM AI (which fails without client)
         assert result.get('pre_classified') is not True
 
     def test_ssh_flake_takes_priority(self):
@@ -1028,3 +1036,314 @@ class TestAnalyzeFailureCrossPlatform:
         )
         # SSH pre-classifier matches first
         assert result['pre_classifier'] == 'ssh_flake_detector'
+
+
+def _sample_glm_response_text():
+    """Return a valid GLM analysis JSON string for mocked responses."""
+    return json.dumps({
+        'root_cause': 'bug in WMCO',
+        'component': 'WMCO',
+        'confidence': 85,
+        'failure_type': 'product_bug',
+        'platform_specific': False,
+        'affected_platforms': ['aws'],
+        'evidence': 'Error trace indicates product code',
+        'suggested_action': 'File Jira',
+        'issue_title': 'OCP-11111: WMCO bug',
+        'issue_description': 'description',
+    })
+
+
+def _glm_fake_response(message):
+    """Create a fake gateway response returning the given message dict."""
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {'choices': [{'message': message}]}
+
+    return FakeResponse()
+
+
+class TestGlmApiCall:
+    """Tests for the GLM (enMaas) API call path in HybridFailureAnalyzer."""
+
+    def test_init_sets_client_when_key_present(self, monkeypatch):
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+        analyzer = HybridFailureAnalyzer()
+        assert analyzer.api_key == 'test-key'
+
+    def test_init_without_key_is_offline_safe(self, monkeypatch):
+        monkeypatch.delenv('ENMAAS_KEY', raising=False)
+        analyzer = HybridFailureAnalyzer()
+        assert analyzer.api_key is None
+
+    def test_api_call_contract(self, monkeypatch):
+        """Client sends the enMaas chat/completions contract and parses the response."""
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+        analyzer = HybridFailureAnalyzer()
+        captured = {}
+
+        def fake_post(url, headers=None, json=None, timeout=None,
+                      allow_redirects=None):
+            captured['url'] = url
+            captured['headers'] = headers
+            captured['json'] = json
+            captured['allow_redirects'] = allow_redirects
+            return _glm_fake_response(
+                {'content': _sample_glm_response_text()}
+            )
+
+        monkeypatch.setattr(analyzer_module.requests, 'post', fake_post)
+        result, _fallback = analyzer._try_api_analysis(
+            'OCP-11111',
+            'pod CrashLoopBackOff',
+            log_url='',
+            platform='aws',
+            version='4.22',
+        )
+        assert result is not None
+        assert captured['url'] == 'https://api.enmaas.devshift.net/v1/chat/completions'
+        assert captured['headers']['Authorization'] == 'Bearer test-key'
+        # The Bearer token must not be forwarded on redirects
+        assert captured['allow_redirects'] is False
+        assert captured['json']['model'] == 'rits/zai-org/glm-5-3'
+        assert captured['json']['max_tokens'] == 8192
+        assert captured['json']['messages'][0]['role'] == 'user'
+        assert result['failure_type'] == 'product_bug'
+        assert result['classification'] == 'product_bug'
+
+    def test_no_key_falls_through_to_failed(self, monkeypatch):
+        """Without ENMAAS_KEY, non-infra failures return the 'failed' dict."""
+        monkeypatch.delenv('ENMAAS_KEY', raising=False)
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            'OCP-11111',
+            'pod CrashLoopBackOff',
+            log_url='',
+            platform='aws',
+            version='4.22',
+        )
+        assert result['analysis_mode'] == 'failed'
+        assert result['component'] == 'glm-ai'
+        assert result['needs_human_review'] is True
+
+    def test_http_error_returns_failed_mode(self, monkeypatch):
+        """HTTP failure from the gateway falls through to the 'failed' dict."""
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+
+        class HTTPErrorResponse:
+            def raise_for_status(self):
+                raise analyzer_module.requests.exceptions.HTTPError(
+                    '503 Server Error'
+                )
+
+        monkeypatch.setattr(
+            analyzer_module.requests, 'post', lambda *a, **k: HTTPErrorResponse()
+        )
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            'OCP-11111',
+            'pod CrashLoopBackOff',
+            log_url='',
+            platform='aws',
+            version='4.22',
+        )
+        assert result['analysis_mode'] == 'failed'
+        assert result['component'] == 'glm-ai'
+        assert result['needs_human_review'] is True
+
+    def test_null_content_falls_back_to_reasoning(self, monkeypatch):
+        """If content is null (reasoning overrun), use reasoning_content."""
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+
+        monkeypatch.setattr(
+            analyzer_module.requests, 'post',
+            lambda *a, **k: _glm_fake_response({
+                'content': None,
+                'reasoning_content': 'partial {"root_cause": "x"}',
+            })
+        )
+        analyzer = HybridFailureAnalyzer()
+        result, fallback_reason = analyzer._try_api_analysis(
+            'OCP-11111',
+            'pod CrashLoopBackOff',
+            log_url='',
+            platform='aws',
+            version='4.22',
+        )
+        # Parses from the reasoning stream instead of crashing on None
+        assert result is not None
+        # The degraded parse must carry its explanation back to the caller
+        assert fallback_reason is not None
+        assert 'reasoning stream' in fallback_reason
+
+    def test_empty_content_falls_back_to_reasoning(self, monkeypatch):
+        """An empty-string content must behave like missing content."""
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+
+        monkeypatch.setattr(
+            analyzer_module.requests, 'post',
+            lambda *a, **k: _glm_fake_response({
+                'content': '',
+                'reasoning_content': 'partial {"root_cause": "x"}',
+            })
+        )
+        analyzer = HybridFailureAnalyzer()
+        result, fallback_reason = analyzer._try_api_analysis(
+            'OCP-11111',
+            'pod CrashLoopBackOff',
+            log_url='',
+            platform='aws',
+            version='4.22',
+        )
+        # The degraded parse from the reasoning stream is used, and the
+        # explanation is passed back to the caller for review flagging
+        assert result is not None
+        assert fallback_reason is not None
+        assert 'reasoning stream' in fallback_reason
+
+    def test_free_tier_result_metadata(self, monkeypatch):
+        """Successful GLM results carry cost 0.0 and analysis_mode 'glm-ai'."""
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+
+        monkeypatch.setattr(
+            analyzer_module.requests, 'post',
+            lambda *a, **k: _glm_fake_response(
+                {'content': _sample_glm_response_text()}
+            )
+        )
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            test_name='OCP-11111',
+            error_message='pod CrashLoopBackOff',
+            log_url='',
+            platform='aws',
+            version='4.22',
+        )
+        assert result['analysis_mode'] == 'glm-ai'
+        assert result['cost'] == 0.0
+
+    def test_config_ai_settings_match_code_defaults(self):
+        """config.yaml 'ai' section must equal built-in defaults (rule 11)."""
+        config_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), 'config.yaml'
+        )
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+        ai = config['ai']
+        assert ai['endpoint'] == analyzer_module.AI_DEFAULT_ENDPOINT
+        assert ai['model'] == analyzer_module.AI_DEFAULT_MODEL
+
+    def test_missing_config_file_falls_back_to_defaults(self, tmp_path):
+        """A missing config.yaml must yield built-in defaults (rule 9)."""
+        settings = analyzer_module._load_ai_settings(
+            str(tmp_path / 'missing.yaml')
+        )
+        assert settings == {
+            'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
+            'model': analyzer_module.AI_DEFAULT_MODEL,
+        }
+
+    def test_partial_ai_section_preserves_defaults(self, tmp_path):
+        """A partial 'ai' section must not zero out the other key."""
+        path = tmp_path / 'config.yaml'
+        path.write_text('ai:\n  model: overridden-model\n')
+        settings = analyzer_module._load_ai_settings(str(path))
+        assert settings['endpoint'] == analyzer_module.AI_DEFAULT_ENDPOINT
+        assert settings['model'] == 'overridden-model'
+
+    def test_reasoning_fallback_flags_human_review(self, monkeypatch):
+        """Degraded reasoning-stream parses must be flagged for review."""
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+
+        monkeypatch.setattr(
+            analyzer_module.requests, 'post',
+            lambda *a, **k: _glm_fake_response({
+                'content': None,
+                'reasoning_content': 'partial {"root_cause": "x"}',
+            })
+        )
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            test_name='OCP-11111',
+            error_message='pod CrashLoopBackOff',
+            log_url='',
+            platform='aws',
+            version='4.22',
+        )
+        assert result['analysis_mode'] == 'glm-ai'
+        assert result['needs_human_review'] is True
+        assert 'reasoning stream' in result['review_reason']
+
+    def test_scalar_root_config_falls_back_to_defaults(self, tmp_path):
+        """A non-mapping YAML document must not crash the loader (rule 8)."""
+        path = tmp_path / 'config.yaml'
+        path.write_text('just-a-scalar\n')
+        settings = analyzer_module._load_ai_settings(str(path))
+        assert settings == {
+            'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
+            'model': analyzer_module.AI_DEFAULT_MODEL,
+        }
+
+    def test_scalar_ai_section_falls_back_to_defaults(self, tmp_path):
+        """A non-mapping 'ai' section must not crash the loader (rule 8)."""
+        path = tmp_path / 'config.yaml'
+        path.write_text('ai: not-a-dict\n')
+        settings = analyzer_module._load_ai_settings(str(path))
+        assert settings == {
+            'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
+            'model': analyzer_module.AI_DEFAULT_MODEL,
+        }
+
+    def test_non_https_endpoint_rejected(self, tmp_path):
+        """The API key must not be sent to non-https endpoints."""
+        path = tmp_path / 'config.yaml'
+        path.write_text('ai:\n  endpoint: "http://evil.example.com/v1"\n')
+        settings = analyzer_module._load_ai_settings(str(path))
+        assert settings['endpoint'] == analyzer_module.AI_DEFAULT_ENDPOINT
+
+    def test_non_devshift_endpoint_rejected(self, tmp_path):
+        """The API key must not be sent to endpoints outside the gateway."""
+        path = tmp_path / 'config.yaml'
+        path.write_text('ai:\n  endpoint: "https://evil.example.com/v1"\n')
+        settings = analyzer_module._load_ai_settings(str(path))
+        assert settings['endpoint'] == analyzer_module.AI_DEFAULT_ENDPOINT
+
+    def test_sibling_devshift_subdomain_rejected(self, tmp_path):
+        """Other *.devshift.net subdomains are not trusted hosts."""
+        path = tmp_path / 'config.yaml'
+        path.write_text(
+            'ai:\n  endpoint: "https://attacker.devshift.net/v1"\n'
+        )
+        settings = analyzer_module._load_ai_settings(str(path))
+        assert settings['endpoint'] == analyzer_module.AI_DEFAULT_ENDPOINT
+
+    def test_gateway_endpoint_accepted(self, tmp_path):
+        """The enMaas gateway endpoint is accepted without modification."""
+        gateway = 'https://api.enmaas.devshift.net/v1/chat/completions'
+        path = tmp_path / 'config.yaml'
+        path.write_text(f'ai:\n  endpoint: "{gateway}"\n')
+        settings = analyzer_module._load_ai_settings(str(path))
+        assert settings['endpoint'] == gateway
+
+    def test_non_string_ai_values_fall_back_to_defaults(self, tmp_path):
+        """Numbers, booleans and empty strings in 'ai' are rejected."""
+        path = tmp_path / 'config.yaml'
+        path.write_text('ai:\n  endpoint: 123\n  model: true\n')
+        settings = analyzer_module._load_ai_settings(str(path))
+        assert settings == {
+            'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
+            'model': analyzer_module.AI_DEFAULT_MODEL,
+        }
+
+    def test_empty_string_ai_values_fall_back_to_defaults(self, tmp_path):
+        """Empty strings in 'ai' must not replace the defaults."""
+        path = tmp_path / 'config.yaml'
+        path.write_text('ai:\n  endpoint: ""\n  model: ""\n')
+        settings = analyzer_module._load_ai_settings(str(path))
+        assert settings == {
+            'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
+            'model': analyzer_module.AI_DEFAULT_MODEL,
+        }

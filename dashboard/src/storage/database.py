@@ -778,7 +778,9 @@ class DashboardDatabase:
             SELECT
                 COUNT(*) as total_analyses,
                 SUM(CASE WHEN analysis_mode = 'local-claude-code' THEN 1 ELSE 0 END) as local_count,
-                SUM(CASE WHEN analysis_mode = 'anthropic-api' THEN 1 ELSE 0 END) as api_count,
+                SUM(CASE WHEN analysis_mode IN (
+                    'anthropic-api', 'vertex-ai', 'glm-ai'
+                ) THEN 1 ELSE 0 END) as api_count,
                 SUM(cost) as total_cost
             FROM ai_analyses
         """)

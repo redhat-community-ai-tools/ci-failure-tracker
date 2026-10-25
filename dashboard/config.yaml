@@ -314,3 +314,14 @@ schedule:
 
   # Cron expression (e.g., "0 9 * * *" for daily at 9 AM)
   cron: "0 9 * * *"
+
+# AI analyzer settings (GLM via the internal enMaas OpenAI-compatible
+# gateway). Optional: the code has built-in defaults matching these
+# values and falls back to them when this section is absent or a key
+# is missing, so removing the section is always safe. The endpoint
+# must be an https URL on the enMaas gateway host
+# (api.enmaas.devshift.net); other values are ignored so the API key
+# cannot be redirected to an external server.
+ai:
+  endpoint: "https://api.enmaas.devshift.net/v1/chat/completions"
+  model: "rits/zai-org/glm-5-3"
