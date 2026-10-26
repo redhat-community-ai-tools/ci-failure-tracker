@@ -122,7 +122,9 @@ testing. Add a SAR argument before promoting to production.
 The Service exposes both port 8080 (HTTP) and 8443 (HTTPS). The Route
 directs external traffic through the oauth-proxy on 8443, while port
 8080 remains available for cluster-internal access (e.g., readiness
-probes, debugging). This matches the pattern in
+probes, debugging). Exposing this unauthenticated HTTP port internally
+is intentional for the POC phase to allow direct container health
+checks and debugging without TLS overhead. This matches the pattern in
 `docs/SAML_AUTHENTICATION.md`.
 
 ## Deployment Details

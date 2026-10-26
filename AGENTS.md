@@ -178,7 +178,9 @@ Most agent work targets the dashboard.
     (missing authorization controls, permissive access, unauthenticated
     internal ports) as review findings if the README's Design Decisions
     section or inline YAML comments document them as intentional POC
-    trade-offs. Instead, verify that the documentation accurately
-    describes the trade-off and move on. If documentation is missing
-    or inaccurate, flag the documentation gap — not the security choice
-    itself.
+    trade-offs. Before accepting the choice, confirm the README's
+    Design Decisions section names this specific control and explains
+    the rationale; if it does not, flag both the undocumented security
+    choice and the documentation gap. If documentation is present
+    but inaccurate, flag the documentation gap — not the security
+    choice itself.
