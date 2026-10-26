@@ -172,3 +172,11 @@ Most agent work targets the dashboard.
     (`target="_blank"`) must include `rel="noopener noreferrer"`. These
     requirements apply to new interactive components; retrofitting
     existing components (e.g., the export menu) is a separate task.
+
+24. **OpenShift manifest reference.** When modifying files in
+    `dashboard/openshift/poc/`, read `docs/SAML_AUTHENTICATION.md`
+    first. It documents the complete oauth-proxy sidecar pattern
+    including ServiceAccount, TLS volumes, readiness probes, and
+    multi-container operational requirements. Use it as a checklist
+    for completeness — any component described there should be
+    included or its absence documented.
