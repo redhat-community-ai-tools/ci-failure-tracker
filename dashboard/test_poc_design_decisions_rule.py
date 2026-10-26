@@ -41,5 +41,4 @@ class TestAgentsMdPocDesignDecisionsRule:
     def test_not_flag_security_posture(self):
         """Rule must instruct not flagging documented security posture choices."""
         content = self._read_agents_md()
-        assert 'security posture' in content or \
-            'security choice' in content
+        assert 'security posture' in content or 'security choice' in content
