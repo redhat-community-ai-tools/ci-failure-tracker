@@ -176,7 +176,7 @@ Most agent work targets the dashboard.
 24. **OpenShift manifest reference.** When modifying files in
     `dashboard/openshift/poc/`, read `docs/SAML_AUTHENTICATION.md`
     first. It documents the complete oauth-proxy sidecar pattern
-    including ServiceAccount, TLS volumes, readiness probes, and
-    multi-container operational requirements. Use it as a checklist
-    for completeness — any component described there should be
-    included or its absence documented.
+    including ServiceAccount, TLS volumes, and multi-container
+    operational requirements. Use it as a checklist for completeness
+    — any component described there should be included or its
+    absence documented in the PR description.
