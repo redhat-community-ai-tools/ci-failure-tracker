@@ -194,15 +194,11 @@ fetch('/api/analyze-failure', {
 })
 ```
 
-### Deployment prerequisite: threaded Gunicorn workers
+### Threaded Gunicorn workers
 
-Re-analyze sends the failure to GLM synchronously. With the default
-`sync` worker class, the Gunicorn process is blocked until GLM responds.
-If the response takes longer than the worker timeout the request is
-killed mid-flight and the user sees an error.
-
-**Before enabling Re-analyze in production**, switch the Gunicorn
-command to threaded workers:
+Re-analyze sends the failure to GLM synchronously.  The Dockerfile
+configures Gunicorn with `-k gthread --threads 4` so that other
+requests are served while one thread waits for GLM.
 
 ```
 gunicorn -w 1 --threads 4 -k gthread -b 0.0.0.0:8080 --timeout 120 wsgi:app
@@ -213,9 +209,9 @@ gunicorn -w 1 --threads 4 -k gthread -b 0.0.0.0:8080 --timeout 120 wsgi:app
 - `--threads 4` allows up to 4 concurrent requests per worker.
 - `--timeout 120` keeps the existing request deadline.
 
-Without this change, a Re-analyze request that reaches GLM may be
-terminated before the response returns, leaving the analysis in a
-`failed` state.
+Without threaded workers, a Re-analyze request that reaches GLM may
+block the entire process or be terminated before the response returns,
+leaving the analysis in a `failed` state.
 
 ## Future Enhancements
 

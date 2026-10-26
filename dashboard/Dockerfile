@@ -20,5 +20,8 @@ RUN mkdir -p /data
 # Expose port
 EXPOSE 8080
 
-# Run gunicorn with 1 worker (collection status and OAuth token store are in-memory)
-CMD ["python3", "-m", "gunicorn", "-w", "1", "-b", "0.0.0.0:8080", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-", "wsgi:app"]
+# Run gunicorn with 1 worker and gthread worker class.
+# - Single worker: collection status and OAuth token store are in-memory.
+# - gthread with 4 threads: Re-analyze sends GLM requests synchronously;
+#   threaded workers prevent blocking all other requests while waiting.
+CMD ["python3", "-m", "gunicorn", "-w", "1", "--threads", "4", "-k", "gthread", "-b", "0.0.0.0:8080", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-", "wsgi:app"]
