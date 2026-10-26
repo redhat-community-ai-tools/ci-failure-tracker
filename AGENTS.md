@@ -172,3 +172,13 @@ Most agent work targets the dashboard.
     (`target="_blank"`) must include `rel="noopener noreferrer"`. These
     requirements apply to new interactive components; retrofitting
     existing components (e.g., the export menu) is a separate task.
+
+24. **Documented POC design decisions.** When reviewing changes to files in
+    `dashboard/openshift/poc/`, do not flag security posture choices
+    (missing authorization controls, permissive access, unauthenticated
+    internal ports) as review findings if the README's Design Decisions
+    section or inline YAML comments document them as intentional POC
+    trade-offs. Instead, verify that the documentation accurately
+    describes the trade-off and move on. If documentation is missing
+    or inaccurate, flag the documentation gap — not the security choice
+    itself.
