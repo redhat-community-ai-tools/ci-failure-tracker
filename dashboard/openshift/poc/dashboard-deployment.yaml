@@ -16,6 +16,7 @@ spec:
       labels:
         app: winc-dashboard-poc
     spec:
+      serviceAccountName: winc-dashboard-poc
       containers:
         - name: dashboard
           image: image-registry.openshift-image-registry.svc:5000/winc-dashboard-poc/winc-dashboard-poc:latest
@@ -23,6 +24,7 @@ spec:
           ports:
             - containerPort: 8080
               protocol: TCP
+              name: http
           env:
             - name: REPORTPORTAL_API_TOKEN
               valueFrom:
@@ -67,6 +69,44 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 15
             timeoutSeconds: 10
+        - name: oauth-proxy
+          image: quay.io/openshift/origin-oauth-proxy:4.14
+          ports:
+            - containerPort: 8443
+              protocol: TCP
+              name: https
+          # TODO: Add --openshift-sar before promoting to production.
+          # Currently any authenticated cluster user can access the dashboard.
+          args:
+            - --provider=openshift
+            - --openshift-service-account=winc-dashboard-poc
+            - --upstream=http://localhost:8080
+            - --https-address=:8443
+            - --tls-cert=/etc/tls/private/tls.crt
+            - --tls-key=/etc/tls/private/tls.key
+            - --cookie-secret-file=/var/run/secrets/oauth-proxy/cookie-secret
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/tls/private
+              readOnly: true
+            - name: cookie-secret
+              mountPath: /var/run/secrets/oauth-proxy
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /oauth/healthz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -74,3 +114,9 @@ spec:
         - name: config
           configMap:
             name: dashboard-config-poc
+        - name: tls
+          secret:
+            secretName: winc-dashboard-poc-tls
+        - name: cookie-secret
+          secret:
+            secretName: oauth-proxy-secret

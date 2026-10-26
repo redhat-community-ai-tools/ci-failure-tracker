@@ -125,6 +125,9 @@ oc create secret generic reportportal-token \
 oc create secret generic webhook-secret \
   --from-literal=WebHookSecretKey=$(openssl rand -hex 20)
 
+oc create secret generic oauth-proxy-secret \
+  --from-literal=cookie-secret=$(openssl rand -base64 32)
+
 # Deploy prow-mcp-server
 oc apply -f mcp-imagestream.yaml
 oc apply -f mcp-buildconfig.yaml
@@ -142,6 +145,7 @@ oc apply -f dashboard-imagestream.yaml
 oc apply -f dashboard-buildconfig.yaml
 oc apply -f dashboard-configmap.yaml
 oc apply -f dashboard-pvc.yaml
+oc apply -f dashboard-serviceaccount.yaml
 oc apply -f dashboard-service.yaml
 oc apply -f dashboard-route.yaml
 oc apply -f dashboard-deployment.yaml

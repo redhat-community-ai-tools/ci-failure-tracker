@@ -31,6 +31,9 @@ oc create secret generic reportportal-token \
 oc create secret generic webhook-secret \
   --from-literal=WebHookSecretKey=$(openssl rand -hex 20)
 
+oc create secret generic oauth-proxy-secret \
+  --from-literal=cookie-secret=$(openssl rand -base64 32)
+
 # 3. Deploy prow-mcp-server
 oc apply -f mcp-imagestream.yaml
 oc apply -f mcp-buildconfig.yaml
@@ -48,6 +51,7 @@ oc apply -f dashboard-imagestream.yaml
 oc apply -f dashboard-buildconfig.yaml
 oc apply -f dashboard-configmap.yaml
 oc apply -f dashboard-pvc.yaml
+oc apply -f dashboard-serviceaccount.yaml
 oc apply -f dashboard-service.yaml
 oc apply -f dashboard-route.yaml
 oc apply -f dashboard-deployment.yaml
@@ -68,18 +72,18 @@ oc get route winc-dashboard-poc -o jsonpath='{.spec.host}'
 ┌─────────────────────────────────────────────────────────────┐
 │ Namespace: winc-dashboard-poc                               │
 │                                                              │
-│  ┌────────────────────┐       ┌─────────────────────────┐  │
-│  │ prow-mcp-server    │       │ winc-dashboard-poc      │  │
-│  │                    │       │                         │  │
-│  │ Port: 8000         │←─────│ ProwMCPCollector        │  │
-│  │ Service: 3000      │       │ Config: prow_mcp        │  │
-│  │                    │       │                         │  │
-│  │ FROM: rrasouli/    │       │ FROM: rrasouli/         │  │
-│  │  prow-mcp-server   │       │  ci-failure-tracker     │  │
-│  │  (main branch)     │       │  (poc-prow-mcp branch)  │  │
-│  └────────────────────┘       └─────────────────────────┘  │
-│           ↓                              ↓                  │
-│    Prow CI / GCS                   SQLite DB (PVC)         │
+│  ┌────────────────────┐       ┌─────────────────────────────────┐  │
+│  │ prow-mcp-server    │       │ winc-dashboard-poc (pod)         │  │
+│  │                    │       │                                   │  │
+│  │ Port: 8000         │       │  ┌───────────┐  ┌────────────┐  │  │
+│  │ Service: 3000      │←─────│  │ oauth-    │  │ dashboard  │  │  │
+│  │                    │       │  │ proxy     │→│ :8080      │  │  │
+│  │ FROM: rrasouli/    │       │  │ :8443     │  │            │  │  │
+│  │  prow-mcp-server   │       │  └───────────┘  └────────────┘  │  │
+│  │  (main branch)     │       │        ↑ HTTPS        ↑          │  │
+│  └────────────────────┘       └────────│──────────────│──────────┘  │
+│           ↓                     Route (reencrypt)   SQLite (PVC)   │
+│    Prow CI / GCS                                                    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -92,6 +96,34 @@ oc get route winc-dashboard-poc -o jsonpath='{.spec.host}'
 | Data Source | ReportPortal API | prow-mcp-server → GCS |
 | Branch | `master` | `poc-prow-mcp` |
 | URL | `winc-dashboard-winc-dashboard.apps.build10...` | `winc-dashboard-poc-winc-dashboard-poc.apps.build10...` |
+
+## Design Decisions
+
+### Authentication
+
+The oauth-proxy sidecar uses `--provider=openshift` with a dedicated
+ServiceAccount (`winc-dashboard-poc`) annotated with
+`serviceaccounts.openshift.io/oauth-redirectreference.dashboard`. This
+allows the OpenShift OAuth server to register the redirect URI for this
+client. See `docs/SAML_AUTHENTICATION.md` for the full pattern.
+Note: the POC diverges from `SAML_AUTHENTICATION.md` in two ways:
+the cookie secret is delivered via a file mount
+(`--cookie-secret-file`) rather than an environment variable
+(`--cookie-secret=$(COOKIE_SECRET)`), and the TLS volume is named
+`tls` rather than `oauth-tls`.
+
+No `--openshift-sar` argument is configured. Any user who can
+authenticate to the OpenShift cluster can access the POC dashboard.
+This permissive model is intentional for the POC phase to simplify
+testing. Add a SAR argument before promoting to production.
+
+### Internal HTTP port
+
+The Service exposes both port 8080 (HTTP) and 8443 (HTTPS). The Route
+directs external traffic through the oauth-proxy on 8443, while port
+8080 remains available for cluster-internal access (e.g., readiness
+probes, debugging). This matches the pattern in
+`docs/SAML_AUTHENTICATION.md`.
 
 ## Deployment Details
 
@@ -229,7 +261,7 @@ curl -X POST http://localhost:3000/mcp/tools/get_latest_job_run \
 
 ```bash
 # Watch dashboard logs for collection activity
-oc logs -f deployment/winc-dashboard-poc
+oc logs -f deployment/winc-dashboard-poc -c dashboard
 
 # Expected logs:
 # INFO - Using collector type: prow_mcp
@@ -254,7 +286,7 @@ curl -I https://${POC_URL}
 Visit dashboard and click "Refresh Data" button. Watch logs:
 
 ```bash
-oc logs -f deployment/winc-dashboard-poc | grep -i "prow_mcp\|collection"
+oc logs -f deployment/winc-dashboard-poc -c dashboard | grep -i "prow_mcp\|collection"
 ```
 
 ## Troubleshooting
@@ -286,7 +318,7 @@ oc exec deployment/prow-mcp-server -- netstat -tlnp | grep 8000
 oc get svc prow-mcp-server
 
 # Test connectivity from dashboard pod
-oc exec deployment/winc-dashboard-poc -- curl -v http://prow-mcp-server:3000/health
+oc exec deployment/winc-dashboard-poc -c dashboard -- curl -v http://prow-mcp-server:3000/health
 
 # Expected: HTTP 200 OK
 ```
