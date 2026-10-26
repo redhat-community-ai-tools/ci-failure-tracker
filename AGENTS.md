@@ -215,3 +215,13 @@ Most agent work targets the dashboard.
     set. After making schema changes, search `_create_tables()` for every
     occurrence of the table name and confirm each `CREATE TABLE` statement
     includes the new column.
+
+27. **Documented POC design decisions.** When reviewing changes to files in
+    `dashboard/openshift/poc/`, do not flag security posture choices
+    (missing authorization controls, permissive access, unauthenticated
+    internal ports) as review findings if the README's Design Decisions
+    section or inline YAML comments document them as intentional POC
+    trade-offs. Instead, verify that the documentation accurately
+    describes the trade-off and move on. If documentation is missing
+    or inaccurate, flag the documentation gap — not the security choice
+    itself.
