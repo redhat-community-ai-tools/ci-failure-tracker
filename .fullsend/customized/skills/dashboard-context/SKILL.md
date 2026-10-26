@@ -54,7 +54,7 @@ ci-failure-tracker/
 
 ## Tech Stack
 
-- **Web Framework:** Flask 3.1.3 + Gunicorn (single worker)
+- **Web Framework:** Flask 3.1.3 + Gunicorn (1 worker, gthread with 4 threads)
 - **Database:** SQLite with WAL mode for concurrency
 - **Frontend:** Vanilla JavaScript in a single HTML template
 - **AI:** Claude Sonnet 4 via Google Vertex AI (`anthropic[vertex]`)
