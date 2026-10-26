@@ -74,7 +74,10 @@ The analyzer uses a 2-tier system:
    with structured prompts
 
 **Note:** When using Re-analyze, pre-classifiers are bypassed and the
-failure is sent directly to GLM for a fresh AI analysis.
+failure is sent directly to GLM for a fresh AI analysis.  This requires
+threaded Gunicorn workers (`-k gthread --threads 4`); see
+[ai-analysis.md](ai-analysis.md#deployment-prerequisite-threaded-gunicorn-workers)
+for deployment details.
 
 ## Environment Variables
 

@@ -1459,7 +1459,14 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             return jsonify({'error': 'Missing required fields: test_name, version, platform'}), 400
 
         days = data.get('days', 7)
-        use_cached = data.get('use_cached', True)
+
+        # Validate use_cached as a strict JSON boolean.  Truthy
+        # non-booleans (e.g. "false", [], 0) would silently flip the
+        # force_ai flag in an unintended direction.
+        raw_use_cached = data.get('use_cached', True)
+        if not isinstance(raw_use_cached, bool):
+            return jsonify({'error': 'use_cached must be a boolean'}), 400
+        use_cached = raw_use_cached
 
         # Resolve error_message before cache check so we can compute
         # the hash and detect stale cached analyses.
@@ -1551,6 +1558,12 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 pass_rate=pass_rate,
                 test_description=test_description,
                 recent_failures=recent_failures,
+                # Intentional coupling: use_cached=False means
+                # "Re-analyze", which bypasses both the stored result
+                # *and* offline pre-classifiers so GLM can give a
+                # fresh opinion.  If a future caller needs to skip the
+                # cache without forcing AI, add an explicit force_ai
+                # request field at that time.
                 force_ai=not use_cached,
             )
 

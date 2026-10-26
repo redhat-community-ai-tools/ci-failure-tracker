@@ -6,6 +6,7 @@ confidence thresholds, is_product_bug derivation, and response parsing.
 
 import json
 import os
+from unittest.mock import patch
 import yaml
 import pytest
 
@@ -1143,6 +1144,25 @@ class TestAnalyzeFailureForceAi:
         assert result['analysis_mode'] == 'glm-ai'
         assert result.get('pre_classified') is not True
 
+    def test_force_ai_without_enmaas_key_returns_degraded(self, monkeypatch):
+        """force_ai=True with no ENMAAS_KEY must return the degraded result."""
+        monkeypatch.delenv('ENMAAS_KEY', raising=False)
+        analyzer = HybridFailureAnalyzer()
+
+        result = analyzer.analyze_failure(
+            test_name='OCP-31276',
+            error_message='Expected: "Running"\n    Got: "Stopped"',
+            log_url='',
+            platform='vsphere',
+            version='5.1',
+            pass_rate=85.0,
+            force_ai=True,
+        )
+
+        assert result['analysis_mode'] == 'failed'
+        assert result['confidence'] == 0
+        assert result['needs_human_review'] is True
+
 
 class TestServerForceAiWiring:
     """Integration test verifying server translates use_cached=False to force_ai=True."""
@@ -1180,8 +1200,6 @@ class TestServerForceAiWiring:
 
     def test_use_cached_false_passes_force_ai_true(self, client, monkeypatch):
         """use_cached: false in request body must result in force_ai=True passed to analyze_failure."""
-        from unittest.mock import patch, MagicMock
-
         with patch('ai.analyzer.HybridFailureAnalyzer') as mock_cls:
             mock_analyzer = mock_cls.return_value
             mock_analyzer.analyze_failure.return_value = {
