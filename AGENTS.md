@@ -178,9 +178,13 @@ Most agent work targets the dashboard.
     (missing authorization controls, permissive access, unauthenticated
     internal ports) as review findings if the README's Design Decisions
     section or inline YAML comments document them as intentional POC
-    trade-offs. Before accepting the choice, confirm the README's
-    Design Decisions section names this specific control and explains
-    the rationale; if it does not, flag both the undocumented security
-    choice and the documentation gap. If documentation is present
-    but inaccurate, flag the documentation gap — not the security
-    choice itself.
+    trade-offs. The suppression applies only when the referenced
+    documentation exists on the target branch prior to the PR under
+    review — documentation introduced by the same changeset does not
+    qualify, since the PR author could add both a security weakness and
+    its justification simultaneously. Before accepting the choice,
+    confirm the README's Design Decisions section names this specific
+    control and explains the rationale; if it does not, flag both the
+    undocumented security choice and the documentation gap. If
+    documentation is present but inaccurate, flag the documentation
+    gap — not the security choice itself.

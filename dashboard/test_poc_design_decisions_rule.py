@@ -42,3 +42,8 @@ class TestAgentsMdPocDesignDecisionsRule:
         """Rule must instruct not flagging documented security posture choices."""
         content = self._read_agents_md()
         assert 'security posture' in content or 'security choice' in content
+
+    def test_same_pr_guard(self):
+        """Rule must require documentation to exist on target branch, not same PR."""
+        content = self._read_agents_md()
+        assert 'target branch' in content
