@@ -46,4 +46,4 @@ class TestAgentsMdPocDesignDecisionsRule:
     def test_same_pr_guard(self):
         """Rule must require documentation to exist on target branch, not same PR."""
         content = self._read_agents_md()
-        assert 'target branch' in content
+        assert 'documentation introduced by the same changeset does not' in content
