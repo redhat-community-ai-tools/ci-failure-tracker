@@ -1705,7 +1705,19 @@
 
                 if (!response.ok) {
                     let errorMsg = 'Failed to analyze';
-                    try { const errData = await response.json(); errorMsg = errData.error || errorMsg; } catch (e) { /* non-JSON response */ }
+                    try {
+                        const errData = await response.json();
+                        errorMsg = errData.error || errorMsg;
+                    } catch (e) {
+                        // non-JSON response — keep default message
+                    }
+
+                    // Discard if the modal switched while parsing the error response
+                    if (requestId !== currentModalRequestId) {
+                        console.log('Discarding stale runAIAnalysis error response');
+                        return;
+                    }
+
                     content.innerHTML = `<div style="color: #dc2626; padding: 10px; background: #fee2e2; border-radius: 6px;">Error: ${escapeHtml(errorMsg)}</div>`;
                     if (btn) {
                         btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg> AI Analyze';

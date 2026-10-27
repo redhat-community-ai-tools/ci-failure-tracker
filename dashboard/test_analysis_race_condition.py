@@ -305,3 +305,42 @@ class TestRunAIAnalysisStalenessGuard:
             "Staleness check must appear between fetch and "
             "success content rendering"
         )
+
+    def test_stale_check_after_error_json_parse(self, client):
+        """A staleness check must appear after the error-path
+        response.json() parse and before the error DOM write, so
+        that stale error messages are not written to the wrong modal."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        script = _extract_script_body(html)
+        body = extract_function_body(script, 'runAIAnalysis')
+
+        # The !response.ok error path parses JSON then must check
+        # staleness before writing to the DOM.  Use rfind to locate
+        # the last response.json() call (the success-path one) and
+        # then search backward for the error-path json() call.
+        json_positions = [
+            m.start()
+            for m in re.finditer(r'response\.json\(\)', body)
+        ]
+        assert len(json_positions) >= 2, (
+            "runAIAnalysis must have at least two response.json() calls "
+            "(error path and success path)"
+        )
+        # The first response.json() is inside the !response.ok block
+        error_json_pos = json_positions[0]
+
+        # Find the staleness check that follows the error-path json()
+        stale_check = 'requestId !== currentModalRequestId'
+        stale_after_error = body.find(stale_check, error_json_pos)
+        assert stale_after_error != -1, (
+            "A staleness check must appear after the error-path "
+            "response.json() call"
+        )
+
+        # Find the success-path response.json() (second occurrence)
+        success_json_pos = json_positions[1]
+        assert stale_after_error < success_json_pos, (
+            "The error-path staleness check must appear before the "
+            "success-path response.json() call"
+        )
