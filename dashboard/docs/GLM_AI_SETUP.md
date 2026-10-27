@@ -73,6 +73,12 @@ The analyzer uses a 2-tier system:
 2. **GLM AI (enMaas)** - Failures that reach the AI are analyzed
    with structured prompts
 
+**Note:** When using Re-analyze, pre-classifiers are bypassed and the
+failure is sent directly to GLM for a fresh AI analysis.  The Dockerfile
+configures threaded Gunicorn workers (`-k gthread --threads 4`) so that
+GLM requests do not block other dashboard traffic; see
+[ai-analysis.md](ai-analysis.md#threaded-gunicorn-workers) for details.
+
 ## Environment Variables
 
 The following environment variable controls GLM access:

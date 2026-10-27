@@ -344,10 +344,12 @@ collector:
 
 ### Gunicorn Configuration
 
-Running with **1 worker** (not 4) due to in-memory collection status tracking:
+Running with **1 worker** and **threaded (`gthread`) worker class** so
+the Re-analyze GLM request does not block the entire process:
 
 ```dockerfile
-CMD ["python3", "-m", "gunicorn", "-w", "1", "-b", "0.0.0.0:8080",
+CMD ["python3", "-m", "gunicorn", "-w", "1", "--threads", "4",
+     "-k", "gthread", "-b", "0.0.0.0:8080", "--timeout", "120",
      "--access-logfile", "-", "--error-logfile", "-", "wsgi:app"]
 ```
 
@@ -355,6 +357,13 @@ CMD ["python3", "-m", "gunicorn", "-w", "1", "-b", "0.0.0.0:8080",
 - Global `collection_status` dict not shared across worker processes
 - Multiple workers caused race conditions (status lost between requests)
 - Alternative: Use Redis/database for shared state (future improvement)
+
+**Why `gthread` with `--threads 4`?**
+- Re-analyze sends failures to GLM synchronously; the default `sync`
+  worker blocks all requests until GLM responds
+- Threaded workers let the dashboard serve other requests while one
+  thread waits for GLM
+- See [docs/ai-analysis.md](docs/ai-analysis.md) for details
 
 ### SQLite WAL Mode
 

@@ -792,13 +792,17 @@ class HybridFailureAnalyzer:
         pass_rate: Optional[float] = None,
         test_description: str = '',
         recent_failures: Optional[List[Dict[str, str]]] = None,
+        force_ai: bool = False,
     ) -> Dict[str, Any]:
         """
         Analyze failure using pre-classifier + GLM (internal enMaas OpenAI-compatible API).
 
-        Step 1: Check for known infrastructure patterns (SSH flakes) -- free, instant
-        Step 1e: Check cross-platform failure correlation
-        Step 2: If not pre-classified, use GLM-5.3 via enMaas
+        Steps 1–1e: Check for known infrastructure patterns (SSH,
+            DNS/quota, timeout, known-flaky, cross-platform) -- free,
+            instant.  Skipped when force_ai=True.
+        Context enrichment: Enrich context with recent test-repo
+            changes -- runs unconditionally (not a pre-classifier).
+        Step 2: Use GLM-5.3 via enMaas for AI analysis.
 
         Args:
             test_name: Test identifier (e.g., OCP-39030)
@@ -812,55 +816,69 @@ class HybridFailureAnalyzer:
                 'error_message' keys from recent failures of the same
                 test on other platforms (used for cross-platform
                 correlation)
+            force_ai: When True, bypass all offline pre-classifiers and
+                send the failure directly to GLM. Used by the Re-analyze
+                action so that cached pre-classifier results do not
+                prevent a fresh AI analysis.
 
         Returns:
             Analysis dictionary with root_cause, component, confidence, etc.
         """
 
-        # Step 1: Pre-classify known infrastructure patterns
-        # Fetch logs once for all pre-classifiers to avoid duplicate requests
-        logs = _fetch_logs(log_url) if log_url else ''
+        if force_ai:
+            logger.info(f"Bypassing pre-classifiers for {test_name} (force_ai), sending directly to GLM")
+        else:
+            # Step 1: Pre-classify known infrastructure patterns
+            # Fetch logs once for all pre-classifiers to avoid duplicate requests
+            logs = _fetch_logs(log_url) if log_url else ''
 
-        pre_result = detect_ssh_flake(error_message, pass_rate, log_text=logs)
-        if pre_result:
-            logger.info(f"Pre-classified {test_name} as SSH flake (skipping AI analysis)")
-            return pre_result
+            pre_result = detect_ssh_flake(error_message, pass_rate, log_text=logs)
+            if pre_result:
+                logger.info(f"Pre-classified {test_name} as SSH flake (skipping AI analysis)")
+                return pre_result
 
-        # Step 1b: Check DNS and quota infrastructure patterns
-        infra_result = detect_infra_flake(error_message, log_text=logs)
-        if infra_result:
-            logger.info(f"Pre-classified {test_name} as infrastructure issue (skipping AI analysis)")
-            return infra_result
+            # Step 1b: Check DNS and quota infrastructure patterns
+            infra_result = detect_infra_flake(error_message, log_text=logs)
+            if infra_result:
+                logger.info(f"Pre-classified {test_name} as infrastructure issue (skipping AI analysis)")
+                return infra_result
 
-        # Step 1c: Check timeout/precondition flake patterns
-        timeout_result = detect_timeout_flake(error_message, pass_rate)
-        if timeout_result:
-            logger.info(f"Pre-classified {test_name} as timeout flake (skipping AI analysis)")
-            return timeout_result
+            # Step 1c: Check timeout/precondition flake patterns
+            timeout_result = detect_timeout_flake(error_message, pass_rate)
+            if timeout_result:
+                logger.info(f"Pre-classified {test_name} as timeout flake (skipping AI analysis)")
+                return timeout_result
 
-        # Step 1d: Check test name for known flaky test categories
-        # (catches cert rotation tests even when error text is corrupted)
-        flaky_result = detect_known_flaky_test(
-            test_name, test_description, pass_rate, error_message
-        )
-        if flaky_result:
-            logger.info(f"Pre-classified {test_name} by test name as known flaky (skipping AI analysis)")
-            return flaky_result
-
-        # Step 1e: Check cross-platform failure correlation
-        if recent_failures is not None:
-            cross_platform_result = detect_cross_platform_failure(
-                error_message, recent_failures
+            # Step 1d: Check test name for known flaky test categories
+            # (catches cert rotation tests even when error text is corrupted)
+            flaky_result = detect_known_flaky_test(
+                test_name, test_description, pass_rate, error_message
             )
-            if cross_platform_result:
-                logger.info(
-                    f"Pre-classified {test_name} as cross-platform "
-                    "failure (skipping AI analysis)"
-                )
-                return cross_platform_result
+            if flaky_result:
+                logger.info(f"Pre-classified {test_name} by test name as known flaky (skipping AI analysis)")
+                return flaky_result
 
-        # Step 1f: Check if test was recently modified in the test repo
-        # (recent commits suggest automation_bug, not product_bug)
+            # Step 1e: Check cross-platform failure correlation
+            if recent_failures is not None:
+                cross_platform_result = detect_cross_platform_failure(
+                    error_message, recent_failures
+                )
+                if cross_platform_result:
+                    logger.info(
+                        f"Pre-classified {test_name} as cross-platform "
+                        "failure (skipping AI analysis)"
+                    )
+                    return cross_platform_result
+
+        # Context enrichment (runs unconditionally):
+        # Check if test was recently modified in the test repo
+        # (recent commits suggest automation_bug, not product_bug).
+        # This is NOT a pre-classifier — it never short-circuits the
+        # analysis. It enriches the GLM prompt so the AI can weigh
+        # recent test-repo activity when classifying the failure.
+        # It runs unconditionally (even when force_ai=True) because
+        # skipping it would make re-analysis less informed than a
+        # normal first-time analysis.
         test_repo_changes = _check_test_repo_recent_changes(test_name)
 
         # Step 2: Use GLM AI for analysis

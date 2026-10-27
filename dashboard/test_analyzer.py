@@ -939,6 +939,230 @@ class TestDetectCrossPlatformFailure:
         assert result is None
 
 
+class TestAnalyzeFailureForceAI:
+    """Tests for force_ai flag that bypasses all pre-classifiers."""
+
+    def test_force_ai_bypasses_timeout_pre_classifier(self, monkeypatch):
+        """A timeout-shaped failure must reach GLM when force_ai=True."""
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+        analyzer = HybridFailureAnalyzer()
+
+        monkeypatch.setattr(
+            analyzer_module.requests, 'post',
+            lambda *a, **k: _glm_fake_response({
+                'content': json.dumps({
+                    'root_cause': 'Kubelet version mismatch',
+                    'component': 'kubelet',
+                    'confidence': 90,
+                    'failure_type': 'product_bug',
+                    'platform_specific': False,
+                    'affected_platforms': [],
+                    'evidence': 'Version mismatch in logs',
+                    'suggested_action': 'Update kubelet',
+                    'issue_title': 'Product Bug: kubelet mismatch',
+                    'issue_description': 'Kubelet version mismatch',
+                }),
+            }),
+        )
+
+        result = analyzer.analyze_failure(
+            test_name='OCP-33612',
+            error_message='Expected: "Running"\n    Got: "Stopped"',
+            log_url='',
+            platform='vsphere',
+            version='5.1',
+            pass_rate=85.0,
+            force_ai=True,
+        )
+
+        assert result['analysis_mode'] == 'glm-ai'
+        assert result['root_cause'] == 'Kubelet version mismatch'
+        assert result.get('pre_classified') is not True
+
+    def test_force_ai_bypasses_ssh_pre_classifier(self, monkeypatch):
+        """SSH-shaped failure must reach GLM when force_ai=True."""
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+        analyzer = HybridFailureAnalyzer()
+
+        monkeypatch.setattr(
+            analyzer_module.requests, 'post',
+            lambda *a, **k: _glm_fake_response({
+                'content': _sample_glm_response_text(),
+            }),
+        )
+
+        result = analyzer.analyze_failure(
+            test_name='OCP-12345',
+            error_message='SSH attempt 3 failed with exit status 255',
+            log_url='',
+            platform='aws',
+            version='4.22',
+            pass_rate=90.0,
+            force_ai=True,
+        )
+
+        assert result['analysis_mode'] == 'glm-ai'
+        assert result.get('pre_classified') is not True
+
+    def test_force_ai_bypasses_dns_pre_classifier(self, monkeypatch):
+        """DNS-shaped failure must reach GLM when force_ai=True."""
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+        analyzer = HybridFailureAnalyzer()
+
+        monkeypatch.setattr(
+            analyzer_module.requests, 'post',
+            lambda *a, **k: _glm_fake_response({
+                'content': _sample_glm_response_text(),
+            }),
+        )
+
+        result = analyzer.analyze_failure(
+            test_name='OCP-99999',
+            error_message='dial tcp: lookup api.cluster: no such host',
+            log_url='',
+            platform='gcp',
+            version='4.23',
+            force_ai=True,
+        )
+
+        assert result['analysis_mode'] == 'glm-ai'
+        assert result.get('pre_classified') is not True
+
+    def test_force_ai_bypasses_known_flaky_pre_classifier(self, monkeypatch):
+        """Known-flaky test must reach GLM when force_ai=True."""
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+        analyzer = HybridFailureAnalyzer()
+
+        monkeypatch.setattr(
+            analyzer_module.requests, 'post',
+            lambda *a, **k: _glm_fake_response({
+                'content': _sample_glm_response_text(),
+            }),
+        )
+
+        result = analyzer.analyze_failure(
+            test_name='OCP-50924',
+            error_message='CharChunk corrupted output garbage',
+            log_url='',
+            platform='vsphere',
+            version='5.0',
+            pass_rate=60.0,
+            test_description='Windows instances react to kubelet CA rotation',
+            force_ai=True,
+        )
+
+        assert result['analysis_mode'] == 'glm-ai'
+        assert result.get('pre_classified') is not True
+
+    def test_normal_analysis_still_uses_timeout_pre_classifier(self):
+        """Without force_ai, timeout-shaped failure is still pre-classified."""
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            test_name='OCP-33612',
+            error_message='Expected: "Running"\n    Got: "Stopped"',
+            log_url='',
+            platform='vsphere',
+            version='5.1',
+            pass_rate=85.0,
+        )
+
+        assert result['pre_classified'] is True
+        assert result['pre_classifier'] == 'timeout_flake_detector'
+        assert result['analysis_mode'] == 'pre-classifier'
+
+    def test_force_ai_default_false(self):
+        """force_ai defaults to False, preserving existing behavior."""
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            test_name='OCP-55555',
+            error_message=(
+                'Failed to check Windows machine should be in '
+                'Provisioning phase and not reconciled after '
+                'waiting up to 5 minutes'
+            ),
+            log_url='',
+            platform='gcp',
+            version='X.Y',
+            pass_rate=90.0,
+        )
+
+        assert result['pre_classified'] is True
+        assert result['pre_classifier'] == 'timeout_flake_detector'
+
+    def test_force_ai_bypasses_cross_platform_pre_classifier(self, monkeypatch):
+        """Cross-platform failure must reach GLM when force_ai=True."""
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+        analyzer = HybridFailureAnalyzer()
+
+        monkeypatch.setattr(
+            analyzer_module.requests, 'post',
+            lambda *a, **k: _glm_fake_response({
+                'content': _sample_glm_response_text(),
+            }),
+        )
+
+        hash_a = 'a' * 64
+        hash_b = 'b' * 64
+        hash_c = 'c' * 64
+        hash_d = 'd' * 64
+        result = analyzer.analyze_failure(
+            test_name='OCP-42204',
+            error_message=(
+                f'failed to load task: no running task found: '
+                f'task {hash_a} not found'
+            ),
+            log_url='',
+            platform='nutanix',
+            version='4.18',
+            recent_failures=[
+                {
+                    'platform': 'vsphere',
+                    'error_message': (
+                        f'failed to load task: no running task '
+                        f'found: task {hash_b} not found'
+                    ),
+                },
+                {
+                    'platform': 'aws',
+                    'error_message': (
+                        f'failed to load task: no running task '
+                        f'found: task {hash_c} not found'
+                    ),
+                },
+                {
+                    'platform': 'azure',
+                    'error_message': (
+                        f'failed to load task: no running task '
+                        f'found: task {hash_d} not found'
+                    ),
+                },
+            ],
+            force_ai=True,
+        )
+
+        assert result['analysis_mode'] == 'glm-ai'
+        assert result.get('pre_classified') is not True
+
+    def test_force_ai_without_enmaas_key_returns_degraded(self, monkeypatch):
+        """force_ai=True with no ENMAAS_KEY must return the degraded result."""
+        monkeypatch.delenv('ENMAAS_KEY', raising=False)
+        analyzer = HybridFailureAnalyzer()
+
+        result = analyzer.analyze_failure(
+            test_name='OCP-31276',
+            error_message='Expected: "Running"\n    Got: "Stopped"',
+            log_url='',
+            platform='vsphere',
+            version='5.1',
+            pass_rate=85.0,
+            force_ai=True,
+        )
+
+        assert result['analysis_mode'] == 'failed'
+        assert result['confidence'] == 0
+        assert result['needs_human_review'] is True
+
+
 class TestAnalyzeFailureCrossPlatform:
     """Integration tests for cross-platform correlation in analyze_failure."""
 

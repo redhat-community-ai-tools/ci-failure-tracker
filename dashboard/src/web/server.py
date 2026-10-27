@@ -89,6 +89,7 @@ class _BoundedTokenStore:
         self._max_size = max_size
         self._max_age = max_age
         self._clock = clock              # injectable for testing
+        self._lock = threading.Lock()    # guard against gthread races
 
     # -- internal helpers ---------------------------------------------------
 
@@ -109,52 +110,59 @@ class _BoundedTokenStore:
     # -- dict-compatible public API -----------------------------------------
 
     def __setitem__(self, key, value):
-        self._evict_expired()
-        # Remove first so re-insertion moves it to the end (most-recent).
-        if key in self._data:
-            del self._data[key]
-        self._data[key] = (value, self._clock())
-        # Enforce max-size: evict oldest entries.
-        while len(self._data) > self._max_size:
-            self._data.popitem(last=False)
+        with self._lock:
+            self._evict_expired()
+            # Remove first so re-insertion moves it to the end (most-recent).
+            if key in self._data:
+                del self._data[key]
+            self._data[key] = (value, self._clock())
+            # Enforce max-size: evict oldest entries.
+            while len(self._data) > self._max_size:
+                self._data.popitem(last=False)
 
     def get(self, key, default=None):
-        entry = self._data.get(key)
-        if entry is None:
-            return default
-        value, ts = entry
-        if self._is_expired(ts):
-            del self._data[key]
-            return default
-        return value
+        with self._lock:
+            entry = self._data.get(key)
+            if entry is None:
+                return default
+            value, ts = entry
+            if self._is_expired(ts):
+                del self._data[key]
+                return default
+            return value
 
     def pop(self, key, *args):
-        entry = self._data.pop(key, None)
-        if entry is None:
-            if args:
-                return args[0]
-            raise KeyError(key)
-        return entry[0]
+        with self._lock:
+            entry = self._data.pop(key, None)
+            if entry is None:
+                if args:
+                    return args[0]
+                raise KeyError(key)
+            return entry[0]
 
     def clear(self):
-        self._data.clear()
+        with self._lock:
+            self._data.clear()
 
     def __contains__(self, key):
-        entry = self._data.get(key)
-        if entry is None:
-            return False
-        if self._is_expired(entry[1]):
-            del self._data[key]
-            return False
-        return True
+        with self._lock:
+            entry = self._data.get(key)
+            if entry is None:
+                return False
+            if self._is_expired(entry[1]):
+                del self._data[key]
+                return False
+            return True
 
     def __len__(self):
-        self._evict_expired()
-        return len(self._data)
+        with self._lock:
+            self._evict_expired()
+            return len(self._data)
 
     def values(self):
-        self._evict_expired()
-        return [v for v, _ in self._data.values()]
+        with self._lock:
+            self._evict_expired()
+            return [v for v, _ in self._data.values()]
 
 
 _oauth_token_store = _BoundedTokenStore()
@@ -1460,6 +1468,13 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
 
         days = data.get('days', 7)
 
+        # Validate use_cached as a strict JSON boolean.  Truthy
+        # non-booleans (e.g. "false", [], 0) would silently flip the
+        # force_ai flag in an unintended direction.
+        use_cached = data.get('use_cached', True)
+        if not isinstance(use_cached, bool):
+            return jsonify({'error': 'use_cached must be a boolean'}), 400
+
         # Resolve error_message before cache check so we can compute
         # the hash and detect stale cached analyses.
         error_message = data.get('error_message')
@@ -1505,7 +1520,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             test_name, version, platform, days,
             current_error_hash=error_hash,
         )
-        if existing_analysis and data.get('use_cached', True):
+        if existing_analysis and use_cached:
             existing_analysis['cached'] = True
             return jsonify(existing_analysis)
 
@@ -1550,6 +1565,13 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 pass_rate=pass_rate,
                 test_description=test_description,
                 recent_failures=recent_failures,
+                # Intentional coupling: use_cached=False means
+                # "Re-analyze", which bypasses both the stored result
+                # *and* offline pre-classifiers so GLM can give a
+                # fresh opinion.  If a future caller needs to skip the
+                # cache without forcing AI, add an explicit force_ai
+                # request field at that time.
+                force_ai=not use_cached,
             )
 
             # Save analysis to database with error hash for future
