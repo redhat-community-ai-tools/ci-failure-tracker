@@ -20,7 +20,7 @@ process.
                 v                                       v
 +-------------------------------+       +-------------------------------+
 |   CI Dashboard Tracker        |       |   GitHub Issues               |
-|   (Flask / SQLite / Vertex)   |       |   (ci-failure-tracker repo)   |
+|   (Flask / SQLite / GLM-5.3)  |       |   (ci-failure-tracker repo)   |
 |                               |       |                               |
 |   Collectors --> DB --> UI    |       |   bug_report                  |
 |                    |          |       |   feature_request             |
@@ -106,7 +106,7 @@ OpenShell Sandbox   (isolated container with agent runtime)
        +-- Activates: .fullsend/customized/skills/*
        |
        v
-Agent executes (Claude via Vertex AI)
+Agent executes (Claude via enMaas gateway)
        |
        v
 post_script.sh   (push branch, create PR, post comments)
@@ -242,7 +242,7 @@ Iteration capped at 2 rounds. `/fs-fix-stop` disables.
 
 ## Self-Healing Loop
 
-The dashboard detects CI failures and has AI analysis (Vertex AI / Claude).
+The dashboard detects CI failures and has AI analysis (GLM-5.3 / enMaas).
 This creates a feedback loop where detected failures become agent-managed
 issues.
 
@@ -438,13 +438,13 @@ upstream-sync.yml (GitHub Action)               |
 | GH_TOKEN (sandbox) | Read-only (contents, issues, PRs) | Inside sandbox |
 | PUSH_TOKEN (runner) | Write (push branches, create PRs) | Runner only, never in sandbox |
 | REVIEW_TOKEN (runner) | Write (post review comments) | Runner only |
-| GCP credentials | Vertex AI inference | Mounted as file in sandbox |
+| ENMAAS_KEY | enMaas inference | Env var in sandbox |
 | Jira API token | Create/search issues | Dashboard env var, not in sandbox |
 
 ### Sandbox Isolation
 
 - Agents run in OpenShell containers with L7 network policies
-- Network restricted to: Vertex AI, GitHub API, PyPI (code agent only)
+- Network restricted to: enMaas, GitHub API, PyPI (code agent only)
 - `curl` excluded from allowed binaries (prevents disallowedTools bypass)
 - `pull_request_target` prevents PR authors from modifying the shim workflow
 - Config always read from base branch, not PR branch
@@ -461,14 +461,26 @@ upstream-sync.yml (GitHub Action)               |
 ### GitHub
 
 - Fullsend GitHub Apps installed (triage, coder, review roles)
-- Repo variables: `FULLSEND_MINT_URL`, `FULLSEND_GCP_REGION`
-- Repo secrets: `FULLSEND_GCP_WIF_PROVIDER`, `FULLSEND_GCP_PROJECT_ID`
+- Repo variables: `FULLSEND_MINT_URL`, `FULLSEND_GCP_REGION`, `FULLSEND_PROJECT_NUMBER`
+- Repo secrets: `FULLSEND_GCP_WIF_PROVIDER`, `FULLSEND_GCP_PROJECT_ID`, `FULLSEND_OPENAI_API_KEY`
 
-### Google Cloud Platform
+### GCP Workload Identity Federation (Sandbox Auth)
 
-- GCP project with Vertex AI API enabled
-- Workload Identity Federation for OIDC token exchange
-- Service account with `aiplatform.endpoints.predict` permission
+- GCP project with Workload Identity Federation configured
+- OIDC token exchange enables the fullsend platform to authenticate
+  sandbox containers — this is platform infrastructure, not AI inference
+- Repo variables `FULLSEND_GCP_REGION` and `FULLSEND_PROJECT_NUMBER`
+  and repo secrets `FULLSEND_GCP_WIF_PROVIDER` and
+  `FULLSEND_GCP_PROJECT_ID` (listed under GitHub above) are consumed by
+  the fullsend shim workflow for this purpose
+
+### enMaas (AI Inference)
+
+- enMaas API key for AI inference (GLM-5.3 for dashboard analysis,
+  Claude Opus for fullsend agents)
+- The `FULLSEND_OPENAI_API_KEY` repo secret (listed under GitHub above)
+  is forwarded by the shim workflow; the platform maps it to `ENMAAS_KEY`
+  inside the sandbox
 
 ### OpenShift (Dashboard Deployment)
 

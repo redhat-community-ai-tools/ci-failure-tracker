@@ -34,7 +34,7 @@ process -- including filing upstream Jira bugs.
 
 - **Backend:** Python 3.10, Flask 3.1.3, Gunicorn, SQLite (WAL mode)
 - **Frontend:** Vanilla JavaScript, single HTML template
-- **AI:** Claude Sonnet 4 via Google Vertex AI (`anthropic[vertex]`)
+- **AI:** GLM-5.3 via enMaas gateway (OpenAI-compatible API)
 - **Data Sources:** Pluggable collectors (ReportPortal, gcsweb, Prow GCS, Prow MCP)
 - **Integrations:** Jira (issues.redhat.com), OpenPyXL exports
 - **Deployment:** Docker, OpenShift (BuildConfig + Deployment + PVC)
@@ -66,7 +66,7 @@ existing development workflow.
 | Self-healing scope | Full (dashboard + collector + upstream bugs) | Maximize value: agents fix their own bugs AND file product bugs to Jira |
 | Progress tracking | GitHub Issues in fullsend repo | Centralized tracking with `ci-dashboard` label |
 | Installation mode | Per-repo (ADR-0033) | Single repo, no org-wide rollout needed |
-| Agent model | Claude Opus via Vertex AI | Matches fullsend defaults |
+| Agent model | Claude Opus via enMaas gateway (agents; dashboard uses GLM-5.3) | Matches fullsend defaults |
 | Auto-merge | Disabled | Human approval required for all agent PRs |
 
 ---
@@ -97,7 +97,7 @@ existing development workflow.
 
 **Sandbox policies:**
 - `.fullsend/customized/policies/code.yaml` -- PyPI access, Python binaries
-- `.fullsend/customized/policies/triage.yaml` -- GitHub API + Vertex AI only
+- `.fullsend/customized/policies/triage.yaml` -- GitHub API + enMaas only
 
 **Python environment:**
 - `.fullsend/customized/env/python-agent.env` -- virtualenv, PYTHONDONTWRITEBYTECODE
@@ -173,7 +173,7 @@ activity until a human merges an agent's PR.
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | GitHub Actions minute consumption | Quota usage | Monitor usage; set per-repo limits |
-| Vertex AI inference costs | ~$0.02-0.10 per agent run | Budget alerts on GCP project |
+| enMaas inference costs | ~$0.02-0.10 per agent run | Budget alerts on enMaas project |
 | Agent loop (fix -> review -> fix cycle) | Wasted compute | Fix iteration capped at 2 rounds |
 | Noisy agents on busy repos | Developer fatigue | Start with manual `/fs-*` commands only |
 
@@ -224,8 +224,8 @@ automated SDLC pipeline.
 
 Current blockers before activation:
 1. Fullsend GitHub Apps must be installed on `rrasouli/ci-failure-tracker`
-2. GCP project needs Workload Identity Federation configured
-3. Repo variables/secrets must be set in GitHub Settings
+2. GCP Workload Identity Federation must be configured
+3. Repo variables/secrets must be set in GitHub Settings (including `FULLSEND_OPENAI_API_KEY` for enMaas inference)
 4. The fullsend team should review the customized harness/agent files
 
 **Recommendation:** Start with a dry run -- commit the `.fullsend/`
@@ -236,10 +236,10 @@ reviewed and iterated on before any agents activate.
 
 Each agent invocation costs:
 - GitHub Actions: ~2-10 minutes of runner time per agent
-- Vertex AI: ~$0.02-0.10 per inference call (Claude Opus)
+- enMaas: ~$0.02-0.10 per inference call (Claude Opus)
 - Estimated monthly: depends on issue volume; 20 issues/month ~ $5-10
 
-Set up GCP budget alerts and GitHub Actions usage monitoring before
+Set up enMaas usage monitoring and GitHub Actions usage monitoring before
 activating.
 
 ---
@@ -250,7 +250,7 @@ activating.
    `AGENTS.md` in the POC repo before committing
 2. **Dry run** -- commit files to a branch, review PR, but do not install
    GitHub Apps yet
-3. **Set up infrastructure** -- GCP WIF, GitHub Apps, repo variables/secrets
+3. **Set up infrastructure** -- GCP WIF, GitHub Apps, repo variables/secrets (including `FULLSEND_OPENAI_API_KEY`)
 4. **Manual validation** -- activate agents and test with `/fs-triage` on
    a few real issues
 5. **Iterate** -- adjust agent prompts and skills based on triage quality

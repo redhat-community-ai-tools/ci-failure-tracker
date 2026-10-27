@@ -16,17 +16,12 @@ role: coder
 slug: fullsend-ai-coder
 
 host_files:
-  - src: env/gcp-vertex.env
-    dest: /sandbox/workspace/.env.d/gcp-vertex.env
+  - src: env/enmaas.env
+    dest: /sandbox/workspace/.env.d/enmaas.env
     expand: true
   - src: env/python-agent.env
     dest: /sandbox/workspace/.env.d/python-agent.env
     expand: true
-  - src: ${GOOGLE_APPLICATION_CREDENTIALS}
-    dest: /tmp/.gcp-credentials.json
-  - src: ${GCP_OIDC_TOKEN_FILE}
-    dest: /sandbox/workspace/.gcp-oidc-token
-    optional: true
 
 pre_script: scripts/pre-code.sh
 post_script: scripts/post-code.sh

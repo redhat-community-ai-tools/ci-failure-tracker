@@ -2,7 +2,7 @@
 version: 1
 
 # Sandbox policy for the triage agent.
-# Identical to upstream -- triage only needs GitHub API and Vertex AI.
+# Identical to upstream -- triage only needs GitHub API and enMaas.
 
 filesystem_policy:
   include_workdir: true
@@ -15,15 +15,10 @@ process:
   run_as_group: sandbox
 
 network_policies:
-  vertex_ai:
-    name: vertex-ai
+  enmaas:
+    name: enmaas
     endpoints:
-      - host: "api.anthropic.com"
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        access: read-write
-      - host: "*.googleapis.com"
+      - host: "api.enmaas.devshift.net"
         port: 443
         protocol: rest
         enforcement: enforce

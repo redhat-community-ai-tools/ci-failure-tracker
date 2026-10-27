@@ -18,15 +18,10 @@ process:
   run_as_group: sandbox
 
 network_policies:
-  vertex_ai:
-    name: vertex-ai
+  enmaas:
+    name: enmaas
     endpoints:
-      - host: "api.anthropic.com"
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        access: read-write
-      - host: "*.googleapis.com"
+      - host: "api.enmaas.devshift.net"
         port: 443
         protocol: rest
         enforcement: enforce

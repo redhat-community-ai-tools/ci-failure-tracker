@@ -3,7 +3,7 @@ version: 1
 
 # Sandbox policy for the fix agent.
 # Same as code agent -- needs PyPI for installing dependencies,
-# GitHub API for context, and Vertex AI for inference.
+# GitHub API for context, and enMaas for inference.
 
 filesystem_policy:
   include_workdir: true
@@ -16,15 +16,10 @@ process:
   run_as_group: sandbox
 
 network_policies:
-  vertex_ai:
-    name: vertex-ai
+  enmaas:
+    name: enmaas
     endpoints:
-      - host: "api.anthropic.com"
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        access: read-write
-      - host: "*.googleapis.com"
+      - host: "api.enmaas.devshift.net"
         port: 443
         protocol: rest
         enforcement: enforce
