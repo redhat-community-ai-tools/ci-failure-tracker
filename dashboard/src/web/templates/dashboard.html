@@ -993,6 +993,8 @@
     <script>
         let trendChart, versionChart;
         let currentLogData = {}; // Store current log data for AI analysis and Jira creation
+        let currentModalRequestId = 0; // Tracks which test modal is active; incremented on open/close to discard stale async responses
+        let currentAbortController = null; // AbortController for in-flight fetch requests; aborted on modal close/switch
 
         // Global HTML escaping utility — use for all dynamic values rendered via innerHTML
         const escapeHtml = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&#39;').replace(/"/g, '&quot;');
@@ -1278,6 +1280,14 @@
         function openLogWindow(logContent, testTitle, metadata) {
             console.log('=== BUILD 172 - Auto-trigger AI analysis on test open (AI: {{ "enabled" if enable_ai else "disabled" }}) ===');
 
+            // Abort any in-flight requests from a previous modal and
+            // bump the request ID so stale responses are discarded.
+            if (currentAbortController) {
+                currentAbortController.abort();
+            }
+            currentAbortController = new AbortController();
+            currentModalRequestId++;
+
             // Store data globally for AI analysis and Jira creation
             currentLogData = {
                 logContent: logContent,
@@ -1379,6 +1389,12 @@
         }
 
         function closeLogModal() {
+            // Abort any in-flight requests and invalidate stale responses
+            if (currentAbortController) {
+                currentAbortController.abort();
+                currentAbortController = null;
+            }
+            currentModalRequestId++;
             document.getElementById('logModal').style.display = 'none';
         }
 
@@ -1518,6 +1534,7 @@
         }
 
         async function loadExistingTestData(testName, version, platform) {
+            const requestId = currentModalRequestId;
             try {
                 const response = await fetch('/api/get-test-data', {
                     method: 'POST',
@@ -1526,8 +1543,15 @@
                         test_name: testName,
                         version: version,
                         platform: platform
-                    })
+                    }),
+                    signal: currentAbortController ? currentAbortController.signal : undefined
                 });
+
+                // Discard response if the modal switched to a different test
+                if (requestId !== currentModalRequestId) {
+                    console.log('Discarding stale loadExistingTestData response');
+                    return;
+                }
 
                 if (!response.ok) {
                     console.log('Failed to load existing test data');
@@ -1536,6 +1560,12 @@
 
                 const data = await response.json();
                 console.log('Loaded test data:', data);
+
+                // Discard if the modal switched while parsing the response
+                if (requestId !== currentModalRequestId) {
+                    console.log('Discarding stale loadExistingTestData response');
+                    return;
+                }
 
                 // Populate manual classification if exists
                 if (data.manual_classification) {
@@ -1622,6 +1652,10 @@
                 }
                 {% endif %}
             } catch (error) {
+                if (error.name === 'AbortError') {
+                    console.log('loadExistingTestData request aborted');
+                    return;
+                }
                 console.error('Error loading existing test data:', error);
             }
         }
@@ -1629,6 +1663,7 @@
         {% if enable_ai %}
         async function runAIAnalysis(useCached) {
             if (useCached === undefined) useCached = true;
+            const requestId = currentModalRequestId;
             const section = document.getElementById('aiAnalysisSection');
             const content = document.getElementById('aiAnalysisContent');
             const btn = document.getElementById('aiAnalyzeBtn');
@@ -1658,12 +1693,50 @@
                         platform: currentLogData.metadata.platform,
                         error_message: currentLogData.logContent,
                         use_cached: useCached
-                    })
+                    }),
+                    signal: currentAbortController ? currentAbortController.signal : undefined
                 });
+
+                // Discard response if the modal switched to a different test
+                if (requestId !== currentModalRequestId) {
+                    console.log('Discarding stale runAIAnalysis response');
+                    return;
+                }
+
+                if (!response.ok) {
+                    let errorMsg = 'Failed to analyze';
+                    try {
+                        const errData = await response.json();
+                        errorMsg = errData.error || errorMsg;
+                    } catch (e) {
+                        // non-JSON response — keep default message
+                    }
+
+                    // Discard if the modal switched while parsing the error response
+                    if (requestId !== currentModalRequestId) {
+                        console.log('Discarding stale runAIAnalysis error response');
+                        return;
+                    }
+
+                    content.innerHTML = `<div style="color: #dc2626; padding: 10px; background: #fee2e2; border-radius: 6px;">Error: ${escapeHtml(errorMsg)}</div>`;
+                    if (btn) {
+                        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg> AI Analyze';
+                        btn.style.background = '#8b5cf6';
+                        btn.disabled = false;
+                        btn.onclick = function() { runAIAnalysis(); };
+                    }
+                    return;
+                }
 
                 const data = await response.json();
 
-                if (response.ok && data.root_cause) {
+                // Discard if the modal switched while parsing the response
+                if (requestId !== currentModalRequestId) {
+                    console.log('Discarding stale runAIAnalysis response');
+                    return;
+                }
+
+                if (data.root_cause) {
                     const liveClassName = classNames[data.failure_type] || data.failure_type || 'Unknown';
                     const liveClassColor = classColors[data.failure_type] || '#6b7280';
 
@@ -1716,7 +1789,7 @@
                         btn.onclick = function() { runAIAnalysis(false); };
                     }
                 } else {
-                    content.innerHTML = `<div style="color: #dc2626; padding: 10px; background: #fee2e2; border-radius: 6px;">Error: ${data.error || 'Failed to analyze'}</div>`;
+                    content.innerHTML = `<div style="color: #dc2626; padding: 10px; background: #fee2e2; border-radius: 6px;">Error: ${escapeHtml(data.error || 'Failed to analyze')}</div>`;
                     // Reset button on error
                     if (btn) {
                         btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg> AI Analyze';
@@ -1726,7 +1799,16 @@
                     }
                 }
             } catch (error) {
-                content.innerHTML = `<div style="color: #dc2626; padding: 10px; background: #fee2e2; border-radius: 6px;">Error: ${error.message}</div>`;
+                if (error.name === 'AbortError') {
+                    console.log('runAIAnalysis request aborted');
+                    return;
+                }
+                // Only update DOM if this is still the active modal
+                if (requestId !== currentModalRequestId) {
+                    console.log('Discarding stale runAIAnalysis error');
+                    return;
+                }
+                content.innerHTML = `<div style="color: #dc2626; padding: 10px; background: #fee2e2; border-radius: 6px;">Error: ${escapeHtml(error.message)}</div>`;
                 // Reset button on error
                 if (btn) {
                     btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg> AI Analyze';
