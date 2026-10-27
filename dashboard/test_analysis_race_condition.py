@@ -185,6 +185,35 @@ class TestLoadExistingTestDataStalenessGuard:
             "Must check for AbortError in the catch block"
         )
 
+    def test_stale_check_before_dom_writes(self, client):
+        """The staleness check must appear between the response.json()
+        call and the first innerHTML assignment to prevent stale data
+        from being written to the wrong modal."""
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+        script = _extract_script_body(html)
+        body = extract_function_body(script, 'loadExistingTestData')
+
+        json_pos = body.find('response.json()')
+        assert json_pos != -1, "Must contain response.json() call"
+
+        # Find the staleness check after the json parse
+        stale_check = 'requestId !== currentModalRequestId'
+        stale_after_json = body.find(stale_check, json_pos)
+        assert stale_after_json != -1, (
+            "A staleness check must appear after the response.json() call"
+        )
+
+        # Find the first innerHTML assignment after the json parse
+        inner_html_pos = body.find('.innerHTML', json_pos)
+        assert inner_html_pos != -1, (
+            "Must contain innerHTML assignment after response.json()"
+        )
+        assert stale_after_json < inner_html_pos, (
+            "Staleness check must appear before the first innerHTML "
+            "assignment to prevent stale data display"
+        )
+
 
 class TestRunAIAnalysisStalenessGuard:
     """Verify runAIAnalysis discards stale responses."""
