@@ -789,15 +789,16 @@ class DashboardDatabase:
         row = cursor.fetchone()
         if row:
             stats = dict(row)
-            stats['savings'] = stats['local_count'] * 0.024 if stats['local_count'] else 0
+            # GLM-5.3 via enMaas is free; no per-analysis cost.
+            stats['savings'] = 0.0
             return stats
 
         return {
             'total_analyses': 0,
             'local_count': 0,
             'api_count': 0,
-            'total_cost': 0,
-            'savings': 0
+            'total_cost': 0.0,
+            'savings': 0.0
         }
 
     def get_affected_platforms(

@@ -53,3 +53,18 @@ class TestAnalysisStats:
         stats = db.get_analysis_stats()
         assert stats['api_count'] == 1
         assert stats['total_analyses'] == 2
+
+    def test_savings_reflects_zero_cost_model(self, db):
+        """Savings must be zero because GLM-5.3 via enMaas is free."""
+        _save_one(db, 'OCP-66666', 'local-claude-code')
+        _save_one(db, 'OCP-77777', 'local-claude-code')
+        stats = db.get_analysis_stats()
+        assert stats['local_count'] == 2
+        assert stats['savings'] == 0.0
+
+    def test_savings_zero_when_no_local_analyses(self, db):
+        """Savings must be zero when there are no local analyses."""
+        _save_one(db, 'OCP-88888', 'glm-ai')
+        stats = db.get_analysis_stats()
+        assert stats['local_count'] == 0
+        assert stats['savings'] == 0.0

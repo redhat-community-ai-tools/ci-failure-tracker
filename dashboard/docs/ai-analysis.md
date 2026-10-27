@@ -113,7 +113,7 @@ Returns:
   "local_count": 30,
   "api_count": 20,
   "total_cost": 0.0,
-  "savings": 0.72
+  "savings": 0.0
 }
 ```
 
