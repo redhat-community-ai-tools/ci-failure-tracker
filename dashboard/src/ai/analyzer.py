@@ -800,8 +800,8 @@ class HybridFailureAnalyzer:
         Steps 1–1e: Check for known infrastructure patterns (SSH,
             DNS/quota, timeout, known-flaky, cross-platform) -- free,
             instant.  Skipped when force_ai=True.
-        Step 1.5: Enrich context with recent test-repo changes -- runs
-            unconditionally (not a pre-classifier).
+        Context enrichment: Enrich context with recent test-repo
+            changes -- runs unconditionally (not a pre-classifier).
         Step 2: Use GLM-5.3 via enMaas for AI analysis.
 
         Args:
@@ -826,7 +826,7 @@ class HybridFailureAnalyzer:
         """
 
         if force_ai:
-            logger.info(f"force_ai=True: bypassing pre-classifiers for {test_name}, sending directly to GLM")
+            logger.info(f"Bypassing pre-classifiers for {test_name} (force_ai), sending directly to GLM")
         else:
             # Step 1: Pre-classify known infrastructure patterns
             # Fetch logs once for all pre-classifiers to avoid duplicate requests
@@ -870,7 +870,7 @@ class HybridFailureAnalyzer:
                     )
                     return cross_platform_result
 
-        # Step 1.5 (context enrichment — runs unconditionally):
+        # Context enrichment (runs unconditionally):
         # Check if test was recently modified in the test repo
         # (recent commits suggest automation_bug, not product_bug).
         # This is NOT a pre-classifier — it never short-circuits the

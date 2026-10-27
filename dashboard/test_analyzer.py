@@ -939,7 +939,7 @@ class TestDetectCrossPlatformFailure:
         assert result is None
 
 
-class TestAnalyzeFailureForceAi:
+class TestAnalyzeFailureForceAI:
     """Tests for force_ai flag that bypasses all pre-classifiers."""
 
     def test_force_ai_bypasses_timeout_pre_classifier(self, monkeypatch):

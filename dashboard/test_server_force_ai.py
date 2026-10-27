@@ -15,7 +15,7 @@ from src.storage.database import DashboardDatabase
 from web.server import create_app
 
 
-class TestServerForceAiWiring:
+class TestServerForceAIWiring:
     """Integration test verifying server translates use_cached=False to force_ai=True."""
 
     @pytest.fixture
