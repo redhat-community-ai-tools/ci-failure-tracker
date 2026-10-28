@@ -108,28 +108,13 @@ https://storage.googleapis.com/origin-ci-test/
 
 ---
 
-### 3. **gcsweb Collector** ⚠️ READY (needs job names)
+### 3. **gcsweb Collector** ✅ ACTIVE
 
-**Status:** Built and accessible, but needs exact job names
+**Status:** Active with exact Prow WINC job names configured
 
-**Issue:** Directory listing times out (thousands of jobs)
-
-**What's Needed:**
-Get exact WINC job names from team, e.g.:
-```
-periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-aws-winc-e2e
-periodic-ci-openshift-windows-machine-config-operator-release-4.22-amd64-aws-winc
-```
-
-**Once we have names:**
-```yaml
-collector:
-  type: "gcsweb"
-  gcsweb:
-    job_names:
-      - "exact-job-name-1"
-      - "exact-job-name-2"
-```
+**Note:** Uses exact job names (not wildcards) because wildcard
+resolution requires listing `/gcs/<bucket>/logs/` which returns
+502 on the private bucket (see issue #277).
 
 **Pros:**
 - ✅ No authentication needed
@@ -291,16 +276,14 @@ Edit `config.yaml` to:
 - ✅ Complete dashboard UI
 - ✅ Database and metrics calculation
 - ✅ ReportPortal data collector
-- ✅ gcsweb collector (needs job names)
+- ✅ gcsweb collector (active with exact job names)
 
 **What's blocked:**
 - ⚠️ Prow GCS direct access (403 error)
-- ⏳ Waiting for exact WINC job names
 
 **Recommended action:**
-1. **Use ReportPortal NOW** to get dashboard running
-2. **Switch to gcsweb later** when job names are confirmed
-3. **Show manager** the working dashboard with 14-day test health trends
+1. **Use gcsweb** — active collector with exact WINC job names configured
+2. **Show manager** the working dashboard with 14-day test health trends
 
 ---
 
