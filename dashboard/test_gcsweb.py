@@ -1573,9 +1573,10 @@ class TestDisconnectedJobPatterns:
         'winc-zstream-f7'
     )
 
-    # Intentionally mirrors the config.yaml gcsweb job_names pattern for
-    # isolated unit testing; config-driven validation lives in
-    # TestDisconnectedJobInConfig (test_config_versions.py).
+    # Wildcard pattern for isolated unit testing of fnmatch and metadata
+    # extraction; config.yaml uses exact names (see issue #277).
+    # Config-driven validation lives in TestDisconnectedJobInConfig
+    # (test_config_versions.py).
     PATTERN = (
         'periodic-ci-openshift-openshift-tests-private-'
         'release-5.0-*-winc-*'
@@ -1632,3 +1633,96 @@ class TestDisconnectedJobPatterns:
             'amd64-nightly-vsphere-ipi-disconnected-ovn-winc-zstream-f7'
         )
         assert not fnmatch.fnmatch(wrong_version, self.PATTERN)
+
+
+class TestResolvePatternsExactNames:
+    """Tests for _resolve_patterns with exact (non-wildcard) names.
+
+    Validates that exact job names pass through without listing the
+    logs/ directory (issue #277). Wildcard resolution requires an HTTP
+    request to /gcs/<bucket>/logs/ which returns 502 on the private
+    bucket, blocking all collection. Exact names bypass this entirely.
+
+    Includes negative test cases per AGENTS.md rule 8.
+    """
+
+    def test_exact_names_skip_listing(self, collector):
+        """Exact job names must be returned without any HTTP request."""
+        exact_names = [
+            'periodic-ci-openshift-openshift-tests-private-'
+            'release-4.22-amd64-nightly-aws-ipi-ovn-winc-f7',
+            'periodic-ci-openshift-openshift-tests-private-'
+            'release-4.22-amd64-nightly-gcp-ipi-ovn-winc-f7',
+        ]
+        with patch.object(collector, '_list_directory') as mock_list:
+            result = collector._resolve_patterns(exact_names)
+
+        assert result == exact_names
+        mock_list.assert_not_called()
+
+    def test_exact_names_preserves_order(self, collector):
+        """Exact names are returned in the same order they were given."""
+        names = ['job-c', 'job-a', 'job-b']
+        with patch.object(collector, '_list_directory') as mock_list:
+            result = collector._resolve_patterns(names)
+
+        assert result == names
+        mock_list.assert_not_called()
+
+    def test_empty_list_returns_empty(self, collector):
+        """Empty input returns empty output without listing."""
+        with patch.object(collector, '_list_directory') as mock_list:
+            result = collector._resolve_patterns([])
+
+        assert result == []
+        mock_list.assert_not_called()
+
+    def test_mixed_exact_and_wildcard_only_lists_for_wildcards(
+            self, collector):
+        """Only wildcard patterns trigger a logs/ listing; exact names
+        are passed through."""
+        exact = 'periodic-ci-release-4.22-aws-ipi-ovn-winc-f7'
+        wildcard = 'periodic-ci-release-4.23-*-winc-*'
+
+        mock_links = [
+            ('/gcs/test/logs/periodic-ci-release-4.23-gcp-winc-f7/',
+             'periodic-ci-release-4.23-gcp-winc-f7/'),
+        ]
+
+        with patch.object(collector, '_list_directory',
+                          return_value=mock_links) as mock_list:
+            result = collector._resolve_patterns([exact, wildcard])
+
+        # _list_directory called once for the primary bucket listing
+        mock_list.assert_called_once_with('/gcs/test/logs/')
+        assert exact in result
+        assert 'periodic-ci-release-4.23-gcp-winc-f7' in result
+
+    def test_wildcards_trigger_listing(self, collector):
+        """Negative: patterns with wildcards must trigger listing."""
+        mock_links = [
+            ('/gcs/test/logs/periodic-ci-aws-winc-f7/',
+             'periodic-ci-aws-winc-f7/'),
+        ]
+
+        with patch.object(collector, '_list_directory',
+                          return_value=mock_links) as mock_list:
+            result = collector._resolve_patterns(
+                ['periodic-ci-*-winc-*'])
+
+        mock_list.assert_called_once()
+        assert 'periodic-ci-aws-winc-f7' in result
+
+    def test_question_mark_is_wildcard(self, collector):
+        """Negative: '?' is also a wildcard and must trigger listing."""
+        mock_links = [
+            ('/gcs/test/logs/periodic-ci-f7/',
+             'periodic-ci-f7/'),
+        ]
+
+        with patch.object(collector, '_list_directory',
+                          return_value=mock_links) as mock_list:
+            result = collector._resolve_patterns(['periodic-ci-f?'])
+
+        mock_list.assert_called_once()
+        assert 'periodic-ci-f7' in result
