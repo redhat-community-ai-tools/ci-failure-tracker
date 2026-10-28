@@ -8,6 +8,8 @@ metadata:
     image.openshift.io/triggers: '[{"from":{"kind":"ImageStreamTag","name":"winc-dashboard-poc:latest"},"fieldPath":"spec.template.spec.containers[?(@.name==\"dashboard\")].image"}]'
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: winc-dashboard-poc
