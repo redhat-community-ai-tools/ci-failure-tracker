@@ -126,22 +126,42 @@ OpenShift tokens typically expire after:
 - **30 days** - for service account tokens
 - **Varies** - depending on cluster configuration
 
-## Automated Token Renewal (Future)
+## Auto-Renewal Limitations
 
-Consider using a **service account token** instead of user token for longer validity:
+Automatic token renewal has been investigated and is **not currently
+possible** due to limitations in how the private deck's oauth-proxy
+authenticates requests.
 
-```bash
-# Create a service account
-oc create serviceaccount dashboard-collector
+### Approaches tested
 
-# Get the service account token (OpenShift 4.11+)
-oc create token dashboard-collector --duration=8760h  # 1 year
+1. **Service account token** — A service account on `api.ci`
+   authenticates to the OpenShift API successfully, but the private
+   deck's oauth-proxy returns HTTP 403 (redirects to the login page).
+   The deck does not accept service account identity; only interactive
+   user sessions are recognized.
 
-# Update the secret with service account token
-oc create secret generic prow-api-token \
-  --from-literal=token=SERVICE_ACCOUNT_TOKEN \
-  --dry-run=client -o yaml | oc apply -f -
-```
+2. **Programmatic user token** — Minting a user token requires an
+   interactive SSO login on the token request page. No permission
+   exists to create an OAuth client with a longer token lifetime, and
+   OpenShift does not issue refresh tokens for this flow. There is no
+   way to obtain a user token without a browser-based login.
+
+### Resolution path
+
+The private deck operators (`qe-private-deck`) need to implement one
+of the following before auto-renewal becomes possible:
+
+1. **Authorize a service account identity on the oauth-proxy** — allow
+   the dashboard's service account to pass the oauth-proxy
+   authentication, bypassing the interactive login requirement.
+2. **Provide a dedicated long-lived OAuth client** — create an OAuth
+   client for machine-to-machine access with a longer token lifetime,
+   enabling programmatic token acquisition without interactive SSO.
+
+Until one of these changes is made, token renewal remains a **manual
+operational procedure**. Follow the steps in
+[How to Renew the Token](#how-to-renew-the-token) above when the
+token expires.
 
 ## Troubleshooting
 

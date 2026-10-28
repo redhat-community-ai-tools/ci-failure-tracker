@@ -80,3 +80,44 @@ class TestTroubleshootingCoverage:
             'https://qe-private-deck-ci.apps.build10.ci.devcluster.openshift.com'
             in content
         )
+
+
+class TestAutoRenewalLimitations:
+    """Verify the auto-renewal limitations section documents known constraints."""
+
+    def test_limitations_section_exists(self):
+        content = _read_doc()
+        assert '## Auto-Renewal Limitations' in content
+
+    def test_service_account_limitation_documented(self):
+        """Verify the service account approach failure is documented."""
+        content = _read_doc()
+        section_start = content.find('## Auto-Renewal Limitations')
+        assert section_start > 0
+        section = content[section_start:]
+        assert 'service account' in section.lower()
+        assert '403' in section
+
+    def test_programmatic_token_limitation_documented(self):
+        """Verify the programmatic user token limitation is documented."""
+        content = _read_doc()
+        section_start = content.find('## Auto-Renewal Limitations')
+        assert section_start > 0
+        section = content[section_start:]
+        assert 'interactive' in section.lower()
+        assert 'sso' in section.lower()
+
+    def test_resolution_path_documented(self):
+        """Verify the resolution path describes what deck operators need to do."""
+        content = _read_doc()
+        section_start = content.find('### Resolution path')
+        assert section_start > 0
+        section = content[section_start:]
+        assert 'oauth' in section.lower()
+
+    def test_no_misleading_service_account_instructions(self):
+        """Verify the doc does not suggest service account tokens work."""
+        content = _read_doc()
+        # The old section suggested 'oc create token' would solve the problem.
+        # The updated doc should not contain this misleading suggestion.
+        assert 'oc create token dashboard-collector' not in content
