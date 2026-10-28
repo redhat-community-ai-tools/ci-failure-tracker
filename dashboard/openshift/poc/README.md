@@ -158,8 +158,14 @@ probes, debugging). This matches the pattern in
 - Job names: Same WINC periodic jobs as production
 
 **Storage:**
-- PVC: 1Gi for SQLite database
+- PVC: 1Gi for SQLite database (`ReadWriteOnce`)
 - Mount: `/data/dashboard.db`
+- The Deployment uses `strategy.type: Recreate` because the PVC access
+  mode is `ReadWriteOnce` (RWO). RWO volumes can only be mounted by one
+  pod at a time, so a `RollingUpdate` strategy would leave the new pod
+  stuck in `ContainerCreating` while the old pod still holds the mount.
+  `Recreate` terminates the old pod before starting the new one,
+  avoiding this conflict.
 
 ## Updating ConfigMap After Config Changes
 
