@@ -12,7 +12,7 @@ import re
 AGENTS_MD_PATH = os.path.join(os.path.dirname(__file__), '..', 'AGENTS.md')
 
 
-class TestPocReadmeRule:
+class TestAgentsMdPocReadmeRule:
     """Verify AGENTS.md rule 24 covers POC README sync requirements."""
 
     def _get_rule_24_text(self):
