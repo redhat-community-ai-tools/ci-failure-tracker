@@ -4,10 +4,21 @@ Verifies that performance-critical indexes are created during
 database initialization.
 """
 
+import pytest
+
 from src.storage.database import DashboardDatabase
 
 
-def test_idx_test_results_job_build_exists(tmp_path):
+@pytest.fixture
+def db(tmp_path):
+    """Create a temporary database for testing."""
+    db_path = str(tmp_path / "test.db")
+    database = DashboardDatabase(db_path)
+    yield database
+    database.close()
+
+
+def test_idx_test_results_job_build_exists(db):
     """Verify the (job_name, build_id) compound index is created on init.
 
     This index is required for the correlated subqueries in server.py
@@ -17,7 +28,6 @@ def test_idx_test_results_job_build_exists(tmp_path):
 
     See: https://github.com/redhat-community-ai-tools/ci-failure-tracker/issues/275
     """
-    db = DashboardDatabase(str(tmp_path / "test.db"))
     cursor = db.conn.cursor()
     cursor.execute(
         "SELECT name FROM sqlite_master "
@@ -25,4 +35,3 @@ def test_idx_test_results_job_build_exists(tmp_path):
     )
     rows = cursor.fetchall()
     assert len(rows) == 1, "idx_test_results_job_build index should exist after init"
-    db.close()
