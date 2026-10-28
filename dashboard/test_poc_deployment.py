@@ -51,6 +51,13 @@ def oauth_proxy(deployment):
     return proxy[0]
 
 
+@pytest.fixture
+def pvc():
+    """Load the POC PVC manifest."""
+    with open("openshift/poc/dashboard-pvc.yaml") as f:
+        return yaml.safe_load(f)
+
+
 def test_has_image_change_trigger_annotation(deployment):
     """The Deployment must have the image.openshift.io/triggers annotation."""
     annotations = deployment["metadata"].get("annotations", {})
@@ -232,13 +239,6 @@ def test_serviceaccount_name_matches_deployment(serviceaccount, deployment):
 def test_deployment_uses_recreate_strategy(deployment):
     """The Deployment must use Recreate strategy for RWO PVC compatibility."""
     assert deployment["spec"]["strategy"]["type"] == "Recreate"
-
-
-@pytest.fixture
-def pvc():
-    """Load the POC PVC manifest."""
-    with open("openshift/poc/dashboard-pvc.yaml") as f:
-        return yaml.safe_load(f)
 
 
 def test_pvc_is_rwo(pvc):
