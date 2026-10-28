@@ -264,7 +264,7 @@ class GCSWebCollector(BaseCollector):
         return ('https://qe-private-deck-ci.apps.ci.l2s4.p1'
                 '.openshiftapps.com')
 
-    def _extract_metadata(self, job_name: str) -> Dict[str, str]:
+    def extract_metadata(self, job_name: str) -> Dict[str, str]:
         """Extract version and platform from job name"""
         metadata = {'version': 'unknown', 'platform': 'unknown'}
 
@@ -986,7 +986,7 @@ class GCSWebCollector(BaseCollector):
         used by ``_collect_pr_sources`` where ``_list_pr_jobs`` cannot
         pre-filter by date.
         """
-        metadata = self._extract_metadata(run['job_name'])
+        metadata = self.extract_metadata(run['job_name'])
         if versions and metadata['version'] not in versions:
             return None
         if platforms and metadata['platform'] not in platforms:
@@ -1127,7 +1127,7 @@ class GCSWebCollector(BaseCollector):
             # Log per-version breakdown of empty jobs
             empty_by_version = {}
             for job in jobs_with_no_runs:
-                meta = self._extract_metadata(job)
+                meta = self.extract_metadata(job)
                 ver = meta['version']
                 empty_by_version.setdefault(ver, []).append(job)
             for ver, jobs in sorted(empty_by_version.items()):
@@ -1145,7 +1145,7 @@ class GCSWebCollector(BaseCollector):
     ) -> Optional[JobRun]:
         """Process a single job run"""
 
-        metadata = self._extract_metadata(run['job_name'])
+        metadata = self.extract_metadata(run['job_name'])
 
         # Filter by version/platform
         if versions and metadata['version'] not in versions:
@@ -1280,7 +1280,7 @@ class GCSWebCollector(BaseCollector):
     ) -> List[TestResult]:
         """Process test results for a single job run"""
 
-        metadata = self._extract_metadata(run['job_name'])
+        metadata = self.extract_metadata(run['job_name'])
 
         # Filter by version/platform
         if versions and metadata['version'] not in versions:

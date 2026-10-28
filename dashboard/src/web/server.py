@@ -283,12 +283,9 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
             if hasattr(collector, 'postsubmit_jobs'):
                 all_job_names.extend(collector.postsubmit_jobs)
             if version_filter:
-                branch_map = config.get('tracking', {}).get('branch_version_map', {})
-                reverse_map = {v: k for k, v in branch_map.items()}
-                branch = reverse_map.get(version_filter)
                 expanded_patterns = [
                     j for j in all_job_names
-                    if f'release-{version_filter}' in j or (branch and f'-{branch}-' in j)
+                    if collector.extract_metadata(j)['version'] == version_filter
                 ]
                 if not expanded_patterns:
                     expanded_patterns = all_job_names
