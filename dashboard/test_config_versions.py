@@ -90,6 +90,15 @@ class TestNoWildcardsInGcswebJobNames:
             f"(issue #277). Found wildcards: {wildcards}"
         )
 
+
+class TestGcswebJobNamesAreWincOnly:
+    """Config-driven test: all gcsweb job_names must be WINC jobs
+    (AGENTS.md rule 11).
+
+    The gcsweb collector is dedicated to WINC CI tracking; non-WINC
+    entries would pollute the dashboard with unrelated failures.
+    """
+
     def test_all_job_names_contain_winc(self, config):
         """Every gcsweb job name must contain '-winc-' to ensure only
         WINC jobs are tracked."""
