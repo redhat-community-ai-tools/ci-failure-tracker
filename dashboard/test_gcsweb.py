@@ -1721,6 +1721,7 @@ class TestResolvePatternsExactNames:
 
         with patch.object(collector, '_list_directory',
                           return_value=mock_links) as mock_list:
-            collector._resolve_patterns(['periodic-ci-f?'])
+            result = collector._resolve_patterns(['periodic-ci-f?'])
 
         mock_list.assert_called_once()
+        assert 'periodic-ci-f7' in result

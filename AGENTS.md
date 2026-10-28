@@ -180,3 +180,12 @@ Most agent work targets the dashboard.
     operational requirements. Use it as a checklist for completeness
     — any component described there should be included or its
     absence documented in the PR description.
+
+25. **No wildcards in gcsweb job names.** The `collector.gcsweb.job_names`
+    list in `config.yaml` must contain exact Prow job names only — no
+    glob wildcards (`*`, `?`). Wildcard resolution requires listing
+    `/gcs/<bucket>/logs/` which returns 502 on the private bucket,
+    blocking all collection (see issue #277). Exact names pass through
+    `_resolve_patterns()` without any HTTP request. When adding new
+    jobs, append the exact Prow job name. The `TestNoWildcardsInGcswebJobNames`
+    test enforces this constraint.
