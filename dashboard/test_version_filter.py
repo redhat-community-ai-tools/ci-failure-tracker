@@ -8,6 +8,8 @@ job name.
 Includes negative test cases per AGENTS.md rule 8.
 """
 
+import os
+
 import yaml
 
 from src.collectors.gcsweb import GCSWebCollector
@@ -15,20 +17,26 @@ from src.collectors.gcsweb import GCSWebCollector
 
 def _load_config():
     """Load the project config.yaml for config-driven assertions."""
-    import os
     config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
 
-def _build_collector(config=None):
-    """Build a GCSWebCollector with version-resolution config."""
-    if config is None:
-        config = _load_config()
-    gcsweb_cfg = config['collector']['gcsweb'].copy()
-    tracking = config.get('tracking', {})
-    gcsweb_cfg['branch_version_map'] = tracking.get('branch_version_map', {})
-    return GCSWebCollector(gcsweb_cfg)
+def _build_collector():
+    """Build a GCSWebCollector with minimal config for version resolution.
+
+    Uses an explicit config dict that includes only version-resolution
+    keys (url, bucket, branch_version_map, wmco_version_map,
+    fbc_default_version) and omits postsubmit_gcsweb /
+    postsubmit_job_prefixes to avoid network I/O during tests.
+    """
+    return GCSWebCollector({
+        'url': 'https://example.com',
+        'bucket': 'test',
+        'branch_version_map': {'main': '5.1'},
+        'wmco_version_map': {'10': '4', '11': '5'},
+        'fbc_default_version': '5.1',
+    })
 
 
 def _filter_jobs(all_job_names, version_filter, collector):
@@ -39,7 +47,7 @@ def _filter_jobs(all_job_names, version_filter, collector):
     """
     expanded = [
         j for j in all_job_names
-        if collector._extract_metadata(j)['version'] == version_filter
+        if collector.extract_metadata(j)['version'] == version_filter
     ]
     if not expanded:
         expanded = all_job_names
@@ -75,20 +83,15 @@ class TestVersionFilterIncludesPostsubmit:
     def test_fbc_no_version_suffix_uses_default(self):
         """FBC postsubmit without version suffix uses fbc_default_version.
 
-        config.yaml sets fbc_default_version to 5.1, so these jobs
-        should be included when filtering for 5.1.
+        The minimal test config sets fbc_default_version to 5.1, so
+        these jobs should be included when filtering for 5.1.
         """
-        config = _load_config()
-        fbc_default = config['collector']['gcsweb']['fbc_default_version']
-        assert fbc_default == '5.1', (
-            "Config-driven: fbc_default_version should be 5.1"
-        )
-        collector = _build_collector(config)
+        collector = _build_collector()
         all_jobs = [
             'branch-ci-openshift-windows-machine-config-operator-fbc-main-aws-ipi-ovn-winc',
             'periodic-ci-openshift-openshift-tests-private-release-5.1-amd64-nightly-aws-ipi-ovn-winc-f7',
         ]
-        result = _filter_jobs(all_jobs, fbc_default, collector)
+        result = _filter_jobs(all_jobs, '5.1', collector)
         assert 'branch-ci-openshift-windows-machine-config-operator-fbc-main-aws-ipi-ovn-winc' in result
 
     def test_release_pattern_jobs_still_included(self):
@@ -170,17 +173,12 @@ class TestVersionFilterWildcardPatterns:
 
     def test_main_branch_wildcard_maps_to_configured_version(self):
         """Wildcard pattern with 'main' maps to branch_version_map version."""
-        config = _load_config()
-        branch_map = config['tracking']['branch_version_map']
-        main_version = branch_map.get('main')
-        assert main_version is not None, (
-            "Config-driven: branch_version_map must have a 'main' entry"
-        )
-        collector = _build_collector(config)
+        collector = _build_collector()
         all_jobs = [
             'periodic-ci-openshift-openshift-tests-private-main-*-winc-*',
         ]
-        result = _filter_jobs(all_jobs, main_version, collector)
+        # Minimal config sets branch_version_map main -> 5.1
+        result = _filter_jobs(all_jobs, '5.1', collector)
         assert len(result) == 1
 
 
@@ -209,4 +207,20 @@ class TestConfigWmcoVersionMapDriven:
         )
         assert wmco_map.get('11') == '5', (
             "WMCO major 11 should map to OCP major 5"
+        )
+
+    def test_fbc_default_version_config(self):
+        """Config-driven: verify fbc_default_version is set correctly."""
+        config = _load_config()
+        fbc_default = config['collector']['gcsweb']['fbc_default_version']
+        assert fbc_default == '5.1', (
+            "Config-driven: fbc_default_version should be 5.1"
+        )
+
+    def test_branch_version_map_has_main(self):
+        """Config-driven: verify branch_version_map has a 'main' entry."""
+        config = _load_config()
+        branch_map = config['tracking']['branch_version_map']
+        assert 'main' in branch_map, (
+            "Config-driven: branch_version_map must have a 'main' entry"
         )

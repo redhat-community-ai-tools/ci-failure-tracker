@@ -285,7 +285,7 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
             if version_filter:
                 expanded_patterns = [
                     j for j in all_job_names
-                    if collector._extract_metadata(j)['version'] == version_filter
+                    if collector.extract_metadata(j)['version'] == version_filter
                 ]
                 if not expanded_patterns:
                     expanded_patterns = all_job_names

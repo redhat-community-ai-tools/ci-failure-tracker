@@ -419,7 +419,7 @@ class TestDeriveJobType:
 
 
 class TestExtractMetadataNewPatterns:
-    """Tests for _extract_metadata with rehearse, FBC postsubmit, and PR jobs.
+    """Tests for extract_metadata with rehearse, FBC postsubmit, and PR jobs.
 
     Includes negative test cases for similar-but-incorrect patterns
     (AGENTS.md rule 8).
@@ -427,7 +427,7 @@ class TestExtractMetadataNewPatterns:
 
     def test_rehearse_job_extracts_version(self, collector):
         """Rehearse job: strip prefix, then release-4.21 pattern matches."""
-        meta = collector._extract_metadata(
+        meta = collector.extract_metadata(
             'rehearse-81646-periodic-ci-openshift-openshift-tests-private-'
             'release-4.21-amd64-nightly-aws-ipi-ovn-winc-zstream-f14'
         )
@@ -435,7 +435,7 @@ class TestExtractMetadataNewPatterns:
         assert meta['platform'] == 'aws'
 
     def test_rehearse_job_gcp_platform(self, collector):
-        meta = collector._extract_metadata(
+        meta = collector.extract_metadata(
             'rehearse-81646-periodic-ci-openshift-openshift-tests-private-'
             'release-4.21-amd64-nightly-gcp-ipi-ovn-winc-zstream-f14'
         )
@@ -443,7 +443,7 @@ class TestExtractMetadataNewPatterns:
         assert meta['platform'] == 'gcp'
 
     def test_rehearse_job_vsphere_platform(self, collector):
-        meta = collector._extract_metadata(
+        meta = collector.extract_metadata(
             'rehearse-81646-periodic-ci-openshift-openshift-tests-private-'
             'release-4.21-amd64-nightly-vsphere-ipi-ovn-winc-zstream-f14'
         )
@@ -452,7 +452,7 @@ class TestExtractMetadataNewPatterns:
 
     def test_fbc_postsubmit_wmco_v10_21(self, collector_with_wmco_map):
         """FBC postsubmit: v10-21 -> OCP 4.21 (WMCO 10 -> OCP major 4)."""
-        meta = collector_with_wmco_map._extract_metadata(
+        meta = collector_with_wmco_map.extract_metadata(
             'branch-ci-openshift-windows-machine-config-operator-'
             'fbc-main-v10-21-aws-winc'
         )
@@ -461,7 +461,7 @@ class TestExtractMetadataNewPatterns:
 
     def test_fbc_postsubmit_wmco_v11_0(self, collector_with_wmco_map):
         """FBC postsubmit: v11-0 -> OCP 5.0 (WMCO 11 -> OCP major 5)."""
-        meta = collector_with_wmco_map._extract_metadata(
+        meta = collector_with_wmco_map.extract_metadata(
             'branch-ci-openshift-windows-machine-config-operator-'
             'fbc-main-v11-0-gcp-winc'
         )
@@ -470,7 +470,7 @@ class TestExtractMetadataNewPatterns:
 
     def test_fbc_postsubmit_no_wmco_map_uses_fallback(self, collector):
         """FBC postsubmit without wmco_version_map uses arithmetic fallback."""
-        meta = collector._extract_metadata(
+        meta = collector.extract_metadata(
             'branch-ci-openshift-windows-machine-config-operator-'
             'fbc-main-v10-21-aws-winc'
         )
@@ -479,7 +479,7 @@ class TestExtractMetadataNewPatterns:
 
     def test_fbc_postsubmit_no_version_uses_fbc_default(self, collector_with_wmco_map):
         """FBC postsubmit without version segment uses fbc_default_version."""
-        meta = collector_with_wmco_map._extract_metadata(
+        meta = collector_with_wmco_map.extract_metadata(
             'branch-ci-openshift-windows-machine-config-operator-'
             'fbc-main-aws-winc'
         )
@@ -490,7 +490,7 @@ class TestExtractMetadataNewPatterns:
 
     def test_fbc_default_version_not_applied_to_periodic(self, collector_with_wmco_map):
         """Negative: fbc_default_version must NOT apply to periodic main jobs."""
-        meta = collector_with_wmco_map._extract_metadata(
+        meta = collector_with_wmco_map.extract_metadata(
             'periodic-ci-openshift-openshift-tests-private-'
             'main-amd64-nightly-aws-ipi-ovn-winc-f7'
         )
@@ -498,7 +498,7 @@ class TestExtractMetadataNewPatterns:
         assert meta['version'] == '5.1'
 
     def test_presubmit_job_extracts_version(self, collector):
-        meta = collector._extract_metadata(
+        meta = collector.extract_metadata(
             'pull-ci-openshift-openshift-tests-private-'
             'release-4.21-amd64-aws-ipi-ovn-winc'
         )
@@ -507,13 +507,13 @@ class TestExtractMetadataNewPatterns:
 
     def test_negative_no_version_pattern_returns_unknown(self, collector):
         """Negative: job name with no recognizable version -> 'unknown'."""
-        meta = collector._extract_metadata('some-random-job-aws-winc')
+        meta = collector.extract_metadata('some-random-job-aws-winc')
         assert meta['version'] == 'unknown'
         assert meta['platform'] == 'aws'
 
     def test_negative_v_pattern_without_dash_not_matched(self, collector):
         """Negative: 'v1021' (no dash) should NOT match FBC pattern."""
-        meta = collector._extract_metadata(
+        meta = collector.extract_metadata(
             'branch-ci-openshift-fbc-main-v1021-aws-winc'
         )
         # v1021 doesn't match v(\d+)-(\d+), so should fall through
@@ -521,7 +521,7 @@ class TestExtractMetadataNewPatterns:
 
     def test_negative_release_without_version_number(self, collector):
         """Negative: 'release-main' should NOT match release-X.Y."""
-        meta = collector._extract_metadata(
+        meta = collector.extract_metadata(
             'periodic-ci-openshift-release-main-aws-winc-f14'
         )
         assert meta['version'] == 'unknown'
@@ -1040,7 +1040,7 @@ class TestPublicGCSWebSource:
 
     def test_fbc_version_50(self, collector_with_public_gcsweb):
         """FBC postsubmit without version segment uses 5.1."""
-        meta = collector_with_public_gcsweb._extract_metadata(
+        meta = collector_with_public_gcsweb.extract_metadata(
             'branch-ci-openshift-windows-machine-config-operator-'
             'fbc-main-aws-ipi-ovn-winc')
         assert meta['version'] == '5.1'
@@ -1066,7 +1066,7 @@ class TestPublicGCSWebSource:
             'fbc-main-vsphere-ipi-proxy-ovn-winc',
         ]
         for job in jobs:
-            meta = collector_with_public_gcsweb._extract_metadata(job)
+            meta = collector_with_public_gcsweb.extract_metadata(job)
             assert meta['version'] == '5.1', f'{job} -> {meta}'
 
     def test_negative_non_fbc_not_tracked_as_public(
@@ -1278,7 +1278,7 @@ class TestFbcPrefixBreadth:
             self, collector_with_wmco_map):
         """FBC postsubmit from a version branch with v10-21 variant
         still resolves to OCP 4.21."""
-        meta = collector_with_wmco_map._extract_metadata(
+        meta = collector_with_wmco_map.extract_metadata(
             "branch-ci-openshift-windows-machine-config-operator-"
             "fbc-4.21-v10-21-aws-ipi-ovn-winc"
         )
@@ -1289,7 +1289,7 @@ class TestFbcPrefixBreadth:
             self, collector_with_wmco_map):
         """FBC postsubmit from a version branch without v10-XX
         variant uses fbc_default_version."""
-        meta = collector_with_wmco_map._extract_metadata(
+        meta = collector_with_wmco_map.extract_metadata(
             "branch-ci-openshift-windows-machine-config-operator-"
             "fbc-4.21-aws-ipi-ovn-winc"
         )
@@ -1552,7 +1552,7 @@ class TestDisconnectedJobPatterns:
 
     Validates that the wildcard pattern for release-5.0 winc jobs
     correctly matches disconnected and proxy variants, and that
-    _extract_metadata returns the expected version and platform.
+    extract_metadata returns the expected version and platform.
 
     Includes negative test cases per AGENTS.md rule 8.
     """
@@ -1591,13 +1591,13 @@ class TestDisconnectedJobPatterns:
 
     def test_disconnected_job_metadata(self, collector):
         """Metadata extraction returns version 5.0 and platform vsphere."""
-        meta = collector._extract_metadata(self.DISCONNECTED_JOB)
+        meta = collector.extract_metadata(self.DISCONNECTED_JOB)
         assert meta['version'] == '5.0'
         assert meta['platform'] == 'vsphere'
 
     def test_proxy_job_metadata(self, collector):
         """Proxy variant also extracts version 5.0 and platform vsphere."""
-        meta = collector._extract_metadata(self.PROXY_JOB)
+        meta = collector.extract_metadata(self.PROXY_JOB)
         assert meta['version'] == '5.0'
         assert meta['platform'] == 'vsphere'
 
@@ -1608,7 +1608,7 @@ class TestDisconnectedJobPatterns:
     def test_rehearse_disconnected_job_metadata(self, collector):
         """Rehearse variant of the disconnected job extracts version
         after prefix stripping."""
-        meta = collector._extract_metadata(self.REHEARSE_JOB)
+        meta = collector.extract_metadata(self.REHEARSE_JOB)
         assert meta['version'] == '5.0'
         assert meta['platform'] == 'vsphere'
 
