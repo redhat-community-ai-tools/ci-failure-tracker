@@ -74,7 +74,7 @@ class TestPostsubmitBucket:
 
 class TestNoWildcardsInGcswebJobNames:
     """Config-driven test: gcsweb job_names must not contain wildcards
-    (AGENTS.md rule 11).
+    (AGENTS.md rule 25).
 
     Wildcard resolution requires listing /gcs/<bucket>/logs/ which
     returns 502 on the private bucket, blocking all collection
@@ -88,6 +88,16 @@ class TestNoWildcardsInGcswebJobNames:
         assert wildcards == [], (
             f"gcsweb job_names must use exact names, not wildcards "
             f"(issue #277). Found wildcards: {wildcards}"
+        )
+
+    def test_all_job_names_contain_winc(self, config):
+        """Every gcsweb job name must contain '-winc-' to ensure only
+        WINC jobs are tracked."""
+        job_names = config['collector']['gcsweb']['job_names']
+        non_winc = [j for j in job_names if '-winc-' not in j]
+        assert non_winc == [], (
+            f"All gcsweb job_names must be WINC jobs (contain '-winc-'). "
+            f"Found non-WINC entries: {non_winc}"
         )
 
 
@@ -126,12 +136,3 @@ class TestDisconnectedJobInConfig:
         platforms = config['tracking']['platforms']
         assert 'vsphere' in platforms
 
-    def test_all_job_names_contain_winc(self, config):
-        """Negative: every gcsweb job name must contain '-winc-' to
-        ensure only WINC jobs are tracked (AGENTS.md rule 25)."""
-        job_names = config['collector']['gcsweb']['job_names']
-        non_winc = [j for j in job_names if '-winc-' not in j]
-        assert non_winc == [], (
-            f"All gcsweb job_names must be WINC jobs (contain '-winc-'). "
-            f"Found non-WINC entries: {non_winc}"
-        )
