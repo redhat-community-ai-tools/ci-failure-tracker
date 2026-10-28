@@ -73,7 +73,8 @@ class TestPostsubmitBucket:
 
 
 class TestNoWildcardsInGcswebJobNames:
-    """Config-driven test: gcsweb job_names must not contain wildcards.
+    """Config-driven test: gcsweb job_names must not contain wildcards
+    (AGENTS.md rule 11).
 
     Wildcard resolution requires listing /gcs/<bucket>/logs/ which
     returns 502 on the private bucket, blocking all collection
