@@ -18,9 +18,11 @@ def test_idx_test_results_job_build_exists(tmp_path):
     See: https://github.com/redhat-community-ai-tools/ci-failure-tracker/issues/275
     """
     db = DashboardDatabase(str(tmp_path / "test.db"))
-    rows = db.conn.execute(
+    cursor = db.conn.cursor()
+    cursor.execute(
         "SELECT name FROM sqlite_master "
         "WHERE type='index' AND name='idx_test_results_job_build'"
-    ).fetchall()
+    )
+    rows = cursor.fetchall()
     assert len(rows) == 1, "idx_test_results_job_build index should exist after init"
     db.close()
