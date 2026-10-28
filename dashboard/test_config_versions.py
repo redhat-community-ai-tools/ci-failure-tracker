@@ -126,14 +126,12 @@ class TestDisconnectedJobInConfig:
         platforms = config['tracking']['platforms']
         assert 'vsphere' in platforms
 
-    def test_non_winc_job_not_in_job_names(self, config):
-        """Negative: a similar job without 'winc' must not appear in
-        the configured job names."""
+    def test_all_job_names_contain_winc(self, config):
+        """Negative: every gcsweb job name must contain '-winc-' to
+        ensure only WINC jobs are tracked (AGENTS.md rule 25)."""
         job_names = config['collector']['gcsweb']['job_names']
-        non_winc = (
-            'periodic-ci-openshift-openshift-tests-private-release-5.0-'
-            'amd64-nightly-vsphere-ipi-disconnected-ovn-network-f7'
-        )
-        assert non_winc not in job_names, (
-            f"Non-winc job '{non_winc}' should NOT be in job_names"
+        non_winc = [j for j in job_names if '-winc-' not in j]
+        assert non_winc == [], (
+            f"All gcsweb job_names must be WINC jobs (contain '-winc-'). "
+            f"Found non-WINC entries: {non_winc}"
         )

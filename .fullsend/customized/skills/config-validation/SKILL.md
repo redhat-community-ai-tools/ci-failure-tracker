@@ -73,3 +73,7 @@ web:
 - Collector type doesn't match any subsection
 - Database path pointing to non-persistent storage in OpenShift
 - Debug mode left enabled in production config
+- Wildcard patterns (`*`, `?`) in `collector.gcsweb.job_names` — the
+  private bucket returns 502 when listing `/gcs/<bucket>/logs/`, which
+  wildcard resolution requires; use exact Prow job names instead
+  (see issue #277, AGENTS.md rule 25)
