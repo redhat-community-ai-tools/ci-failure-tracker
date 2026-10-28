@@ -21,10 +21,6 @@ Check your dashboard URL to determine the cluster. For example, if your dashboar
 
 ## How to Renew the Token
 
-> **Tip:** User tokens expire every 24 hours. For production deployments,
-> consider using a [service account token](#automated-token-renewal-future)
-> which can last up to 1 year, avoiding daily manual renewal.
-
 ### Step 1: Get Token from Web UI
 
 Use the web console for your cluster to obtain a token.
@@ -238,7 +234,6 @@ oc create secret generic prow-api-token \
 
 Add a calendar reminder to renew tokens before they expire:
 - User tokens: Every 3 weeks
-- Service account tokens: Every 11 months (if using yearly tokens)
 
 ### Monitor for Expiration
 

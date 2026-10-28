@@ -94,7 +94,8 @@ class TestAutoRenewalLimitations:
         content = _read_doc()
         section_start = content.find('## Auto-Renewal Limitations')
         assert section_start > 0
-        section = content[section_start:]
+        section_end = content.find('\n## ', section_start + 1)
+        section = content[section_start:section_end if section_end > 0 else None]
         assert 'service account' in section.lower()
         assert '403' in section
 
