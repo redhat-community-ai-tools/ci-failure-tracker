@@ -38,5 +38,9 @@ class TestAgentsMdPocReadmeRule:
     def test_rule_24_mentions_deployment_level_config(self):
         """Rule 24 must mention deployment-level configuration examples."""
         rule_text = self._get_rule_24_text()
-        assert 'strategy' in rule_text.lower()
-        assert 'replicas' in rule_text.lower()
+        # Normalize whitespace so phrases split across lines are matched.
+        normalized = ' '.join(rule_text.lower().split())
+        assert 'strategy' in normalized
+        assert 'replicas' in normalized
+        assert 'resource constraints' in normalized
+        assert 'volume mounts' in normalized
