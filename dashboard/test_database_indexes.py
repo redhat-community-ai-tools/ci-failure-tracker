@@ -4,8 +4,6 @@ Verifies that performance-critical indexes are created during
 database initialization.
 """
 
-import pytest
-
 from src.storage.database import DashboardDatabase
 
 
