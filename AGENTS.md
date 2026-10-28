@@ -179,4 +179,8 @@ Most agent work targets the dashboard.
     including ServiceAccount, TLS volumes, and multi-container
     operational requirements. Use it as a checklist for completeness
     — any component described there should be included or its
-    absence documented in the PR description.
+    absence documented in the PR description. When adding or changing
+    deployment-level configuration (strategy, replicas, resource
+    constraints, volume mounts), also verify that
+    `dashboard/openshift/poc/README.md` documents the change and its
+    rationale in the appropriate subsection.
