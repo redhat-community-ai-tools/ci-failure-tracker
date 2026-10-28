@@ -18,6 +18,20 @@ def _read_doc():
         return f.read()
 
 
+def _get_section(heading):
+    """Return the text of the section starting at ``heading``.
+
+    The returned slice runs from the heading line up to (but not
+    including) the next ``## `` heading, or to the end of the document.
+    Raises ``AssertionError`` if the heading is not found.
+    """
+    content = _read_doc()
+    section_start = content.find(heading)
+    assert section_start > 0, f'Heading not found: {heading}'
+    section_end = content.find('\n## ', section_start + 1)
+    return content[section_start:section_end if section_end > 0 else None]
+
+
 class TestClusterCoverage:
     """Verify both l2s4 and build10 clusters are documented."""
 
@@ -92,31 +106,19 @@ class TestAutoRenewalLimitations:
 
     def test_service_account_limitation_documented(self):
         """Verify the service account approach failure is documented."""
-        content = _read_doc()
-        section_start = content.find('## Auto-Renewal Limitations')
-        assert section_start > 0
-        section_end = content.find('\n## ', section_start + 1)
-        section = content[section_start:section_end if section_end > 0 else None]
+        section = _get_section('## Auto-Renewal Limitations')
         assert 'service account' in section.lower()
         assert '403' in section
 
     def test_programmatic_token_limitation_documented(self):
         """Verify the programmatic user token limitation is documented."""
-        content = _read_doc()
-        section_start = content.find('## Auto-Renewal Limitations')
-        assert section_start > 0
-        section_end = content.find('\n## ', section_start + 1)
-        section = content[section_start:section_end if section_end > 0 else None]
+        section = _get_section('## Auto-Renewal Limitations')
         assert 'interactive' in section.lower()
         assert 'sso' in section.lower()
 
     def test_resolution_path_documented(self):
         """Verify the resolution path describes what deck operators need to do."""
-        content = _read_doc()
-        section_start = content.find('### Resolution path')
-        assert section_start > 0
-        section_end = content.find('\n## ', section_start + 1)
-        section = content[section_start:section_end if section_end > 0 else None]
+        section = _get_section('### Resolution path')
         assert 'oauth' in section.lower()
 
     def test_no_misleading_service_account_instructions(self):
