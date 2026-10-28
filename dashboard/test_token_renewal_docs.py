@@ -86,6 +86,7 @@ class TestAutoRenewalLimitations:
     """Verify the auto-renewal limitations section documents known constraints."""
 
     def test_limitations_section_exists(self):
+        """Verify the auto-renewal limitations section heading is present."""
         content = _read_doc()
         assert '## Auto-Renewal Limitations' in content
 
@@ -104,7 +105,8 @@ class TestAutoRenewalLimitations:
         content = _read_doc()
         section_start = content.find('## Auto-Renewal Limitations')
         assert section_start > 0
-        section = content[section_start:]
+        section_end = content.find('\n## ', section_start + 1)
+        section = content[section_start:section_end if section_end > 0 else None]
         assert 'interactive' in section.lower()
         assert 'sso' in section.lower()
 
@@ -113,7 +115,8 @@ class TestAutoRenewalLimitations:
         content = _read_doc()
         section_start = content.find('### Resolution path')
         assert section_start > 0
-        section = content[section_start:]
+        section_end = content.find('\n## ', section_start + 1)
+        section = content[section_start:section_end if section_end > 0 else None]
         assert 'oauth' in section.lower()
 
     def test_no_misleading_service_account_instructions(self):

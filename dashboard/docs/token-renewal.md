@@ -132,7 +132,7 @@ authenticates requests.
 
 1. **Service account token** — A service account on `api.ci`
    authenticates to the OpenShift API successfully, but the private
-   deck's oauth-proxy returns HTTP 403 (redirects to the login page).
+   deck's oauth-proxy returns HTTP 403.
    The deck does not accept service account identity; only interactive
    user sessions are recognized.
 
