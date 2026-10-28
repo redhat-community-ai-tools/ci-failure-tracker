@@ -4,7 +4,6 @@ Validates that tracked versions, job patterns, and job names in
 config.yaml include all expected version entries (AGENTS.md rule 11).
 """
 
-import fnmatch
 import os
 
 import yaml
@@ -73,11 +72,29 @@ class TestPostsubmitBucket:
         )
 
 
+class TestNoWildcardsInGcswebJobNames:
+    """Config-driven test: gcsweb job_names must not contain wildcards.
+
+    Wildcard resolution requires listing /gcs/<bucket>/logs/ which
+    returns 502 on the private bucket, blocking all collection
+    (issue #277). Exact names bypass this entirely.
+    """
+
+    def test_no_wildcards_in_job_names(self, config):
+        """No job name in gcsweb.job_names may contain * or ?."""
+        job_names = config['collector']['gcsweb']['job_names']
+        wildcards = [j for j in job_names if '*' in j or '?' in j]
+        assert wildcards == [], (
+            f"gcsweb job_names must use exact names, not wildcards "
+            f"(issue #277). Found wildcards: {wildcards}"
+        )
+
+
 class TestDisconnectedJobInConfig:
-    """Config-driven test: disconnected job matches a configured pattern.
+    """Config-driven test: disconnected job is listed in config.
 
     Validates that the disconnected job name reported in issue #249
-    is matched by at least one gcsweb job_names pattern from config.yaml
+    is present as an exact entry in gcsweb job_names from config.yaml
     (AGENTS.md rule 11). Also verifies version 5.0 and platform vsphere
     are tracked.
     """
@@ -87,16 +104,13 @@ class TestDisconnectedJobInConfig:
         'amd64-nightly-vsphere-ipi-disconnected-ovn-winc-zstream-f7'
     )
 
-    def test_disconnected_job_matches_configured_pattern(self, config):
-        """The disconnected job name must match at least one configured
-        gcsweb job_names pattern."""
-        patterns = config['collector']['gcsweb']['job_names']
-        matched = any(
-            fnmatch.fnmatch(self.DISCONNECTED_JOB, p) for p in patterns
-        )
-        assert matched, (
-            f"Job '{self.DISCONNECTED_JOB}' does not match any "
-            f"gcsweb job_names pattern in config.yaml"
+    def test_disconnected_job_in_configured_job_names(self, config):
+        """The disconnected job name must be listed as an exact entry
+        in gcsweb job_names."""
+        job_names = config['collector']['gcsweb']['job_names']
+        assert self.DISCONNECTED_JOB in job_names, (
+            f"Job '{self.DISCONNECTED_JOB}' not found in "
+            f"gcsweb job_names in config.yaml"
         )
 
     def test_version_5_0_is_tracked(self, config):
@@ -111,15 +125,14 @@ class TestDisconnectedJobInConfig:
         platforms = config['tracking']['platforms']
         assert 'vsphere' in platforms
 
-    def test_non_winc_job_does_not_match(self, config):
-        """Negative: a similar job without 'winc' must not match any
-        configured pattern."""
-        patterns = config['collector']['gcsweb']['job_names']
+    def test_non_winc_job_not_in_job_names(self, config):
+        """Negative: a similar job without 'winc' must not appear in
+        the configured job names."""
+        job_names = config['collector']['gcsweb']['job_names']
         non_winc = (
             'periodic-ci-openshift-openshift-tests-private-release-5.0-'
             'amd64-nightly-vsphere-ipi-disconnected-ovn-network-f7'
         )
-        matched = any(fnmatch.fnmatch(non_winc, p) for p in patterns)
-        assert not matched, (
-            f"Non-winc job '{non_winc}' should NOT match any pattern"
+        assert non_winc not in job_names, (
+            f"Non-winc job '{non_winc}' should NOT be in job_names"
         )
