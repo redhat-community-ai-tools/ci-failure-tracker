@@ -4,15 +4,9 @@ Verifies that performance-critical indexes are created during
 database initialization.
 """
 
-import os
-import sys
-import tempfile
-
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-
-from storage.database import DashboardDatabase
+from src.storage.database import DashboardDatabase
 
 
 def test_idx_test_results_job_build_exists(tmp_path):
