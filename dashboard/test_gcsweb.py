@@ -1573,9 +1573,10 @@ class TestDisconnectedJobPatterns:
         'winc-zstream-f7'
     )
 
-    # Intentionally mirrors the config.yaml gcsweb job_names pattern for
-    # isolated unit testing; config-driven validation lives in
-    # TestDisconnectedJobInConfig (test_config_versions.py).
+    # Wildcard pattern for isolated unit testing of fnmatch and metadata
+    # extraction; config.yaml uses exact names (see issue #277).
+    # Config-driven validation lives in TestDisconnectedJobInConfig
+    # (test_config_versions.py).
     PATTERN = (
         'periodic-ci-openshift-openshift-tests-private-'
         'release-5.0-*-winc-*'
