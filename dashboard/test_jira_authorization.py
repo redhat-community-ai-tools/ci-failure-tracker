@@ -30,18 +30,23 @@ def client():
     os.unlink(db_path)
 
 
+LOOPBACK = {'REMOTE_ADDR': '127.0.0.1'}
+OTHER_POD = {'REMOTE_ADDR': '10.128.2.44'}
+
+
 class TestJiraEndpointAuthorization:
-    """Requests without the proxy identity header are rejected."""
+    """Only the oauth-proxy sidecar may reach Jira: it connects over
+    loopback and injects X-Forwarded-User. A caller on the Service port
+    from another pod cannot impersonate that."""
 
     def test_request_without_identity_header_is_forbidden(self, client):
-        """Negative: an in-cluster client on the plain port has no
-        X-Forwarded-User, so it must not reach Jira."""
+        """Negative: no header, no Jira."""
         with patch('integrations.get_jira_integration') as mock_jira:
-            response = client.post('/api/jira/create', json=PAYLOAD)
+            response = client.post('/api/jira/create', json=PAYLOAD,
+                                   environ_base=LOOPBACK)
 
         assert response.status_code == 403
         assert response.get_json() == {'error': 'Not authorized'}
-        # Jira must not even be constructed for an unauthorized caller
         mock_jira.assert_not_called()
 
     def test_empty_identity_header_is_forbidden(self, client):
@@ -49,18 +54,43 @@ class TestJiraEndpointAuthorization:
         with patch('integrations.get_jira_integration') as mock_jira:
             response = client.post(
                 '/api/jira/create', json=PAYLOAD,
-                headers={'X-Forwarded-User': '   '})
+                headers={'X-Forwarded-User': '   '},
+                environ_base=LOOPBACK)
 
         assert response.status_code == 403
         mock_jira.assert_not_called()
 
-    def test_request_with_identity_header_is_allowed(self, client):
-        """A proxied user reaches the handler (which then reports the
-        integration as disabled here, since no token is configured)."""
+    def test_spoofed_header_from_another_pod_is_forbidden(self, client):
+        """Negative (the CodeRabbit finding): a header set by a caller
+        that reached the Service port directly must be ignored, because
+        the peer address is that pod, not the loopback proxy."""
+        with patch('integrations.get_jira_integration') as mock_jira:
+            response = client.post(
+                '/api/jira/create', json=PAYLOAD,
+                headers={'X-Forwarded-User': 'attacker'},
+                environ_base=OTHER_POD)
+
+        assert response.status_code == 403
+        mock_jira.assert_not_called()
+
+    def test_spoofed_header_from_another_pod_ipv6_is_forbidden(self, client):
+        """Negative: same rule for an IPv6 peer."""
+        with patch('integrations.get_jira_integration') as mock_jira:
+            response = client.post(
+                '/api/jira/create', json=PAYLOAD,
+                headers={'X-Forwarded-User': 'attacker'},
+                environ_base={'REMOTE_ADDR': 'fd00::5'})
+
+        assert response.status_code == 403
+        mock_jira.assert_not_called()
+
+    def test_request_from_proxy_is_allowed(self, client):
+        """The loopback proxy with an identity reaches the handler."""
         with patch('integrations.get_jira_integration', return_value=None):
             response = client.post(
                 '/api/jira/create', json=PAYLOAD,
-                headers={'X-Forwarded-User': 'rrasouli'})
+                headers={'X-Forwarded-User': 'rrasouli'},
+                environ_base=LOOPBACK)
 
         assert response.status_code == 200
         assert response.get_json()['status'] == 'disabled'

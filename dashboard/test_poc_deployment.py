@@ -341,31 +341,18 @@ class TestAiProviderEnv:
 
 
 class TestOauthProxyAuthorization:
-    """The dashboard acts with a shared Jira credential, so the proxy must
-    authorize users rather than only authenticate them (CodeRabbit finding
-    on #289; policy in docs/SAML_AUTHENTICATION.md)."""
+    """--openshift-sar is deliberately absent: the proxy performs the
+    SubjectAccessReview with this service account, which needs the
+    cluster-scoped auth-delegator role. Without it every login would be
+    rejected, so the Jira endpoint is guarded in the app instead."""
 
-    def test_openshift_sar_present(self, oauth_proxy):
-        sar = [a for a in oauth_proxy["args"] if a.startswith("--openshift-sar=")]
-        assert len(sar) == 1
+    def test_openshift_sar_not_configured_without_auth_delegator(self, oauth_proxy):
+        args = oauth_proxy["args"]
+        assert not [a for a in args if a.startswith("--openshift-sar=")]
 
-    def test_sar_scoped_to_this_namespace_and_service(self, oauth_proxy):
-        sar = [a for a in oauth_proxy["args"] if a.startswith("--openshift-sar=")][0]
-        spec = json.loads(sar.split("=", 1)[1])
-        assert spec == {
-            "namespace": "winc-dashboard-poc",
-            "resource": "services",
-            "name": "winc-dashboard-poc",
-            "verb": "get",
-        }
-
-    def test_sar_scoped_to_the_app_not_a_wider_scope(self, deployment, oauth_proxy):
-        """Negative: the check names the dashboard's own service and
-        namespace (the manifest carries no metadata.namespace because it
-        is applied with -n), never a cluster-wide permission."""
-        sar = [a for a in oauth_proxy["args"] if a.startswith("--openshift-sar=")][0]
-        spec = json.loads(sar.split("=", 1)[1])
-        app = deployment["spec"]["template"]["metadata"]["labels"]["app"]
-        assert spec["namespace"] == app
-        assert spec["name"] == app
-        assert spec["verb"] == "get"
+    def test_reason_documented_in_manifest(self):
+        """The manifest must say why the flag is absent, so nobody adds
+        it without also granting auth-delegator."""
+        with open("openshift/poc/dashboard-deployment.yaml") as handle:
+            raw = handle.read()
+        assert "auth-delegator" in raw

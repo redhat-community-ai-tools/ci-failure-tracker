@@ -122,10 +122,13 @@ spec:
             - --tls-cert=/etc/tls/private/tls.crt
             - --tls-key=/etc/tls/private/tls.key
             - --cookie-secret-file=/var/run/secrets/oauth-proxy/cookie-secret
-            # Authorize, not just authenticate: the dashboard now acts with
-            # a shared Jira credential, so access is limited to users who
-            # can get this Service (docs/SAML_AUTHENTICATION.md).
-            - '--openshift-sar={"namespace":"winc-dashboard-poc","resource":"services","name":"winc-dashboard-poc","verb":"get"}'
+            # NOTE: --openshift-sar is deliberately not set. The proxy
+            # performs the SubjectAccessReview with its own service
+            # account, which needs the cluster-scoped auth-delegator
+            # role; without it every login would be rejected. Granting
+            # that role needs cluster-admin, so the Jira endpoint is
+            # protected in the app instead (loopback-only proxy header,
+            # see docs/SAML_AUTHENTICATION.md and the POC README).
           volumeMounts:
             - name: tls
               mountPath: /etc/tls/private

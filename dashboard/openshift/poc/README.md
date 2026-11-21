@@ -43,11 +43,17 @@ oc create secret generic jira-credentials \
 
 ### Jira endpoint authorization
 
-`POST /api/jira/create` acts with the shared Jira account, so it requires
-the `X-Forwarded-User` header that the oauth-proxy injects and returns
-`403` without it. This matters because the Service also exposes the plain
-`8080` port for the collector CronJob, which bypasses the proxy and the
-`--openshift-sar` check. Do not remove that guard.
+`POST /api/jira/create` acts with the shared Jira account, so it accepts a
+request only when it arrives from the oauth-proxy sidecar in the same pod:
+an `X-Forwarded-User` header **and** a loopback peer address. A caller that
+reaches the Service port from another pod has its own address as the peer,
+so a spoofed header gets `403`.
+
+`--openshift-sar` is intentionally not configured. The proxy performs the
+SubjectAccessReview with the dashboard's service account, which needs the
+cluster-scoped `system:auth-delegator` role; without it every login is
+rejected. Granting that role requires cluster-admin, so it is a follow-up
+before promoting this deployment to production.
 
 # 3. Deploy prow-mcp-server
 oc apply -f mcp-imagestream.yaml
