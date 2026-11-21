@@ -12,6 +12,7 @@ import fnmatch
 import logging
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
+from urllib.parse import urlparse
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -1250,8 +1251,9 @@ class TestHealthCheckDegradedSource:
 
         public_get.assert_called_once()
         url = public_get.call_args[0][0]
-        assert 'gcsweb-public.example.com' in url
-        assert '/gcs/public-bucket/' in url
+        parsed_url = urlparse(url)
+        assert parsed_url.hostname == 'gcsweb-public.example.com'
+        assert '/gcs/public-bucket/' in parsed_url.path
         assert 'private-bucket' not in url
 
     def test_private_500_without_public_source_still_fails(
