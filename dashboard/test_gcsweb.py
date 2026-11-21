@@ -12,6 +12,7 @@ import fnmatch
 import logging
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
+from urllib.parse import urlparse
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -1204,6 +1205,117 @@ class TestHealthCheckRetry:
         # 2 retry warnings (attempts 1 and 2; attempt 3 is the
         # final failure, no retry log)
         assert len(retry_msgs) == 2
+
+
+class TestHealthCheckDegradedSource:
+    """Tests for continuing collection when the primary source is down.
+
+    The private gcsweb instance can return HTTP 500 while its own
+    server-side GCS credentials are broken. That must not block
+    collection of public postsubmit jobs, which use a separate,
+    healthy gcsweb instance.
+    """
+
+    @staticmethod
+    def _response(status_code):
+        response = MagicMock()
+        response.status_code = status_code
+        return response
+
+    def test_private_500_falls_through_to_public(
+            self, collector_with_public_gcsweb):
+        """A private HTTP 500 is not fatal when the public source is
+        healthy."""
+        with patch.object(collector_with_public_gcsweb.session, 'get',
+                          return_value=self._response(500)), \
+                patch.object(collector_with_public_gcsweb
+                             ._public_session, 'get',
+                             return_value=self._response(200)):
+            result = collector_with_public_gcsweb.health_check()
+
+        assert result is True
+        assert collector_with_public_gcsweb.health_error is None
+        assert '500' in collector_with_public_gcsweb.health_warning
+
+    def test_public_probe_uses_public_url_and_session(
+            self, collector_with_public_gcsweb):
+        """The fallback probe hits the public instance with the
+        unauthenticated session, never the private token."""
+        collector = collector_with_public_gcsweb
+        with patch.object(collector.session, 'get',
+                          return_value=self._response(500)), \
+                patch.object(collector._public_session, 'get',
+                             return_value=self._response(200)) \
+                as public_get:
+            collector.health_check()
+
+        public_get.assert_called_once()
+        url = public_get.call_args[0][0]
+        parsed_url = urlparse(url)
+        assert parsed_url.hostname == 'gcsweb-public.example.com'
+        assert '/gcs/public-bucket/' in parsed_url.path
+        assert 'private-bucket' not in url
+
+    def test_private_500_without_public_source_still_fails(
+            self, collector):
+        """Without a configured public source, a private outage is
+        still fatal -- no false success."""
+        with patch.object(collector.session, 'get',
+                          return_value=self._response(500)) \
+                as mock_get:
+            result = collector.health_check()
+
+        assert result is False
+        assert '500' in collector.health_error
+        assert collector.health_warning is None
+        mock_get.assert_called_once()
+
+    def test_both_sources_down_fails(self, collector_with_public_gcsweb):
+        """When both sources are unhealthy, the health check fails and
+        reports both errors."""
+        with patch.object(collector_with_public_gcsweb.session, 'get',
+                          return_value=self._response(500)), \
+                patch.object(collector_with_public_gcsweb
+                             ._public_session, 'get',
+                             return_value=self._response(503)):
+            result = collector_with_public_gcsweb.health_check()
+
+        assert result is False
+        assert collector_with_public_gcsweb.health_warning is None
+        error = collector_with_public_gcsweb.health_error
+        assert '500' in error
+        assert '503' in error
+        assert 'public source also unavailable' in error
+
+    def test_private_403_falls_through_to_public(
+            self, collector_with_public_gcsweb):
+        """An expired private token also degrades to public collection
+        rather than aborting."""
+        with patch.object(collector_with_public_gcsweb.session, 'get',
+                          return_value=self._response(403)), \
+                patch.object(collector_with_public_gcsweb
+                             ._public_session, 'get',
+                             return_value=self._response(200)), \
+                patch('src.collectors.gcsweb.time.sleep'):
+            result = collector_with_public_gcsweb.health_check()
+
+        assert result is True
+        assert '403' in collector_with_public_gcsweb.health_warning
+        assert 'token' in collector_with_public_gcsweb.health_warning.lower()
+
+    def test_public_403_has_no_token_hint(
+            self, collector_with_public_gcsweb):
+        """A 403 from the public instance is not a token problem, so it
+        must not tell the operator to renew API_KEY."""
+        with patch.object(collector_with_public_gcsweb.session, 'get',
+                          return_value=self._response(500)), \
+                patch.object(collector_with_public_gcsweb
+                             ._public_session, 'get',
+                             return_value=self._response(403)):
+            result = collector_with_public_gcsweb.health_check()
+
+        assert result is False
+        assert 'API_KEY' not in collector_with_public_gcsweb.health_error
 
 
 class TestFbcPrefixBreadth:

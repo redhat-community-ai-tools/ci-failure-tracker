@@ -1085,7 +1085,7 @@
                 return;
             }
 
-            const githubRepo = '{{ github_repo }}';
+            const githubRepo = {{ github_repo | tojson }};
             if (!githubRepo) {
                 alert('GitHub repository not configured. Set the GITHUB_REPO environment variable.');
                 return;

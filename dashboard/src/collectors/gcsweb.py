@@ -77,6 +77,11 @@ class GCSWebCollector(BaseCollector):
 
         self._token_expired_warned = False
 
+        # Set by health_check(): details when the primary (private)
+        # source is down but collection continues from the public one.
+        self.health_warning: Optional[str] = None
+        self.health_error: Optional[str] = None
+
         self.session = requests.Session()
         headers = {'User-Agent': 'CI-Dashboard-Collector/1.0'}
 
@@ -126,20 +131,21 @@ class GCSWebCollector(BaseCollector):
     def name(self) -> str:
         return "gcsweb"
 
-    def health_check(self) -> bool:
-        """Check if gcsweb is accessible. Sets self.health_error with details on failure.
+    def _check_source(self, session: requests.Session, base_url: str,
+                      bucket: str, token_hint: bool = True) -> tuple:
+        """Probe a single gcsweb instance.
 
-        Retries up to 3 times on HTTP 403 to avoid false positives from
-        transient errors (stale connections, rate limiting, server hiccups).
-        Only reports token expiry after all retries are exhausted.
+        Returns ``(ok, error_message)``. Retries up to 3 times on HTTP
+        403 to avoid false positives from transient errors (stale
+        connections, rate limiting, server hiccups). Only reports token
+        expiry after all retries are exhausted.
         """
-        self.health_error = None
         max_retries = 3
-        url = f"{self.GCSWEB_BASE_URL}/gcs/{self.BUCKET}/"
+        url = f"{base_url}/gcs/{bucket}/"
 
         for attempt in range(max_retries):
             try:
-                response = self.session.get(url, timeout=30)
+                response = session.get(url, timeout=30)
                 if response.status_code == 403:
                     if attempt < max_retries - 1:
                         logger.warning(
@@ -148,26 +154,69 @@ class GCSWebCollector(BaseCollector):
                             attempt + 1, max_retries)
                         time.sleep(2)
                         continue
-                    self.health_error = (
-                        "GCSWeb returned HTTP 403 - API token expired "
-                        "or missing. "
-                        "Renew at: https://oauth-openshift.apps.ci.l2s4"
-                        ".p1.openshiftapps.com/oauth/token/request "
-                        "then set API_KEY environment variable on the "
-                        "deployment."
-                    )
-                    return False
+                    error = (f"GCSWeb returned HTTP 403 for "
+                             f"{base_url} - API token expired or missing.")
+                    if token_hint:
+                        error += (
+                            " Renew at: https://oauth-openshift.apps.ci.l2s4"
+                            ".p1.openshiftapps.com/oauth/token/request "
+                            "then set API_KEY environment variable on the "
+                            "deployment.")
+                    return False, error
                 if response.status_code != 200:
-                    self.health_error = (
-                        f"GCSWeb returned HTTP {response.status_code}"
-                        f" - check URL: {self.GCSWEB_BASE_URL}")
-                    return False
-                return True
+                    return False, (f"GCSWeb returned HTTP "
+                                   f"{response.status_code}"
+                                   f" - check URL: {base_url}")
+                return True, None
             except Exception as e:
-                self.health_error = f"Cannot reach GCSWeb: {e}"
-                return False
+                return False, f"Cannot reach GCSWeb at {base_url}: {e}"
 
-        return False
+        return False, f"Cannot reach GCSWeb at {base_url}"
+
+    def health_check(self) -> bool:
+        """Check that at least one configured gcsweb source is usable.
+
+        Sets ``self.health_error`` when no source is usable, and
+        ``self.health_warning`` when the primary (private) instance is
+        unavailable but the public instance still works.
+
+        The primary instance is only a hard requirement when no public
+        source is configured: a private gcsweb outage (HTTP 500 from the
+        service itself, or an expired token) must not block collection
+        of public postsubmit jobs. Failures for individual private jobs
+        already degrade to empty listings in ``_list_directory``.
+        """
+        self.health_error = None
+        self.health_warning = None
+
+        primary_ok, primary_error = self._check_source(
+            self.session, self.GCSWEB_BASE_URL, self.BUCKET)
+        if primary_ok:
+            return True
+
+        self.health_error = primary_error
+
+        if not self._postsubmit_gcsweb:
+            return False
+
+        public_url = self._postsubmit_gcsweb['url']
+        public_bucket = self._postsubmit_gcsweb['bucket']
+        public_ok, public_error = self._check_source(
+            self._public_session, public_url, public_bucket,
+            token_hint=False)
+        if not public_ok:
+            self.health_error = (f"{primary_error}; public source also "
+                                 f"unavailable: {public_error}")
+            return False
+
+        self.health_warning = primary_error
+        self.health_error = None
+        logger.warning(
+            f"[gcsweb] Primary source {self.GCSWEB_BASE_URL} is "
+            f"unavailable ({primary_error}). Continuing with public "
+            f"source {public_url} - private jobs will be skipped until "
+            "the primary source recovers.")
+        return True
 
     def _map_status(self, status: str) -> TestStatus:
         """Map Prow status to normalized TestStatus"""
