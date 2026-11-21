@@ -10,6 +10,7 @@ import yaml
 import threading
 import sys
 import os
+import re
 import logging
 import io
 import csv
@@ -291,17 +292,31 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
             if hasattr(collector, 'postsubmit_jobs'):
                 all_job_names.extend(collector.postsubmit_jobs)
             if version_filter:
-                branch_map = config.get('tracking', {}).get('branch_version_map', {})
-                reverse_map = {v: k for k, v in branch_map.items()}
-                branch = reverse_map.get(version_filter)
-                expanded_patterns = [
-                    j for j in all_job_names
-                    if f'release-{version_filter}' in j or (branch and f'-{branch}-' in j)
-                ]
-                if not expanded_patterns:
-                    expanded_patterns = all_job_names
+                expanded_patterns = filter_jobs_by_version(
+                    all_job_names,
+                    version_filter,
+                    version_for_job=getattr(collector, 'job_version', None),
+                    branch_map=config.get('tracking', {})
+                    .get('branch_version_map', {}))
             else:
                 expanded_patterns = all_job_names
+
+            if not expanded_patterns:
+                # Never fall back to the unfiltered list: that silently
+                # ignores the requested version and makes the run look
+                # successful while saving nothing for it.
+                error_msg = (
+                    f"No jobs match version {version_filter}: nothing in "
+                    f"collector.gcsweb.job_names (or the postsubmit jobs "
+                    f"discovered at startup) maps to {version_filter}. "
+                    "Check wmco_version_map, fbc_default_version, and "
+                    "branch_version_map in config.yaml.")
+                logger.error(error_msg)
+                collection_status['error'] = error_msg
+                collection_status['error_at'] = datetime.now().isoformat()
+                collection_status['progress'] = 'Failed - version has no jobs'
+                collection_status['running'] = False
+                return
         else:
             expanded_patterns = []
 
@@ -329,6 +344,24 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
                 pr_log_sources=pr_log_sources
             )
             logger.info(f"Collected {len(job_runs)} job runs, {len(test_results)} test results (single pass)")
+
+            # A run that resolved no jobs collects nothing and reports
+            # success, which is indistinguishable in the UI from "no new
+            # data". Surface it instead of saving an empty result set.
+            resolved_jobs = getattr(collector, 'last_resolved_jobs', None)
+            if resolution_failed(resolved_jobs, job_runs, test_results):
+                error_msg = (
+                    f"No jobs resolved from {len(expanded_patterns)} "
+                    "configured pattern(s): no source listed any matching "
+                    "job, so nothing was collected. Check that the gcsweb "
+                    "instances are reachable and that job_names still "
+                    "match the CI job names.")
+                logger.error(error_msg)
+                collection_status['error'] = error_msg
+                collection_status['error_at'] = datetime.now().isoformat()
+                collection_status['progress'] = 'Failed - no jobs resolved'
+                collection_status['running'] = False
+                return
         else:
             # Legacy two-pass collection for other collector types
             logger.info("Collecting job runs...")
@@ -546,6 +579,80 @@ def _build_artifacts_url(job_url):
         gcs_path = job_url.split('/view/gs/qe-private-deck/')[-1]
         return f"{gcsweb_base}/gcs/qe-private-deck/{gcs_path}/artifacts/"
     return ""
+
+
+def filter_jobs_by_version(job_names: list, version: str,
+                           version_for_job=None,
+                           branch_map: dict = None) -> list:
+    """Select the job names and patterns that belong to one OCP version.
+
+    Exact job names are matched on the version derived from the job name
+    (``release-X.Y``, FBC ``vMAJOR-MINOR`` via ``wmco_version_map``,
+    ``branch_version_map``, and ``fbc_default_version``) instead of the
+    literal ``release-<version>`` substring.  Without this, FBC
+    postsubmit jobs such as
+    ``branch-ci-openshift-windows-machine-config-operator-fbc-main-v10-22-aws-ipi-ovn-winc``
+    are dropped from a 4.22 run even though the collector stores them as
+    version 4.22.
+
+    Wildcard patterns are kept only when their text pins the version,
+    because the job names they expand to are unknown until the bucket is
+    listed.
+
+    Args:
+        job_names: exact job names and wildcard patterns to filter.
+        version: OCP version being collected (e.g. ``"4.22"``).
+        version_for_job: callable(job_name) -> version, usually
+            ``GCSWebCollector.job_version``. Exact names are dropped
+            when absent and the name does not spell the version.
+        branch_map: ``tracking.branch_version_map`` for branch-based jobs.
+
+    Returns:
+        The subset of ``job_names`` belonging to ``version``. May be
+        empty, which callers must treat as an error rather than as an
+        unfiltered run.
+    """
+    branch_map = branch_map or {}
+    branch = {v: k for k, v in branch_map.items()}.get(version)
+    # Anchor on a delimiter so 'release-4.22' does not also match
+    # 'release-4.220' or 'release-4.221'.
+    version_re = re.compile(rf'release-{re.escape(version)}(?![\d.])')
+
+    kept = []
+    for name in job_names:
+        if '*' in name or '?' in name:
+            if version_re.search(name):
+                kept.append(name)
+            continue
+        if version_for_job is not None:
+            if version_for_job(name) == version:
+                kept.append(name)
+                continue
+        if version_re.search(name):
+            kept.append(name)
+        elif branch and f'-{branch}-' in name:
+            kept.append(name)
+    return kept
+
+
+def resolution_failed(resolved_jobs, job_runs, test_results) -> bool:
+    """True when a run resolved no jobs and produced no results at all.
+
+    A run that resolves zero jobs would otherwise save an empty result
+    set and report success, which is indistinguishable in the UI from
+    "no new data". Results collected from PR log sources still count:
+    when either list is non-empty the run produced data and must be
+    saved, even though no configured job pattern resolved.
+
+    Args:
+        resolved_jobs: ``collector.last_resolved_jobs``; ``None`` means
+            resolution never ran, which is not a failure.
+        job_runs: job runs collected by this run.
+        test_results: test results collected by this run.
+    """
+    if resolved_jobs is None:
+        return False
+    return not resolved_jobs and not job_runs and not test_results
 
 
 def create_app(db_path: str, config: dict = None, config_file: str = 'config.yaml'):

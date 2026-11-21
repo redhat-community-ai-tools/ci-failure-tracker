@@ -1744,3 +1744,60 @@ class TestDisconnectedJobPatterns:
             'amd64-nightly-vsphere-ipi-disconnected-ovn-winc-zstream-f7'
         )
         assert not fnmatch.fnmatch(wrong_version, self.PATTERN)
+
+
+class TestJobVersion:
+    """Tests for GCSWebCollector.job_version."""
+
+    def test_release_job_returns_release_version(self, collector):
+        """release-X.Y in the job name is the OCP version."""
+        job = ('periodic-ci-openshift-openshift-tests-private-release-4.21-'
+               'amd64-nightly-aws-ipi-ovn-winc-f14')
+        assert collector.job_version(job) == '4.21'
+
+    def test_fbc_wmco_version_maps_to_ocp(self, collector_with_wmco_map):
+        """FBC jobs encode the WMCO version; wmco_version_map maps it
+        to the OCP version."""
+        job = ('branch-ci-openshift-windows-machine-config-operator-fbc-'
+               'main-v10-22-aws-ipi-ovn-winc')
+        assert collector_with_wmco_map.job_version(job) == '4.22'
+
+    def test_fbc_branch_job_uses_default_version(self, collector_with_wmco_map):
+        """FBC jobs without a version variant use fbc_default_version."""
+        job = ('branch-ci-openshift-windows-machine-config-operator-fbc-'
+               'main-aws-ipi-ovn-winc')
+        assert collector_with_wmco_map.job_version(job) == '5.1'
+
+    def test_unknown_when_no_version_in_name(self, collector):
+        """No version token means 'unknown', never a wrong guess."""
+        assert collector.job_version('some-other-job') == 'unknown'
+
+
+class TestLastResolvedJobs:
+    """collect_all must report what pattern resolution produced."""
+
+    def test_records_resolved_jobs(self, collector):
+        """Resolved job names are exposed for the caller to inspect."""
+        assert collector.last_resolved_jobs is None
+
+        with patch.object(collector, '_resolve_patterns',
+                          return_value=['job-a', 'job-b']):
+            collector.collect_all(
+                start_date=datetime.now() - timedelta(days=1),
+                end_date=datetime.now(),
+                job_patterns=['job-*'],
+            )
+
+        assert collector.last_resolved_jobs == ['job-a', 'job-b']
+
+    def test_records_empty_resolution(self, collector):
+        """An empty resolution is recorded as an empty list, not None,
+        so the caller can tell 'nothing resolved' from 'never ran'."""
+        with patch.object(collector, '_resolve_patterns', return_value=[]):
+            collector.collect_all(
+                start_date=datetime.now() - timedelta(days=1),
+                end_date=datetime.now(),
+                job_patterns=['job-*'],
+            )
+
+        assert collector.last_resolved_jobs == []
