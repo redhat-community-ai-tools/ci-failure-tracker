@@ -1681,7 +1681,7 @@
             }
 
             section.style.display = 'block';
-            content.innerHTML = '<div style="text-align: center; padding: 20px; color: #64748b;">Analyzing failure... (~5 seconds)</div>';
+            content.innerHTML = '<div style="text-align: center; padding: 20px; color: #64748b;">Analyzing failure... this can take up to a minute.</div>';
 
             try {
                 const response = await fetch('/api/analyze-failure', {
@@ -1704,12 +1704,15 @@
                 }
 
                 if (!response.ok) {
-                    let errorMsg = 'Failed to analyze';
+                    let errorMsg = `Failed to analyze (HTTP ${response.status})`;
                     try {
                         const errData = await response.json();
-                        errorMsg = errData.error || errorMsg;
+                        errorMsg = errData.error
+                            ? `${errData.error} (HTTP ${response.status})`
+                            : errorMsg;
                     } catch (e) {
-                        // non-JSON response — keep default message
+                        // Non-JSON response (e.g. a gateway error page
+                        // during a rollout) — keep the status in the message
                     }
 
                     // Discard if the modal switched while parsing the error response
@@ -1789,7 +1792,9 @@
                         btn.onclick = function() { runAIAnalysis(false); };
                     }
                 } else {
-                    content.innerHTML = `<div style="color: #dc2626; padding: 10px; background: #fee2e2; border-radius: 6px;">Error: ${escapeHtml(data.error || 'Failed to analyze')}</div>`;
+                    const noResultMsg = data.error
+                        || 'Analysis returned no result. Click Re-analyze to retry.';
+                    content.innerHTML = `<div style="color: #dc2626; padding: 10px; background: #fee2e2; border-radius: 6px;">Error: ${escapeHtml(noResultMsg)}</div>`;
                     // Reset button on error
                     if (btn) {
                         btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg> AI Analyze';

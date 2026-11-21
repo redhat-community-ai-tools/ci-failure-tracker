@@ -277,8 +277,11 @@ class TestResolverDaysParameter:
 
         assert resp.status_code == 200
 
-    def test_resolver_404_when_failure_outside_days_window(self, client, tmp_path):
-        """POST with days=7 must NOT find a 15-day-old failure."""
+    def test_resolver_finds_old_build_with_default_days(self, client, tmp_path):
+        """A modal opened on an older build sends no log text, so the
+        resolver must still find a 15-day-old failure with the default
+        days value (regression: it answered 404 and the UI showed
+        "Failed to analyze")."""
         db_path = str(tmp_path / "test.db")
         db = DashboardDatabase(db_path)
 
@@ -294,17 +297,49 @@ class TestResolverDaysParameter:
         db.conn.commit()
         db.close()
 
+        with patch('ai.analyzer.HybridFailureAnalyzer') as mock_cls:
+            mock_cls.return_value.analyze_failure.return_value = {
+                'root_cause': 'Resolved cause',
+                'confidence': 85,
+                'failure_type': 'product_bug',
+                'analysis_mode': 'glm-ai',
+            }
+            resp = client.post('/api/analyze-failure', json={
+                'test_name': 'OCP-28632',
+                'version': '5.1',
+                'platform': 'azure',
+            })
+
+        assert resp.status_code == 200
+
+    def test_resolver_404_beyond_the_ninety_day_cap(self, client, tmp_path):
+        """Negative: the window is bounded, so a failure older than the
+        cap is not analyzed as if it were current."""
+        db_path = str(tmp_path / "test.db")
+        db = DashboardDatabase(db_path)
+
+        old_date = datetime.now() - timedelta(days=200)
+        db.conn.execute("""
+            INSERT INTO test_results (
+                test_name, version, platform, status,
+                timestamp, error_message, job_name, build_id
+            ) VALUES (?, ?, ?, 'failed', ?, ?, ?, ?)
+        """, ('OCP-28632', '5.1', 'azure', old_date.isoformat(),
+              'GLM error message', 'periodic-ci-azure', 'build-4'))
+        db.conn.commit()
+        db.close()
+
         resp = client.post('/api/analyze-failure', json={
             'test_name': 'OCP-28632',
             'version': '5.1',
             'platform': 'azure',
-            'days': 7,
         })
 
         assert resp.status_code == 404
 
-    def test_resolver_caps_days_at_30(self, client, tmp_path):
-        """POST with days=90 must be bounded to 30 days."""
+    def test_resolver_allows_days_beyond_the_old_thirty_day_cap(
+            self, client, tmp_path):
+        """days=90 must reach a 45-day-old failure (the cap is now 90)."""
         db_path = str(tmp_path / "test.db")
         db = DashboardDatabase(db_path)
 
@@ -321,11 +356,18 @@ class TestResolverDaysParameter:
         db.conn.commit()
         db.close()
 
-        resp = client.post('/api/analyze-failure', json={
-            'test_name': 'OCP-28632',
-            'version': '5.1',
-            'platform': 'azure',
-            'days': 90,
-        })
+        with patch('ai.analyzer.HybridFailureAnalyzer') as mock_cls:
+            mock_cls.return_value.analyze_failure.return_value = {
+                'root_cause': 'Resolved cause',
+                'confidence': 85,
+                'failure_type': 'product_bug',
+                'analysis_mode': 'glm-ai',
+            }
+            resp = client.post('/api/analyze-failure', json={
+                'test_name': 'OCP-28632',
+                'version': '5.1',
+                'platform': 'azure',
+                'days': 90,
+            })
 
-        assert resp.status_code == 404
+        assert resp.status_code == 200
