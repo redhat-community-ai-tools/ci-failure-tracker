@@ -41,6 +41,7 @@ collection_status = {
     'running': False,
     'progress': '',
     'error': None,
+    'warning': None,
     'error_at': None,
     'completed_at': None,
     'lock': threading.Lock()
@@ -235,6 +236,7 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
         # Health check
         logger.info("Running health check...")
         collection_status['progress'] = 'Checking data source...'
+        collection_status['warning'] = None
         if not collector.health_check():
             error_msg = getattr(collector, 'health_error', None) or 'Failed to connect to data source'
             logger.error(error_msg)
@@ -242,6 +244,12 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
             collection_status['error_at'] = datetime.now().isoformat()
             collection_status['running'] = False
             return
+
+        # Collection may proceed with a degraded source (e.g. private
+        # gcsweb down but public gcsweb healthy).
+        health_warning = getattr(collector, 'health_warning', None)
+        if health_warning:
+            collection_status['warning'] = health_warning
 
         # Calculate date range
         end_date = datetime.now()
@@ -754,6 +762,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             'running': collection_status['running'],
             'progress': collection_status['progress'],
             'error': error,
+            'warning': collection_status.get('warning'),
             'completed_at': collection_status['completed_at']
         })
 
