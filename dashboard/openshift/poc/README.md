@@ -34,6 +34,29 @@ oc create secret generic webhook-secret \
 oc create secret generic oauth-proxy-secret \
   --from-literal=cookie-secret=$(openssl rand -base64 32)
 
+# Jira integration (optional). Without JIRA_API_TOKEN the dashboard
+# answers "Jira integration is not enabled" and the Create Jira button
+# does nothing.
+oc create secret generic jira-credentials \
+  --from-literal=api-token="YOUR_JIRA_API_TOKEN" \
+  --from-literal=email="you@redhat.com"
+```
+
+### Jira endpoint authorization
+
+`POST /api/jira/create` acts with the shared Jira account, so it accepts a
+request only when it arrives from the oauth-proxy sidecar in the same pod:
+an `X-Forwarded-User` header **and** a loopback peer address. A caller that
+reaches the Service port from another pod has its own address as the peer,
+so a spoofed header gets `403`.
+
+`--openshift-sar` is intentionally not configured. The proxy performs the
+SubjectAccessReview with the dashboard's service account, which needs the
+cluster-scoped `system:auth-delegator` role; without it every login is
+rejected. Granting that role requires cluster-admin, so it is a follow-up
+before promoting this deployment to production.
+
+```bash
 # 3. Deploy prow-mcp-server
 oc apply -f mcp-imagestream.yaml
 oc apply -f mcp-buildconfig.yaml

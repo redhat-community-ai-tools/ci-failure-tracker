@@ -11,11 +11,12 @@ The system uses a **2-tier approach**:
    flake patterns, cross-platform failure correlation) are caught by
    built-in pre-classifiers with no AI call
 2. **GLM AI (enMaas)** - Failures that are not pre-classified are
-   analyzed with GLM-5.3 via the internal enMaas OpenAI-compatible
-   gateway (model `rits/zai-org/glm-5-3`)
+   analyzed with a DeepSeek model via the internal enMaas OpenAI-compatible
+   gateway (model `rits/deepseek-ai/DeepSeek-V4.1-Flash-1017`)
 
 **No API key required!** Pattern matching always works, even without
-`ENMAAS_KEY` set. Failures that are not pre-classified are flagged
+the API key variable named by `ai.api_key_env` (default `ENMAAS_KEY`)
+set. Failures that are not pre-classified are flagged
 `needs_human_review` in that case.
 
 ## Setup
@@ -51,7 +52,7 @@ oc apply -f openshift/poc/dashboard-deployment.yaml
 oc rollout restart deployment/winc-dashboard-poc
 ```
 
-**Verify:** check the logs for `GLM client initialized (model: rits/zai-org/glm-5-3, endpoint: https://api.enmaas.devshift.net/v1/chat/completions)`.
+**Verify:** check the logs for `AI client initialized (provider: enmaas, model: rits/deepseek-ai/DeepSeek-V4.1-Flash-1017, endpoint: https://api.enmaas.devshift.net/v1/chat/completions)`.
 
 ## Using the Feature
 
@@ -91,7 +92,7 @@ oc rollout restart deployment/winc-dashboard-poc
 ```
 analysis_mode: "glm-ai"
 ```
-- Uses GLM-5.3 via the internal enMaas gateway
+- Uses a DeepSeek model via the internal enMaas gateway
 - Used for failures the pre-classifiers cannot classify, and also
   invoked unconditionally during explicit re-analysis (Re-analyze
   bypasses pre-classifiers)

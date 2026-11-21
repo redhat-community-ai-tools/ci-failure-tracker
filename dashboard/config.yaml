@@ -315,13 +315,14 @@ schedule:
   # Cron expression (e.g., "0 9 * * *" for daily at 9 AM)
   cron: "0 9 * * *"
 
-# AI analyzer settings (GLM via the internal enMaas OpenAI-compatible
-# gateway). Optional: the code has built-in defaults matching these
-# values and falls back to them when this section is absent or a key
-# is missing, so removing the section is always safe. The endpoint
-# must be an https URL on the enMaas gateway host
-# (api.enmaas.devshift.net); other values are ignored so the API key
-# cannot be redirected to an external server.
+# AI analyzer settings. 'provider' selects a preset for the endpoint,
+# default model, and API-key variable: enmaas, openai, or vertex. Each
+# of endpoint/model/api_key_env may be overridden individually; the key
+# value itself must stay in a Kubernetes Secret and never in this file.
+# The endpoint must be an https URL on the provider's allowed host,
+# otherwise it is ignored so the API key cannot be redirected.
 ai:
+  provider: "enmaas"
   endpoint: "https://api.enmaas.devshift.net/v1/chat/completions"
-  model: "rits/zai-org/glm-5-3"
+  model: "rits/deepseek-ai/DeepSeek-V4.1-Flash-1017"
+  api_key_env: "ENMAAS_KEY"

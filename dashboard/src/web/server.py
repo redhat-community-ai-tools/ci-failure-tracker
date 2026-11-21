@@ -37,6 +37,12 @@ logger = logging.getLogger(__name__)
 # suppressed from the status API.  Override via ERROR_TTL_SECONDS env var.
 _ERROR_TTL_SECONDS = int(os.environ.get('ERROR_TTL_SECONDS', '600'))  # 10 min
 
+# Peers allowed to assert a user identity (the oauth-proxy sidecar, which
+# connects over loopback in the same pod). A request arriving on the
+# Service port from another pod has that pod's address as its peer, so a
+# spoofed X-Forwarded-User header is rejected.
+TRUSTED_PROXY_ADDRS = {'127.0.0.1', '::1'}
+
 # Global collection status
 collection_status = {
     'running': False,
@@ -1348,8 +1354,26 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
 
     @app.route('/api/jira/create', methods=['POST'])
     def api_create_jira():
-        """Create or find existing Jira issue for a test failure"""
+        """Create or find existing Jira issue for a test failure.
+
+        The Jira integration acts with a shared account, so this endpoint
+        accepts a request only when it comes from the oauth-proxy sidecar
+        in this pod. The proxy connects over loopback and injects
+        ``X-Forwarded-User``; a caller that reaches the Service port from
+        another pod has its own address as the peer, so a spoofed header
+        does not get through. ``--openshift-sar`` is not usable here: it
+        requires the cluster-scoped auth-delegator role for this service
+        account.
+        """
         from integrations import get_jira_integration
+
+        proxied_user = request.headers.get('X-Forwarded-User', '').strip()
+        if not proxied_user or request.remote_addr not in TRUSTED_PROXY_ADDRS:
+            logger.warning(
+                "Rejected /api/jira/create: no trusted proxy identity "
+                "(remote_addr=%s)", request.remote_addr
+            )
+            return jsonify({'error': 'Not authorized'}), 403
 
         jira = get_jira_integration()
         if not jira:
@@ -1567,7 +1591,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     @app.route('/api/analyze-failure', methods=['POST'])
     def api_analyze_failure():
         """
-        Analyze test failure with AI (GLM-5.3 via enMaas gateway)
+        Analyze test failure with AI (configured enMaas model)
         """
         from ai.analyzer import HybridFailureAnalyzer
 

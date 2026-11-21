@@ -792,7 +792,7 @@ class DashboardDatabase:
         row = cursor.fetchone()
         if row:
             stats = dict(row)
-            # GLM-5.3 via enMaas is free; no per-analysis cost.
+            # The enMaas gateway costs nothing per analysis.
             stats['savings'] = 0.0
             return stats
 

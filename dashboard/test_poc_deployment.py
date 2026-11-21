@@ -244,3 +244,148 @@ def test_deployment_uses_recreate_strategy(deployment):
 def test_pvc_is_rwo(pvc):
     """Documents the coupling: Recreate strategy is required because the PVC is RWO."""
     assert "ReadWriteOnce" in pvc["spec"]["accessModes"]
+
+
+@pytest.fixture
+def dashboard_env(deployment):
+    """Return the dashboard container's env as a name -> spec dict."""
+    containers = deployment["spec"]["template"]["spec"]["containers"]
+    dashboard = [c for c in containers if c["name"] == "dashboard"]
+    assert len(dashboard) == 1
+    return {e["name"]: e for e in dashboard[0].get("env", [])}
+
+
+class TestJiraEnv:
+    """The dashboard reports "Jira integration is not enabled" unless
+    JIRA_API_TOKEN reaches the container, so the manifest must wire it."""
+
+    def test_jira_api_token_from_secret(self, dashboard_env):
+        spec = dashboard_env["JIRA_API_TOKEN"]
+        ref = spec["valueFrom"]["secretKeyRef"]
+        assert ref["name"] == "jira-credentials"
+        assert ref["key"] == "api-token"
+        # optional so the pod still starts when the secret is absent
+        assert ref.get("optional") is True
+
+    def test_jira_email_from_secret(self, dashboard_env):
+        ref = dashboard_env["JIRA_EMAIL"]["valueFrom"]["secretKeyRef"]
+        assert ref["name"] == "jira-credentials"
+        assert ref["key"] == "email"
+
+    def test_jira_url_points_at_redhat_issues(self, dashboard_env):
+        assert dashboard_env["JIRA_URL"]["value"] == "https://issues.redhat.com"
+
+    def test_jira_project_is_winc(self, dashboard_env):
+        assert dashboard_env["JIRA_PROJECT"]["value"] == "WINC"
+
+    def test_no_plaintext_token_in_manifest(self, deployment):
+        """Negative: the token must come from a secret, never inline."""
+        manifest = yaml.safe_dump(deployment)
+        assert "ATATT" not in manifest
+
+
+@pytest.fixture
+def poc_config():
+    """The config.yaml embedded in the POC ConfigMap."""
+    with open("openshift/poc/dashboard-configmap.yaml") as f:
+        configmap = yaml.safe_load(f)
+    return yaml.safe_load(configmap["data"]["config.yaml"])
+
+
+class TestAiConfigInConfigMap:
+    """The model and the API-key variable name belong in the ConfigMap,
+    not only in code defaults."""
+
+    def test_ai_section_present(self, poc_config):
+        assert "ai" in poc_config
+
+    def test_provider_is_enmaas(self, poc_config):
+        assert poc_config["ai"]["provider"] == "enmaas"
+
+    def test_model_matches_dashboard_config(self):
+        """The ConfigMap and the repo config.yaml must agree, or the
+        deployed dashboard analyses with a different model than tested."""
+        with open("config.yaml") as f:
+            shipped = yaml.safe_load(f)
+        with open("openshift/poc/dashboard-configmap.yaml") as f:
+            configmap = yaml.safe_load(f)
+        poc = yaml.safe_load(configmap["data"]["config.yaml"])
+        assert poc["ai"]["model"] == shipped["ai"]["model"]
+        assert poc["ai"]["api_key_env"] == shipped["ai"]["api_key_env"]
+
+    def test_no_secret_in_configmap(self, poc_config):
+        """Negative: no API key value may appear in the ConfigMap."""
+        dumped = yaml.safe_dump(poc_config)
+        for marker in ("sk-", "ATATT", "sha256~"):
+            assert marker not in dumped
+
+
+class TestAiProviderEnv:
+    """All three provider credentials are wired, so switching provider
+    only needs a ConfigMap edit."""
+
+    def test_enmaas_key_from_secret(self, dashboard_env):
+        ref = dashboard_env["ENMAAS_KEY"]["valueFrom"]["secretKeyRef"]
+        assert ref["name"] == "enmaas-api-key"
+        assert ref.get("optional") is True
+
+    def test_openai_key_from_secret(self, dashboard_env):
+        ref = dashboard_env["OPENAI_API_KEY"]["valueFrom"]["secretKeyRef"]
+        assert ref["name"] == "openai-api-key"
+        assert ref.get("optional") is True
+
+    def test_vertex_key_from_secret(self, dashboard_env):
+        ref = dashboard_env["VERTEX_API_KEY"]["valueFrom"]["secretKeyRef"]
+        assert ref["name"] == "vertex-api-key"
+        assert ref.get("optional") is True
+
+
+class TestOauthProxyAuthorization:
+    """--openshift-sar is deliberately absent: the proxy performs the
+    SubjectAccessReview with this service account, which needs the
+    cluster-scoped auth-delegator role. Without it every login would be
+    rejected, so the Jira endpoint is guarded in the app instead."""
+
+    def test_openshift_sar_not_configured_without_auth_delegator(self, oauth_proxy):
+        args = oauth_proxy["args"]
+        assert not [a for a in args if a.startswith("--openshift-sar=")]
+
+    def test_reason_documented_in_manifest(self):
+        """The manifest must say why the flag is absent, so nobody adds
+        it without also granting auth-delegator."""
+        with open("openshift/poc/dashboard-deployment.yaml") as handle:
+            raw = handle.read()
+        assert "auth-delegator" in raw
+
+
+class TestPocReadmeMarkdown:
+    """The Quick Deploy block is copy-paste shell, so markdown prose must
+    not end up inside a fence (CodeRabbit finding on #289)."""
+
+    @staticmethod
+    def _lines():
+        with open("openshift/poc/README.md") as handle:
+            return handle.read().splitlines()
+
+    @staticmethod
+    def _fenced_lines():
+        """Yield (line, language) for every line inside a fenced block."""
+        language = None
+        for line in TestPocReadmeMarkdown._lines():
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                language = None if language else stripped[3:] or "text"
+                continue
+            if language:
+                yield line, language
+
+    def test_fences_are_balanced(self):
+        fences = [l for l in self._lines() if l.startswith("```")]
+        assert len(fences) % 2 == 0
+
+    def test_no_markdown_heading_inside_a_fence(self):
+        """Negative: '### something' inside a bash block is a syntax
+        error when copy-pasted, not a heading."""
+        offenders = [line for line, _ in self._fenced_lines()
+                     if line.startswith("###") or line.startswith("## ")]
+        assert offenders == []

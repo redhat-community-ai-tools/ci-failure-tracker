@@ -38,12 +38,47 @@ spec:
                 secretKeyRef:
                   name: prow-api-token
                   key: token
+            # AI provider credentials. Which variable is used comes from
+            # ai.api_key_env in the ConfigMap; all three are wired here so
+            # switching provider only needs a ConfigMap edit. Optional so
+            # the pod starts when a given secret is absent.
             - name: ENMAAS_KEY
               valueFrom:
                 secretKeyRef:
                   name: enmaas-api-key
                   key: api-key
                   optional: true
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openai-api-key
+                  key: api-key
+                  optional: true
+            - name: VERTEX_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vertex-api-key
+                  key: api-key
+                  optional: true
+            # Jira integration. Without JIRA_API_TOKEN the dashboard
+            # reports "Jira integration is not enabled". Kept optional so
+            # the pod still starts when the secret is absent.
+            - name: JIRA_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: jira-credentials
+                  key: api-token
+                  optional: true
+            - name: JIRA_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: jira-credentials
+                  key: email
+                  optional: true
+            - name: JIRA_URL
+              value: https://issues.redhat.com
+            - name: JIRA_PROJECT
+              value: WINC
           volumeMounts:
             - name: data
               mountPath: /data
@@ -87,6 +122,13 @@ spec:
             - --tls-cert=/etc/tls/private/tls.crt
             - --tls-key=/etc/tls/private/tls.key
             - --cookie-secret-file=/var/run/secrets/oauth-proxy/cookie-secret
+            # NOTE: --openshift-sar is deliberately not set. The proxy
+            # performs the SubjectAccessReview with its own service
+            # account, which needs the cluster-scoped auth-delegator
+            # role; without it every login would be rejected. Granting
+            # that role needs cluster-admin, so the Jira endpoint is
+            # protected in the app instead (loopback-only proxy header,
+            # see docs/SAML_AUTHENTICATION.md and the POC README).
           volumeMounts:
             - name: tls
               mountPath: /etc/tls/private
