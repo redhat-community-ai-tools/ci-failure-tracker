@@ -389,3 +389,27 @@ class TestPocReadmeMarkdown:
         offenders = [line for line, _ in self._fenced_lines()
                      if line.startswith("###") or line.startswith("## ")]
         assert offenders == []
+
+
+class TestServerTimeoutHeadroom:
+    """Gunicorn must outlive the AI request, or a slow model produces a
+    502 instead of an analysis."""
+
+    def test_gunicorn_timeout_exceeds_ai_timeout(self):
+        import re
+        with open("Dockerfile") as handle:
+            dockerfile = handle.read()
+        match = re.search(r'"--timeout",\s*"(\d+)"', dockerfile)
+        assert match, "gunicorn --timeout not found in Dockerfile"
+        server_timeout = int(match.group(1))
+
+        with open("config.yaml") as handle:
+            ai_timeout = yaml.safe_load(handle)["ai"]["timeout_seconds"]
+        assert server_timeout > ai_timeout
+
+    def test_configmap_timeout_matches_repo_config(self):
+        with open("config.yaml") as handle:
+            shipped = yaml.safe_load(handle)
+        with open("openshift/poc/dashboard-configmap.yaml") as handle:
+            poc = yaml.safe_load(yaml.safe_load(handle)["data"]["config.yaml"])
+        assert poc["ai"]["timeout_seconds"] == shipped["ai"]["timeout_seconds"]

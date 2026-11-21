@@ -31,6 +31,11 @@ AI_DEFAULT_MODEL = 'rits/deepseek-ai/DeepSeek-V4.1-Flash-1017'
 # ai.api_key_env in config.yaml; the key value itself belongs in a Secret.
 AI_DEFAULT_API_KEY_ENV = 'ENMAAS_KEY'
 AI_DEFAULT_PROVIDER = 'enmaas'
+# Read timeout for one AI completion. Thinking models (GLM, DeepSeek) can
+# take minutes on a large failure log; 120s killed legitimate analyses.
+AI_DEFAULT_TIMEOUT_SECONDS = 300
+AI_MIN_TIMEOUT_SECONDS = 10
+AI_MAX_TIMEOUT_SECONDS = 1800
 
 # Per-provider presets. 'ai.provider' in config.yaml selects one, and
 # ai.endpoint / ai.model / ai.api_key_env override individual fields.
@@ -133,6 +138,7 @@ def _load_ai_settings(config_path: str = 'config.yaml') -> Dict[str, str]:
         'endpoint': AI_DEFAULT_ENDPOINT,
         'model': AI_DEFAULT_MODEL,
         'api_key_env': AI_DEFAULT_API_KEY_ENV,
+        'timeout_seconds': AI_DEFAULT_TIMEOUT_SECONDS,
     }
     try:
         with open(config_path, 'r') as f:
@@ -167,6 +173,16 @@ def _load_ai_settings(config_path: str = 'config.yaml') -> Dict[str, str]:
             settings['model'] = ai['model'].strip()
         if isinstance(ai.get('api_key_env'), str) and ai['api_key_env'].strip():
             settings['api_key_env'] = ai['api_key_env'].strip()
+        timeout = ai.get('timeout_seconds')
+        if isinstance(timeout, int) and not isinstance(timeout, bool):
+            if AI_MIN_TIMEOUT_SECONDS <= timeout <= AI_MAX_TIMEOUT_SECONDS:
+                settings['timeout_seconds'] = timeout
+            else:
+                logger.warning(
+                    f"ai.timeout_seconds {timeout} is outside "
+                    f"{AI_MIN_TIMEOUT_SECONDS}-{AI_MAX_TIMEOUT_SECONDS}; "
+                    f"using {AI_DEFAULT_TIMEOUT_SECONDS}."
+                )
     except OSError as e:
         logger.debug(f"Could not read AI config from {config_path}: {e}")
     except yaml.YAMLError as e:
@@ -862,6 +878,10 @@ class HybridFailureAnalyzer:
         # Built-in defaults are used when the section is absent.
         self.endpoint = ai_settings['endpoint']
         self.model = ai_settings['model']
+        self.timeout_seconds = ai_settings['timeout_seconds']
+        # Set when the last completion attempt timed out, so the failure
+        # result can name the timeout instead of the credentials.
+        self.timeout_error = False
 
         if not self.model:
             logger.error(
@@ -1010,6 +1030,22 @@ class HybridFailureAnalyzer:
 
         # AI analysis failed - return error
         logger.error(f"GLM AI analysis failed for {test_name}")
+        if self.timeout_error:
+            return {
+                'error': 'AI analysis timed out',
+                'root_cause': (
+                    f'AI analysis timed out after {self.timeout_seconds}s. '
+                    'The model was still generating: raise '
+                    'ai.timeout_seconds in the ConfigMap and retry.'),
+                'component': 'glm-ai',
+                'confidence': 0,
+                'analysis_mode': 'failed',
+                'cost': 0.0,
+                'needs_human_review': True,
+                'review_reason': (
+                    'AI request timed out. Raise ai.timeout_seconds or '
+                    're-analyze later.'),
+            }
         return {
             'error': 'GLM AI analysis failed',
             'root_cause': (f'AI analysis failed - check {self.api_key_env} '
@@ -1120,7 +1156,7 @@ class HybridFailureAnalyzer:
                         'content': prompt
                     }]
                 },
-                timeout=120,
+                timeout=(AI_MIN_TIMEOUT_SECONDS, self.timeout_seconds),
                 # Do not forward the Authorization header on redirects
                 allow_redirects=False,
             )
@@ -1148,6 +1184,18 @@ class HybridFailureAnalyzer:
                 response_text, platform
             )
             return analysis, fallback_reason
+
+        except requests.exceptions.Timeout:
+            # Distinct from a generic failure: the request was accepted
+            # and the model was still generating, so the fix is a larger
+            # ai.timeout_seconds, not a new key.
+            logger.error(
+                "AI analysis timed out after %ss (ai.timeout_seconds); "
+                "raise it if the model needs longer",
+                self.timeout_seconds,
+            )
+            self.timeout_error = True
+            return None, None
 
         except Exception as e:
             logger.error(f"API analysis error: {e}")
