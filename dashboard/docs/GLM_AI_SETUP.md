@@ -90,7 +90,7 @@ oc logs deployment/winc-dashboard-poc -c dashboard | grep -i glm
 
 You should see:
 ```
-enMaas client initialized (model: rits/deepseek-ai/DeepSeek-V4.1-Flash-1017, endpoint: https://api.enmaas.devshift.net/v1/chat/completions, key from ENMAAS_KEY)
+AI client initialized (provider: enmaas, model: rits/deepseek-ai/DeepSeek-V4.1-Flash-1017, endpoint: https://api.enmaas.devshift.net/v1/chat/completions)
 ```
 
 ## How It Works
@@ -151,7 +151,7 @@ To test if GLM AI is working:
 
 ```bash
 # Check if client initialized
-oc logs deployment/winc-dashboard-poc -c dashboard | grep "enMaas client initialized"
+oc logs deployment/winc-dashboard-poc -c dashboard | grep "AI client initialized"
 
 # Trigger an analysis
 curl -X POST https://winc-dashboard-poc-winc-dashboard-poc.apps.build10.ci.devcluster.openshift.com/api/analyze-failure \

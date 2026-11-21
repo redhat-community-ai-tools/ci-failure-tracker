@@ -52,7 +52,7 @@ oc apply -f openshift/poc/dashboard-deployment.yaml
 oc rollout restart deployment/winc-dashboard-poc
 ```
 
-**Verify:** check the logs for `enMaas client initialized (model: rits/deepseek-ai/DeepSeek-V4.1-Flash-1017, endpoint: https://api.enmaas.devshift.net/v1/chat/completions, key from ENMAAS_KEY)`.
+**Verify:** check the logs for `AI client initialized (provider: enmaas, model: rits/deepseek-ai/DeepSeek-V4.1-Flash-1017, endpoint: https://api.enmaas.devshift.net/v1/chat/completions)`.
 
 ## Using the Feature
 

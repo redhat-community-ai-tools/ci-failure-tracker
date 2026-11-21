@@ -869,15 +869,18 @@ class HybridFailureAnalyzer:
                 "set ai.model in config.yaml. AI analysis is disabled."
             )
         elif self.api_key:
+            # The credential variable name is deliberately not logged:
+            # it is not a secret, but naming it in clear text trips the
+            # clear-text-logging scanners, and the value must never be
+            # logged at all.
             logger.info(
                 f"AI client initialized (provider: {self.provider}, "
-                f"model: {self.model}, endpoint: {self.endpoint}, "
-                f"key from {self.api_key_env})"
+                f"model: {self.model}, endpoint: {self.endpoint})"
             )
         else:
             logger.warning(
-                f"AI API key not set. Set {self.api_key_env} "
-                "environment variable (name configured by ai.api_key_env)."
+                "AI API key is not set. Check the environment variable "
+                "named by ai.api_key_env in the ConfigMap."
             )
 
     def analyze_failure(
@@ -1048,7 +1051,10 @@ class HybridFailureAnalyzer:
                 return None, None
 
             if not self.api_key:
-                logger.error(f"No API key available in {self.api_key_env}")
+                logger.error(
+                    "No AI API key available; check the variable named by "
+                    "ai.api_key_env in the ConfigMap"
+                )
                 return None, None
 
             # Fetch logs (truncated for cost optimization)
