@@ -338,3 +338,34 @@ class TestAiProviderEnv:
         ref = dashboard_env["VERTEX_API_KEY"]["valueFrom"]["secretKeyRef"]
         assert ref["name"] == "vertex-api-key"
         assert ref.get("optional") is True
+
+
+class TestOauthProxyAuthorization:
+    """The dashboard acts with a shared Jira credential, so the proxy must
+    authorize users rather than only authenticate them (CodeRabbit finding
+    on #289; policy in docs/SAML_AUTHENTICATION.md)."""
+
+    def test_openshift_sar_present(self, oauth_proxy):
+        sar = [a for a in oauth_proxy["args"] if a.startswith("--openshift-sar=")]
+        assert len(sar) == 1
+
+    def test_sar_scoped_to_this_namespace_and_service(self, oauth_proxy):
+        sar = [a for a in oauth_proxy["args"] if a.startswith("--openshift-sar=")][0]
+        spec = json.loads(sar.split("=", 1)[1])
+        assert spec == {
+            "namespace": "winc-dashboard-poc",
+            "resource": "services",
+            "name": "winc-dashboard-poc",
+            "verb": "get",
+        }
+
+    def test_sar_scoped_to_the_app_not_a_wider_scope(self, deployment, oauth_proxy):
+        """Negative: the check names the dashboard's own service and
+        namespace (the manifest carries no metadata.namespace because it
+        is applied with -n), never a cluster-wide permission."""
+        sar = [a for a in oauth_proxy["args"] if a.startswith("--openshift-sar=")][0]
+        spec = json.loads(sar.split("=", 1)[1])
+        app = deployment["spec"]["template"]["metadata"]["labels"]["app"]
+        assert spec["namespace"] == app
+        assert spec["name"] == app
+        assert spec["verb"] == "get"
