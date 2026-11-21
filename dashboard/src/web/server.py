@@ -1348,8 +1348,24 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
 
     @app.route('/api/jira/create', methods=['POST'])
     def api_create_jira():
-        """Create or find existing Jira issue for a test failure"""
+        """Create or find existing Jira issue for a test failure.
+
+        Requires the identity header the oauth-proxy injects. The Jira
+        integration acts with a shared account, and the Service also
+        exposes the app port directly for the collector CronJob, so a
+        request that did not pass through the proxy must not be able to
+        reach Jira. Enforcing it here keeps that true even for in-cluster
+        callers that bypass the Route and the SubjectAccessReview.
+        """
         from integrations import get_jira_integration
+
+        proxied_user = request.headers.get('X-Forwarded-User', '').strip()
+        if not proxied_user:
+            logger.warning(
+                "Rejected /api/jira/create without an oauth-proxy identity "
+                "header"
+            )
+            return jsonify({'error': 'Not authorized'}), 403
 
         jira = get_jira_integration()
         if not jira:

@@ -41,6 +41,14 @@ oc create secret generic jira-credentials \
   --from-literal=api-token="YOUR_JIRA_API_TOKEN" \
   --from-literal=email="you@redhat.com"
 
+### Jira endpoint authorization
+
+`POST /api/jira/create` acts with the shared Jira account, so it requires
+the `X-Forwarded-User` header that the oauth-proxy injects and returns
+`403` without it. This matters because the Service also exposes the plain
+`8080` port for the collector CronJob, which bypasses the proxy and the
+`--openshift-sar` check. Do not remove that guard.
+
 # 3. Deploy prow-mcp-server
 oc apply -f mcp-imagestream.yaml
 oc apply -f mcp-buildconfig.yaml
