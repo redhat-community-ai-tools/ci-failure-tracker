@@ -1,11 +1,11 @@
 # GLM AI Setup for AI-Powered Failure Analysis
 
-The dashboard supports AI-powered failure analysis using GLM-5.3
+The dashboard supports AI-powered failure analysis using DeepSeek-V4.1-Flash
 served via RITS through the internal enMaas OpenAI-compatible gateway.
 
 ## Prerequisites
 
-1. An enMaas API key with access to `rits/zai-org/glm-5-3`
+1. An enMaas API key with access to `rits/deepseek-ai/DeepSeek-V4.1-Flash-1017`
 
 ## Setup Steps
 
@@ -24,7 +24,7 @@ curl -Ss https://api.enmaas.devshift.net/v1/models \
   -H "Authorization: Bearer $ENMAAS_KEY"
 ```
 
-The model used by the dashboard is `rits/zai-org/glm-5-3`.
+The model used by the dashboard is `rits/deepseek-ai/DeepSeek-V4.1-Flash-1017`.
 
 ### 2. Create OpenShift Secret
 
@@ -60,7 +60,7 @@ oc logs deployment/winc-dashboard-poc -c dashboard | grep -i glm
 
 You should see:
 ```
-GLM client initialized (model: rits/zai-org/glm-5-3, endpoint: https://api.enmaas.devshift.net/v1/chat/completions)
+GLM client initialized (model: rits/deepseek-ai/DeepSeek-V4.1-Flash-1017, endpoint: https://api.enmaas.devshift.net/v1/chat/completions)
 ```
 
 ## How It Works
@@ -93,7 +93,7 @@ The gateway endpoint and model are optional settings in
 ```yaml
 ai:
   endpoint: "https://api.enmaas.devshift.net/v1/chat/completions"
-  model: "rits/zai-org/glm-5-3"
+  model: "rits/deepseek-ai/DeepSeek-V4.1-Flash-1017"
 ```
 
 Built-in code defaults match these values and are used when the

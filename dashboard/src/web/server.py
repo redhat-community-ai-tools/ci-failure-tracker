@@ -1567,7 +1567,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
     @app.route('/api/analyze-failure', methods=['POST'])
     def api_analyze_failure():
         """
-        Analyze test failure with AI (GLM-5.3 via enMaas gateway)
+        Analyze test failure with AI (configured enMaas model)
         """
         from ai.analyzer import HybridFailureAnalyzer
 

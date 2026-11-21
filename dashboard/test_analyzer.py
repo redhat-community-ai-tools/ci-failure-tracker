@@ -1332,7 +1332,7 @@ class TestGlmApiCall:
         assert captured['headers']['Authorization'] == 'Bearer test-key'
         # The Bearer token must not be forwarded on redirects
         assert captured['allow_redirects'] is False
-        assert captured['json']['model'] == 'rits/zai-org/glm-5-3'
+        assert captured['json']['model'] == analyzer.model
         assert captured['json']['max_tokens'] == 8192
         assert captured['json']['messages'][0]['role'] == 'user'
         assert result['failure_type'] == 'product_bug'
@@ -1571,3 +1571,34 @@ class TestGlmApiCall:
             'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
             'model': analyzer_module.AI_DEFAULT_MODEL,
         }
+
+
+class TestModelConfiguration:
+    """The model is config-driven (AGENTS rule 11): assert against
+    config.yaml rather than a hardcoded copy."""
+
+    @staticmethod
+    def _shipped_config():
+        with open('config.yaml') as handle:
+            return yaml.safe_load(handle)
+
+    def test_default_model_matches_shipped_config(self):
+        """The built-in default must stay in sync with config.yaml, so a
+        deployment without the 'ai' section uses the same model."""
+        configured = self._shipped_config()['ai']['model']
+        assert analyzer_module.AI_DEFAULT_MODEL == configured
+
+    def test_shipped_config_uses_deepseek(self):
+        """Regression: the gateway key was moved to a DeepSeek model."""
+        assert self._shipped_config()['ai']['model'] == \
+            'rits/deepseek-ai/DeepSeek-V4.1-Flash-1017'
+
+    def test_analyzer_sends_configured_model(self, monkeypatch):
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+        analyzer = HybridFailureAnalyzer()
+        assert analyzer.model == self._shipped_config()['ai']['model']
+
+    def test_endpoint_still_restricted_to_gateway(self):
+        """Negative: a non-gateway endpoint falls back to the default."""
+        settings = analyzer_module._load_ai_settings('/nonexistent.yaml')
+        assert settings['endpoint'] == analyzer_module.AI_DEFAULT_ENDPOINT

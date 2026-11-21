@@ -23,10 +23,10 @@ logger = logging.getLogger(__name__)
 # Confidence threshold below which results are flagged for human review
 LOW_CONFIDENCE_THRESHOLD = 60
 
-# Built-in GLM defaults, used when config.yaml has no 'ai' section
+# Built-in enMaas defaults, used when config.yaml has no 'ai' section
 # (then any path without that key runs unchanged; backwards-compatible)
 AI_DEFAULT_ENDPOINT = 'https://api.enmaas.devshift.net/v1/chat/completions'
-AI_DEFAULT_MODEL = 'rits/zai-org/glm-5-3'
+AI_DEFAULT_MODEL = 'rits/deepseek-ai/DeepSeek-V4.1-Flash-1017'
 
 # Host of the trusted internal gateway; the API key is never sent
 # to any endpoint on a different host
@@ -60,7 +60,7 @@ def _validate_endpoint(endpoint: str) -> str:
 
 def _load_ai_settings(config_path: str = 'config.yaml') -> Dict[str, str]:
     """
-    Load GLM endpoint and model from config.yaml ('ai' section).
+    Load the enMaas endpoint and model from config.yaml ('ai' section).
 
     Falls back to the built-in defaults above when the file is
     missing, unreadable, or not a mapping, when the section is absent
@@ -757,19 +757,19 @@ def _check_test_repo_recent_changes(
 
 class HybridFailureAnalyzer:
     """
-    CI test failure analyzer using GLM-5.3 via the enMaas gateway.
+    CI test failure analyzer using an enMaas-hosted model.
 
     Two-tier design: infrastructure pre-classifiers (SSH flakes, DNS
     failures, quota errors, timeout patterns, known-flaky tests,
-    cross-platform correlation) run first and are free; GLM-5.3 is
-    invoked only for failures that pass through all pre-classifier
-    checks.
+    cross-platform correlation) run first and are free; the configured
+    model (``ai.model`` in config.yaml) is invoked only for failures
+    that pass through all pre-classifier checks.
     """
 
     def __init__(self):
         self.api_key = os.getenv('ENMAAS_KEY')
 
-        # GLM endpoint/model from config.yaml ('ai' section, optional).
+        # enMaas endpoint/model from config.yaml ('ai' section, optional).
         # Built-in defaults are used when the section is absent.
         ai_settings = _load_ai_settings()
         self.endpoint = ai_settings['endpoint']
@@ -802,7 +802,7 @@ class HybridFailureAnalyzer:
             instant.  Skipped when force_ai=True.
         Context enrichment: Enrich context with recent test-repo
             changes -- runs unconditionally (not a pre-classifier).
-        Step 2: Use GLM-5.3 via enMaas for AI analysis.
+        Step 2: Use the configured model via enMaas for AI analysis.
 
         Args:
             test_name: Test identifier (e.g., OCP-39030)
@@ -890,7 +890,7 @@ class HybridFailureAnalyzer:
         )
 
         if api_result:
-            logger.info(f"Used GLM-5.3 (enMaas) for {test_name}")
+            logger.info(f"Used enMaas {self.model} for {test_name}")
             api_result['cost'] = 0.0  # actual API cost not tracked
             api_result['analysis_mode'] = 'glm-ai'
             # Post-process: derive is_product_bug and flag low confidence
@@ -1014,11 +1014,12 @@ class HybridFailureAnalyzer:
             response.raise_for_status()
             response_data = response.json()
 
-            # Parse response. GLM-5.3 is a thinking model: if the reasoning
-            # stream overruns the token budget, 'content' is null and the
-            # partial JSON may only exist in 'reasoning_content'. An empty
-            # or missing content both fall back to the reasoning stream;
-            # the degraded parse is reported back for human review.
+            # Parse response. The configured model is a thinking model: if
+            # the reasoning stream overruns the token budget, 'content' is
+            # null and the partial JSON may only exist in
+            # 'reasoning_content'. An empty or missing content both fall
+            # back to the reasoning stream; the degraded parse is reported
+            # back for human review.
             message = response_data['choices'][0]['message']
             content = message.get('content')
             response_text = content or message.get('reasoning_content') or ''
@@ -1026,8 +1027,8 @@ class HybridFailureAnalyzer:
             fallback_reason = None
             if not content:
                 fallback_reason = (
-                    'Analysis derived from GLM partial reasoning stream '
-                    '(final content missing); result may be degraded.'
+                    'Analysis derived from the model partial reasoning '
+                    'stream (final content missing); result may be degraded.'
                 )
 
             analysis = self._parse_analysis_response(
