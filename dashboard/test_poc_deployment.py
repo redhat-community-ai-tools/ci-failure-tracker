@@ -356,3 +356,36 @@ class TestOauthProxyAuthorization:
         with open("openshift/poc/dashboard-deployment.yaml") as handle:
             raw = handle.read()
         assert "auth-delegator" in raw
+
+
+class TestPocReadmeMarkdown:
+    """The Quick Deploy block is copy-paste shell, so markdown prose must
+    not end up inside a fence (CodeRabbit finding on #289)."""
+
+    @staticmethod
+    def _lines():
+        with open("openshift/poc/README.md") as handle:
+            return handle.read().splitlines()
+
+    @staticmethod
+    def _fenced_lines():
+        """Yield (line, language) for every line inside a fenced block."""
+        language = None
+        for line in TestPocReadmeMarkdown._lines():
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                language = None if language else stripped[3:] or "text"
+                continue
+            if language:
+                yield line, language
+
+    def test_fences_are_balanced(self):
+        fences = [l for l in self._lines() if l.startswith("```")]
+        assert len(fences) % 2 == 0
+
+    def test_no_markdown_heading_inside_a_fence(self):
+        """Negative: '### something' inside a bash block is a syntax
+        error when copy-pasted, not a heading."""
+        offenders = [line for line, _ in self._fenced_lines()
+                     if line.startswith("###") or line.startswith("## ")]
+        assert offenders == []

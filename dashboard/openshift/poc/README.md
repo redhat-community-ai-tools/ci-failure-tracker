@@ -40,6 +40,7 @@ oc create secret generic oauth-proxy-secret \
 oc create secret generic jira-credentials \
   --from-literal=api-token="YOUR_JIRA_API_TOKEN" \
   --from-literal=email="you@redhat.com"
+```
 
 ### Jira endpoint authorization
 
@@ -55,6 +56,7 @@ cluster-scoped `system:auth-delegator` role; without it every login is
 rejected. Granting that role requires cluster-admin, so it is a follow-up
 before promoting this deployment to production.
 
+```bash
 # 3. Deploy prow-mcp-server
 oc apply -f mcp-imagestream.yaml
 oc apply -f mcp-buildconfig.yaml
