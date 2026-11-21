@@ -44,6 +44,25 @@ spec:
                   name: enmaas-api-key
                   key: api-key
                   optional: true
+            # Jira integration. Without JIRA_API_TOKEN the dashboard
+            # reports "Jira integration is not enabled". Kept optional so
+            # the pod still starts when the secret is absent.
+            - name: JIRA_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: jira-credentials
+                  key: api-token
+                  optional: true
+            - name: JIRA_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: jira-credentials
+                  key: email
+                  optional: true
+            - name: JIRA_URL
+              value: https://issues.redhat.com
+            - name: JIRA_PROJECT
+              value: WINC
           volumeMounts:
             - name: data
               mountPath: /data

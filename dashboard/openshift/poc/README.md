@@ -34,6 +34,13 @@ oc create secret generic webhook-secret \
 oc create secret generic oauth-proxy-secret \
   --from-literal=cookie-secret=$(openssl rand -base64 32)
 
+# Jira integration (optional). Without JIRA_API_TOKEN the dashboard
+# answers "Jira integration is not enabled" and the Create Jira button
+# does nothing.
+oc create secret generic jira-credentials \
+  --from-literal=api-token="YOUR_JIRA_API_TOKEN" \
+  --from-literal=email="you@redhat.com"
+
 # 3. Deploy prow-mcp-server
 oc apply -f mcp-imagestream.yaml
 oc apply -f mcp-buildconfig.yaml

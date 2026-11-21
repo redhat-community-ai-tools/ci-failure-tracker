@@ -244,3 +244,41 @@ def test_deployment_uses_recreate_strategy(deployment):
 def test_pvc_is_rwo(pvc):
     """Documents the coupling: Recreate strategy is required because the PVC is RWO."""
     assert "ReadWriteOnce" in pvc["spec"]["accessModes"]
+
+
+@pytest.fixture
+def dashboard_env(deployment):
+    """Return the dashboard container's env as a name -> spec dict."""
+    containers = deployment["spec"]["template"]["spec"]["containers"]
+    dashboard = [c for c in containers if c["name"] == "dashboard"]
+    assert len(dashboard) == 1
+    return {e["name"]: e for e in dashboard[0].get("env", [])}
+
+
+class TestJiraEnv:
+    """The dashboard reports "Jira integration is not enabled" unless
+    JIRA_API_TOKEN reaches the container, so the manifest must wire it."""
+
+    def test_jira_api_token_from_secret(self, dashboard_env):
+        spec = dashboard_env["JIRA_API_TOKEN"]
+        ref = spec["valueFrom"]["secretKeyRef"]
+        assert ref["name"] == "jira-credentials"
+        assert ref["key"] == "api-token"
+        # optional so the pod still starts when the secret is absent
+        assert ref.get("optional") is True
+
+    def test_jira_email_from_secret(self, dashboard_env):
+        ref = dashboard_env["JIRA_EMAIL"]["valueFrom"]["secretKeyRef"]
+        assert ref["name"] == "jira-credentials"
+        assert ref["key"] == "email"
+
+    def test_jira_url_points_at_redhat_issues(self, dashboard_env):
+        assert dashboard_env["JIRA_URL"]["value"] == "https://issues.redhat.com"
+
+    def test_jira_project_is_winc(self, dashboard_env):
+        assert dashboard_env["JIRA_PROJECT"]["value"] == "WINC"
+
+    def test_no_plaintext_token_in_manifest(self, deployment):
+        """Negative: the token must come from a secret, never inline."""
+        manifest = yaml.safe_dump(deployment)
+        assert "ATATT" not in manifest
