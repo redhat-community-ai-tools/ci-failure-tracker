@@ -1622,9 +1622,14 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
         test_description = data.get('test_description', '')
 
         if not error_message:
-            # Get test error details from database
+            # Get test error details from database.
+            # The window is decoupled from the dashboard's display range:
+            # a modal opened on an older build has no log text, and it
+            # used to 404 with "No recent failure found" even though the
+            # failure was in the database. Look back at least 30 days and
+            # at most 90, which is deeper than any tracked run's age.
             end_date = datetime.now()
-            resolver_days = min(days, 30)
+            resolver_days = min(max(days, 30), 90)
             start_date = end_date - timedelta(days=resolver_days)
 
             query = """
