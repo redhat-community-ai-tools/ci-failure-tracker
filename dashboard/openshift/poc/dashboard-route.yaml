@@ -5,7 +5,11 @@ metadata:
   labels:
     app: winc-dashboard-poc
   annotations:
-    haproxy.router.openshift.io/timeout: 90s
+    # Must exceed ai.timeout_seconds (default 300, max 1800) and the
+    # gunicorn --timeout (600), or HAProxy closes the connection while a
+    # thinking model is still generating and the caller sees a gateway
+    # error even though the analysis completed.
+    haproxy.router.openshift.io/timeout: 1900s
 spec:
   to:
     kind: Service

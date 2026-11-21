@@ -4,6 +4,11 @@ metadata:
   name: winc-dashboard
   labels:
     app: winc-dashboard
+  annotations:
+    # AI analysis is synchronous: the router default (30s) is far below
+    # ai.timeout_seconds (default 300, max 1800) and would close the
+    # connection while the model is still generating.
+    haproxy.router.openshift.io/timeout: 1900s
 spec:
   to:
     kind: Service

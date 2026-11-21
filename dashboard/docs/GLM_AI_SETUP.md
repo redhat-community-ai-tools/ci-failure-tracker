@@ -45,7 +45,16 @@ ai:
 | `openai` | `https://api.openai.com/v1/chat/completions` | `OPENAI_API_KEY` |
 | `vertex` | none - set `ai.endpoint` explicitly | `VERTEX_API_KEY` |
 
-Each of `endpoint`, `model`, and `api_key_env` overrides the preset.
+Each of `endpoint`, `model`, `api_key_env`, and `timeout_seconds`
+overrides the preset.
+
+`timeout_seconds` (default 300, allowed 10-1800) is the read timeout for
+one completion. Thinking models can take minutes on a large failure log,
+and the server's gunicorn `--timeout` (600 in the Dockerfile) must stay
+above it, otherwise the worker is killed mid-generation and the request
+fails with a 502 instead of returning the analysis. A timeout is reported
+as `AI analysis timed out after Ns` with a hint to raise the value, not as
+a credential problem.
 The endpoint must be an https URL on the selected provider's hosts
 (`api.enmaas.devshift.net`, `api.openai.com`, `*aiplatform.googleapis.com`);
 anything else is ignored so the key cannot be redirected to another

@@ -85,6 +85,7 @@ data:
       endpoint: "https://api.enmaas.devshift.net/v1/chat/completions"
       model: "rits/deepseek-ai/DeepSeek-V4.1-Flash-1017"
       api_key_env: "ENMAAS_KEY"
+      timeout_seconds: 300
 
     web:
       host: "0.0.0.0"

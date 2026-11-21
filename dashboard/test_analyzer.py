@@ -1470,6 +1470,7 @@ class TestGlmApiCall:
             'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
             'model': analyzer_module.AI_DEFAULT_MODEL,
             'api_key_env': analyzer_module.AI_DEFAULT_API_KEY_ENV,
+            'timeout_seconds': analyzer_module.AI_DEFAULT_TIMEOUT_SECONDS,
         }
 
     def test_partial_ai_section_preserves_defaults(self, tmp_path):
@@ -1513,6 +1514,7 @@ class TestGlmApiCall:
             'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
             'model': analyzer_module.AI_DEFAULT_MODEL,
             'api_key_env': analyzer_module.AI_DEFAULT_API_KEY_ENV,
+            'timeout_seconds': analyzer_module.AI_DEFAULT_TIMEOUT_SECONDS,
         }
 
     def test_scalar_ai_section_falls_back_to_defaults(self, tmp_path):
@@ -1525,6 +1527,7 @@ class TestGlmApiCall:
             'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
             'model': analyzer_module.AI_DEFAULT_MODEL,
             'api_key_env': analyzer_module.AI_DEFAULT_API_KEY_ENV,
+            'timeout_seconds': analyzer_module.AI_DEFAULT_TIMEOUT_SECONDS,
         }
 
     def test_non_https_endpoint_rejected(self, tmp_path):
@@ -1568,6 +1571,7 @@ class TestGlmApiCall:
             'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
             'model': analyzer_module.AI_DEFAULT_MODEL,
             'api_key_env': analyzer_module.AI_DEFAULT_API_KEY_ENV,
+            'timeout_seconds': analyzer_module.AI_DEFAULT_TIMEOUT_SECONDS,
         }
 
     def test_empty_string_ai_values_fall_back_to_defaults(self, tmp_path):
@@ -1580,6 +1584,7 @@ class TestGlmApiCall:
             'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
             'model': analyzer_module.AI_DEFAULT_MODEL,
             'api_key_env': analyzer_module.AI_DEFAULT_API_KEY_ENV,
+            'timeout_seconds': analyzer_module.AI_DEFAULT_TIMEOUT_SECONDS,
         }
 
 
@@ -1622,7 +1627,8 @@ class TestModelConfiguration:
                            lambda *a, **k: {'provider': 'enmaas',
                                             'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
                                             'model': analyzer_module.AI_DEFAULT_MODEL,
-                                            'api_key_env': 'MY_CUSTOM_KEY'})
+                                            'api_key_env': 'MY_CUSTOM_KEY',
+                                            'timeout_seconds': analyzer_module.AI_DEFAULT_TIMEOUT_SECONDS})
         analyzer = HybridFailureAnalyzer()
         assert analyzer.api_key_env == 'MY_CUSTOM_KEY'
         assert analyzer.api_key == 'custom-key'
@@ -1636,7 +1642,8 @@ class TestModelConfiguration:
                            lambda *a, **k: {'provider': 'enmaas',
                                             'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
                                             'model': analyzer_module.AI_DEFAULT_MODEL,
-                                            'api_key_env': 'OTHER_KEY'})
+                                            'api_key_env': 'OTHER_KEY',
+                                            'timeout_seconds': analyzer_module.AI_DEFAULT_TIMEOUT_SECONDS})
         analyzer = HybridFailureAnalyzer()
         assert analyzer.api_key is None
 
@@ -1738,9 +1745,97 @@ class TestProviderSelection:
         settings = {'provider': 'openai',
                     'endpoint': 'https://api.openai.com/v1/chat/completions',
                     'model': 'gpt-4o-mini',
-                    'api_key_env': 'OPENAI_API_KEY'}
+                    'api_key_env': 'OPENAI_API_KEY',
+                    'timeout_seconds': analyzer_module.AI_DEFAULT_TIMEOUT_SECONDS}
         monkeypatch.setattr(analyzer_module, '_load_ai_settings', lambda *a, **k: settings)
         analyzer = HybridFailureAnalyzer()
         assert analyzer.provider == 'openai'
         assert analyzer.api_key == 'sk-test'
         assert analyzer.model == 'gpt-4o-mini'
+
+
+class TestAiTimeout:
+    """Thinking models need more than the old fixed 120s, and a timeout
+    must be reported as a timeout rather than as a credential problem."""
+
+    @staticmethod
+    def _settings(tmp_path, ai):
+        path = tmp_path / 'config.yaml'
+        path.write_text(yaml.safe_dump({'ai': ai}))
+        return analyzer_module._load_ai_settings(str(path))
+
+    def test_shipped_config_sets_timeout(self):
+        with open('config.yaml') as handle:
+            ai = yaml.safe_load(handle)['ai']
+        assert ai['timeout_seconds'] == analyzer_module.AI_DEFAULT_TIMEOUT_SECONDS
+
+    def test_default_is_above_the_old_hardcoded_value(self):
+        """Regression: 120s killed legitimate analyses."""
+        assert analyzer_module.AI_DEFAULT_TIMEOUT_SECONDS > 120
+
+    def test_configured_timeout_used(self, tmp_path):
+        settings = self._settings(tmp_path, {'timeout_seconds': 480})
+        assert settings['timeout_seconds'] == 480
+
+    def test_too_small_timeout_rejected(self, tmp_path):
+        """Negative: an unusably small timeout falls back, so a typo
+        cannot make every analysis fail instantly."""
+        settings = self._settings(tmp_path, {'timeout_seconds': 1})
+        assert settings['timeout_seconds'] == analyzer_module.AI_DEFAULT_TIMEOUT_SECONDS
+
+    def test_too_large_timeout_rejected(self, tmp_path):
+        settings = self._settings(tmp_path, {'timeout_seconds': 999999})
+        assert settings['timeout_seconds'] == analyzer_module.AI_DEFAULT_TIMEOUT_SECONDS
+
+    def test_non_integer_timeout_rejected(self, tmp_path):
+        for value in ('300', 300.5, True, None):
+            settings = self._settings(tmp_path, {'timeout_seconds': value})
+            assert settings['timeout_seconds'] == \
+                analyzer_module.AI_DEFAULT_TIMEOUT_SECONDS
+
+    def test_request_uses_configured_timeout(self, monkeypatch):
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+        captured = {}
+
+        def fake_post(url, headers=None, payload=None, timeout=None,
+                      allow_redirects=None, **kwargs):
+            # The analyzer passes the body as `json=`, which would shadow
+            # the json module inside this spy; capture it explicitly.
+            captured['timeout'] = timeout
+            captured['payload'] = payload if payload is not None \
+                else kwargs.get('json')
+            return _glm_fake_response({
+                'content': _sample_glm_response_text()})
+
+        monkeypatch.setattr(analyzer_module.requests, 'post', fake_post)
+        analyzer = HybridFailureAnalyzer()
+        analysis, _fallback = analyzer._try_api_analysis(
+            'OCP-1', 'boom', log_url='', platform='aws', version='4.22')
+
+        # The analysis must actually succeed, otherwise the timeout
+        # assertion below would pass vacuously.
+        assert analysis is not None
+        assert analysis['failure_type'] == 'product_bug'
+        assert captured['payload']['model'] == analyzer.model
+        connect, read = captured['timeout']
+        assert connect == analyzer_module.AI_MIN_TIMEOUT_SECONDS
+        assert read == analyzer.timeout_seconds
+
+    def test_timeout_returns_actionable_error(self, monkeypatch):
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+
+        def fake_post(*args, **kwargs):
+            raise analyzer_module.requests.exceptions.Timeout('slow model')
+
+        monkeypatch.setattr(analyzer_module.requests, 'post', fake_post)
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            'OCP-1', 'pod CrashLoopBackOff', log_url='',
+            platform='aws', version='4.22', force_ai=True)
+
+        assert result['error'] == 'AI analysis timed out'
+        assert 'timed out' in result['root_cause']
+        assert 'ai.timeout_seconds' in result['root_cause']
+        # Negative: a timeout must not be blamed on the API key
+        assert 'ENMAAS_KEY' not in result['root_cause']
+        assert 'quota' not in result['root_cause']

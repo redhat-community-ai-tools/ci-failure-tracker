@@ -326,3 +326,7 @@ ai:
   endpoint: "https://api.enmaas.devshift.net/v1/chat/completions"
   model: "rits/deepseek-ai/DeepSeek-V4.1-Flash-1017"
   api_key_env: "ENMAAS_KEY"
+  # Read timeout for one completion. Thinking models (DeepSeek, GLM) can
+  # take minutes on a large failure log; keep this below the server's
+  # gunicorn --timeout (600) so the analysis returns instead of a 502.
+  timeout_seconds: 300

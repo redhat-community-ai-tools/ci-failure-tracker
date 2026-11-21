@@ -389,3 +389,54 @@ class TestPocReadmeMarkdown:
         offenders = [line for line, _ in self._fenced_lines()
                      if line.startswith("###") or line.startswith("## ")]
         assert offenders == []
+
+
+class TestServerTimeoutHeadroom:
+    """Gunicorn must outlive the AI request, or a slow model produces a
+    502 instead of an analysis."""
+
+    def test_gunicorn_timeout_exceeds_ai_timeout(self):
+        import re
+        with open("Dockerfile") as handle:
+            dockerfile = handle.read()
+        match = re.search(r'"--timeout",\s*"(\d+)"', dockerfile)
+        assert match, "gunicorn --timeout not found in Dockerfile"
+        server_timeout = int(match.group(1))
+
+        with open("config.yaml") as handle:
+            ai_timeout = yaml.safe_load(handle)["ai"]["timeout_seconds"]
+        assert server_timeout > ai_timeout
+
+    def test_configmap_timeout_matches_repo_config(self):
+        with open("config.yaml") as handle:
+            shipped = yaml.safe_load(handle)
+        with open("openshift/poc/dashboard-configmap.yaml") as handle:
+            poc = yaml.safe_load(yaml.safe_load(handle)["data"]["config.yaml"])
+        assert poc["ai"]["timeout_seconds"] == shipped["ai"]["timeout_seconds"]
+
+
+class TestRouteTimeoutHeadroom:
+    """HAProxy closes the connection at the route timeout, so it must
+    exceed both the AI read timeout and the gunicorn worker timeout."""
+
+    @staticmethod
+    def _route_timeout(path):
+        with open(path) as handle:
+            route = yaml.safe_load(handle)
+        raw = route["metadata"]["annotations"]["haproxy.router.openshift.io/timeout"]
+        assert raw.endswith("s"), raw
+        return int(raw[:-1])
+
+    def test_poc_route_timeout_exceeds_ai_max(self):
+        with open("config.yaml") as handle:
+            ai = yaml.safe_load(handle)["ai"]["timeout_seconds"]
+        import re
+        with open("Dockerfile") as handle:
+            gunicorn = int(re.search(r'"--timeout",\s*"(\d+)"', handle.read()).group(1))
+        # 1800 is the largest ai.timeout_seconds the analyzer accepts
+        assert self._route_timeout("openshift/poc/dashboard-route.yaml") > max(1800, ai, gunicorn)
+
+    def test_prod_route_declares_a_timeout(self):
+        """The cluster router default is 30s, which would cut off every
+        analysis, so the prod route must set it explicitly."""
+        assert self._route_timeout("openshift/route.yaml") > 1800
