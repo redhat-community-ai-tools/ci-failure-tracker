@@ -156,6 +156,9 @@ class DashboardDatabase:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_test_results_timestamp ON test_results(timestamp)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_test_results_test_name ON test_results(test_name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_test_results_cross_platform ON test_results(test_name, version, status, timestamp)")
+        # Correlated test-count updates in the collection path filter on
+        # (job_name, build_id); without this index each row full-scans.
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_test_results_job_build ON test_results(job_name, build_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_daily_metrics_date ON daily_metrics(date)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_test_metrics_test_name ON test_metrics(test_name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_analyses_test_name ON ai_analyses(test_name)")
