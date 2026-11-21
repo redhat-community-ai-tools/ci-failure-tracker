@@ -333,7 +333,7 @@ class TestRunAIAnalysisStructure:
 
         # Find the else branch (error path) after the success if-block
         # It should contain onclick restoration
-        else_pos = body.find("'Failed to analyze'")
+        else_pos = body.find("'Analysis returned no result")
         assert else_pos != -1, "Error else-branch must exist"
 
         # After the error content, the onclick should be restored
