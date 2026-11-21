@@ -82,6 +82,10 @@ class GCSWebCollector(BaseCollector):
         self.health_warning: Optional[str] = None
         self.health_error: Optional[str] = None
 
+        # Job names produced by the last pattern resolution. None until
+        # collection runs; an empty list means the run resolved nothing.
+        self.last_resolved_jobs: Optional[List[str]] = None
+
         self.session = requests.Session()
         headers = {'User-Agent': 'CI-Dashboard-Collector/1.0'}
 
@@ -312,6 +316,17 @@ class GCSWebCollector(BaseCollector):
                 'deck_url', 'https://prow.ci.openshift.org')
         return ('https://qe-private-deck-ci.apps.ci.l2s4.p1'
                 '.openshiftapps.com')
+
+    def job_version(self, job_name: str) -> str:
+        """Return the OCP version a job name maps to.
+
+        Uses the same derivation as collection, so FBC postsubmit jobs
+        named with a WMCO version (``-v10-22-``) map to their OCP
+        version (4.22) and branch jobs use ``branch_version_map``.
+        Returns ``'unknown'`` when nothing in the name identifies a
+        version.
+        """
+        return self._extract_metadata(job_name).get('version', 'unknown')
 
     def _extract_metadata(self, job_name: str) -> Dict[str, str]:
         """Extract version and platform from job name"""
@@ -899,6 +914,7 @@ class GCSWebCollector(BaseCollector):
 
         skip_builds = skip_builds or set()
         resolved_jobs = self._resolve_patterns(job_patterns)
+        self.last_resolved_jobs = resolved_jobs
         logger.info(f"[gcsweb] Single-pass collection for {len(resolved_jobs)} job(s), "
                      f"{len(skip_builds)} builds already in DB")
 
