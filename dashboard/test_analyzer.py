@@ -1797,24 +1797,26 @@ class TestAiTimeout:
         monkeypatch.setenv('ENMAAS_KEY', 'test-key')
         captured = {}
 
-        def fake_post(url, headers=None, json=None, timeout=None,
-                      allow_redirects=None):
+        def fake_post(url, headers=None, payload=None, timeout=None,
+                      allow_redirects=None, **kwargs):
+            # The analyzer passes the body as `json=`, which would shadow
+            # the json module inside this spy; capture it explicitly.
             captured['timeout'] = timeout
-
-            class FakeResponse:
-                def raise_for_status(self):
-                    pass
-
-                def json(self):
-                    return {'choices': [{'message': {'content': json.dumps({
-                        'failure_type': 'product_bug', 'component': 'x',
-                        'root_cause': 'y', 'confidence': 90})}}]}
-            return FakeResponse()
+            captured['payload'] = payload if payload is not None \
+                else kwargs.get('json')
+            return _glm_fake_response({
+                'content': _sample_glm_response_text()})
 
         monkeypatch.setattr(analyzer_module.requests, 'post', fake_post)
         analyzer = HybridFailureAnalyzer()
-        analyzer._try_api_analysis('OCP-1', 'boom', log_url='',
-                                   platform='aws', version='4.22')
+        analysis, _fallback = analyzer._try_api_analysis(
+            'OCP-1', 'boom', log_url='', platform='aws', version='4.22')
+
+        # The analysis must actually succeed, otherwise the timeout
+        # assertion below would pass vacuously.
+        assert analysis is not None
+        assert analysis['failure_type'] == 'product_bug'
+        assert captured['payload']['model'] == analyzer.model
         connect, read = captured['timeout']
         assert connect == analyzer_module.AI_MIN_TIMEOUT_SECONDS
         assert read == analyzer.timeout_seconds
