@@ -349,7 +349,7 @@ def run_collection_background(db_path: str, config_file: str = 'config.yaml', da
             # success, which is indistinguishable in the UI from "no new
             # data". Surface it instead of saving an empty result set.
             resolved_jobs = getattr(collector, 'last_resolved_jobs', None)
-            if resolved_jobs is not None and not resolved_jobs:
+            if resolution_failed(resolved_jobs, job_runs, test_results):
                 error_msg = (
                     f"No jobs resolved from {len(expanded_patterns)} "
                     "configured pattern(s): no source listed any matching "
@@ -633,6 +633,26 @@ def filter_jobs_by_version(job_names: list, version: str,
         elif branch and f'-{branch}-' in name:
             kept.append(name)
     return kept
+
+
+def resolution_failed(resolved_jobs, job_runs, test_results) -> bool:
+    """True when a run resolved no jobs and produced no results at all.
+
+    A run that resolves zero jobs would otherwise save an empty result
+    set and report success, which is indistinguishable in the UI from
+    "no new data". Results collected from PR log sources still count:
+    when either list is non-empty the run produced data and must be
+    saved, even though no configured job pattern resolved.
+
+    Args:
+        resolved_jobs: ``collector.last_resolved_jobs``; ``None`` means
+            resolution never ran, which is not a failure.
+        job_runs: job runs collected by this run.
+        test_results: test results collected by this run.
+    """
+    if resolved_jobs is None:
+        return False
+    return not resolved_jobs and not job_runs and not test_results
 
 
 def create_app(db_path: str, config: dict = None, config_file: str = 'config.yaml'):

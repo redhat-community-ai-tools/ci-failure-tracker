@@ -13,7 +13,7 @@ import yaml
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 from collectors.gcsweb import GCSWebCollector
-from web.server import filter_jobs_by_version
+from web.server import filter_jobs_by_version, resolution_failed
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.yaml')
 
@@ -160,3 +160,28 @@ class TestVersionFilterAgainstShippedConfig:
         names.append('branch-ci-openshift-windows-machine-config-operator-'
                      'fbc-main-v10-22-aws-ipi-ovn-winc')
         assert _filter(names, '9.9', collector) == []
+
+
+class TestResolutionFailureGuard:
+    """A run must only be reported as failed when it truly produced
+    nothing, including results from PR log sources (CodeRabbit finding
+    on #288)."""
+
+    def test_fails_when_nothing_resolved_and_nothing_collected(self):
+        assert resolution_failed([], [], []) is True
+
+    def test_does_not_fail_when_pr_sources_returned_job_runs(self):
+        """Negative: PR-source results must still be saved even though
+        no configured job pattern resolved."""
+        assert resolution_failed([], ['a-job-run'], []) is False
+
+    def test_does_not_fail_when_pr_sources_returned_test_results(self):
+        assert resolution_failed([], [], ['a-test-result']) is False
+
+    def test_does_not_fail_when_jobs_resolved(self):
+        assert resolution_failed(['job-a'], [], []) is False
+
+    def test_does_not_fail_when_resolution_never_ran(self):
+        """None means the collector never resolved patterns; that is not
+        the empty-resolution case."""
+        assert resolution_failed(None, [], []) is False
