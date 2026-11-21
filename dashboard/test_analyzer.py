@@ -1466,8 +1466,10 @@ class TestGlmApiCall:
             str(tmp_path / 'missing.yaml')
         )
         assert settings == {
+            'provider': analyzer_module.AI_DEFAULT_PROVIDER,
             'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
             'model': analyzer_module.AI_DEFAULT_MODEL,
+            'api_key_env': analyzer_module.AI_DEFAULT_API_KEY_ENV,
         }
 
     def test_partial_ai_section_preserves_defaults(self, tmp_path):
@@ -1507,8 +1509,10 @@ class TestGlmApiCall:
         path.write_text('just-a-scalar\n')
         settings = analyzer_module._load_ai_settings(str(path))
         assert settings == {
+            'provider': analyzer_module.AI_DEFAULT_PROVIDER,
             'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
             'model': analyzer_module.AI_DEFAULT_MODEL,
+            'api_key_env': analyzer_module.AI_DEFAULT_API_KEY_ENV,
         }
 
     def test_scalar_ai_section_falls_back_to_defaults(self, tmp_path):
@@ -1517,8 +1521,10 @@ class TestGlmApiCall:
         path.write_text('ai: not-a-dict\n')
         settings = analyzer_module._load_ai_settings(str(path))
         assert settings == {
+            'provider': analyzer_module.AI_DEFAULT_PROVIDER,
             'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
             'model': analyzer_module.AI_DEFAULT_MODEL,
+            'api_key_env': analyzer_module.AI_DEFAULT_API_KEY_ENV,
         }
 
     def test_non_https_endpoint_rejected(self, tmp_path):
@@ -1558,8 +1564,10 @@ class TestGlmApiCall:
         path.write_text('ai:\n  endpoint: 123\n  model: true\n')
         settings = analyzer_module._load_ai_settings(str(path))
         assert settings == {
+            'provider': analyzer_module.AI_DEFAULT_PROVIDER,
             'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
             'model': analyzer_module.AI_DEFAULT_MODEL,
+            'api_key_env': analyzer_module.AI_DEFAULT_API_KEY_ENV,
         }
 
     def test_empty_string_ai_values_fall_back_to_defaults(self, tmp_path):
@@ -1568,8 +1576,10 @@ class TestGlmApiCall:
         path.write_text('ai:\n  endpoint: ""\n  model: ""\n')
         settings = analyzer_module._load_ai_settings(str(path))
         assert settings == {
+            'provider': analyzer_module.AI_DEFAULT_PROVIDER,
             'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
             'model': analyzer_module.AI_DEFAULT_MODEL,
+            'api_key_env': analyzer_module.AI_DEFAULT_API_KEY_ENV,
         }
 
 
@@ -1598,7 +1608,139 @@ class TestModelConfiguration:
         analyzer = HybridFailureAnalyzer()
         assert analyzer.model == self._shipped_config()['ai']['model']
 
+    def test_api_key_env_configured_in_shipped_config(self):
+        """Which variable holds the key is a ConfigMap value, so the
+        key value itself never has to live in the repo."""
+        assert self._shipped_config()['ai']['api_key_env'] == 'ENMAAS_KEY'
+        assert analyzer_module.AI_DEFAULT_API_KEY_ENV == \
+            self._shipped_config()['ai']['api_key_env']
+
+    def test_analyzer_reads_key_from_configured_variable(self, monkeypatch):
+        """The configured variable name is what gets consulted."""
+        monkeypatch.setenv('MY_CUSTOM_KEY', 'custom-key')
+        monkeypatch.setattr(analyzer_module, '_load_ai_settings',
+                           lambda *a, **k: {'provider': 'enmaas',
+                                            'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
+                                            'model': analyzer_module.AI_DEFAULT_MODEL,
+                                            'api_key_env': 'MY_CUSTOM_KEY'})
+        analyzer = HybridFailureAnalyzer()
+        assert analyzer.api_key_env == 'MY_CUSTOM_KEY'
+        assert analyzer.api_key == 'custom-key'
+
+    def test_configured_variable_wins_over_default(self, monkeypatch):
+        """Negative: ENMAAS_KEY must NOT be used when the config names a
+        different variable."""
+        monkeypatch.setenv('ENMAAS_KEY', 'wrong-key')
+        monkeypatch.delenv('OTHER_KEY', raising=False)
+        monkeypatch.setattr(analyzer_module, '_load_ai_settings',
+                           lambda *a, **k: {'provider': 'enmaas',
+                                            'endpoint': analyzer_module.AI_DEFAULT_ENDPOINT,
+                                            'model': analyzer_module.AI_DEFAULT_MODEL,
+                                            'api_key_env': 'OTHER_KEY'})
+        analyzer = HybridFailureAnalyzer()
+        assert analyzer.api_key is None
+
+    def test_malformed_api_key_env_falls_back(self, tmp_path):
+        """Negative: a non-string or empty api_key_env uses the default."""
+        for value in ('', '   ', 42, None):
+            path = tmp_path / 'config.yaml'
+            path.write_text(yaml.safe_dump({'ai': {'api_key_env': value}}))
+            settings = analyzer_module._load_ai_settings(str(path))
+            assert settings['api_key_env'] == analyzer_module.AI_DEFAULT_API_KEY_ENV
+
     def test_endpoint_still_restricted_to_gateway(self):
         """Negative: a non-gateway endpoint falls back to the default."""
         settings = analyzer_module._load_ai_settings('/nonexistent.yaml')
         assert settings['endpoint'] == analyzer_module.AI_DEFAULT_ENDPOINT
+
+
+class TestProviderSelection:
+    """ENMAAS, OPENAI, and VERTEX are all selectable from config.yaml."""
+
+    @staticmethod
+    def _settings(tmp_path, ai):
+        path = tmp_path / 'config.yaml'
+        path.write_text(yaml.safe_dump({'ai': ai}))
+        return analyzer_module._load_ai_settings(str(path))
+
+    def test_shipped_provider_is_enmaas(self):
+        with open('config.yaml') as handle:
+            ai = yaml.safe_load(handle)['ai']
+        assert ai['provider'] == 'enmaas'
+        assert ai['api_key_env'] == 'ENMAAS_KEY'
+
+    def test_enmaas_preset(self, tmp_path):
+        settings = self._settings(tmp_path, {'provider': 'enmaas'})
+        assert settings['endpoint'] == 'https://api.enmaas.devshift.net/v1/chat/completions'
+        assert settings['api_key_env'] == 'ENMAAS_KEY'
+        assert settings['model'] == analyzer_module.AI_DEFAULT_MODEL
+
+    def test_openai_preset(self, tmp_path):
+        settings = self._settings(tmp_path, {'provider': 'openai',
+                                             'model': 'gpt-4o-mini'})
+        assert settings['provider'] == 'openai'
+        assert settings['endpoint'] == 'https://api.openai.com/v1/chat/completions'
+        assert settings['api_key_env'] == 'OPENAI_API_KEY'
+        assert settings['model'] == 'gpt-4o-mini'
+
+    def test_openai_without_model_has_no_model(self, tmp_path):
+        """The preset must not guess a model for another provider."""
+        settings = self._settings(tmp_path, {'provider': 'openai'})
+        assert settings['model'] == ''
+
+    def test_vertex_requires_explicit_endpoint(self, tmp_path):
+        settings = self._settings(tmp_path, {'provider': 'vertex',
+                                             'model': 'google/gemini-2.0-flash-001'})
+        assert settings['provider'] == 'vertex'
+        assert settings['endpoint'] == ''
+        assert settings['api_key_env'] == 'VERTEX_API_KEY'
+
+    def test_vertex_accepts_regional_endpoint(self, tmp_path):
+        url = ('https://us-central1-aiplatform.googleapis.com/v1beta1/projects/p'
+               '/locations/us-central1/endpoints/openapi/chat/completions')
+        settings = self._settings(tmp_path, {'provider': 'vertex', 'endpoint': url})
+        assert settings['endpoint'] == url
+
+    def test_unknown_provider_falls_back(self, tmp_path):
+        """Negative: an unrecognised provider uses the default."""
+        settings = self._settings(tmp_path, {'provider': 'gemini-direct'})
+        assert settings['provider'] == analyzer_module.AI_DEFAULT_PROVIDER
+        assert settings['endpoint'] == analyzer_module.AI_DEFAULT_ENDPOINT
+
+    def test_openai_key_is_not_sent_to_another_host(self, tmp_path):
+        """Negative (key leakage): an openai provider pointed at another
+        host must fall back to the openai endpoint, not honour it."""
+        settings = self._settings(tmp_path, {
+            'provider': 'openai',
+            'endpoint': 'https://attacker.example.com/v1/chat/completions',
+        })
+        assert settings['endpoint'] == 'https://api.openai.com/v1/chat/completions'
+
+    def test_enmaas_key_is_not_sent_to_openai_host(self, tmp_path):
+        """Negative: the enMaas key may not be redirected to api.openai.com."""
+        settings = self._settings(tmp_path, {
+            'provider': 'enmaas',
+            'endpoint': 'https://api.openai.com/v1/chat/completions',
+        })
+        assert settings['endpoint'] == analyzer_module.AI_DEFAULT_ENDPOINT
+
+    def test_http_scheme_rejected(self, tmp_path):
+        """Negative: plain http is never used for the key-bearing call."""
+        settings = self._settings(tmp_path, {
+            'provider': 'openai',
+            'endpoint': 'http://api.openai.com/v1/chat/completions',
+        })
+        assert settings['endpoint'] == 'https://api.openai.com/v1/chat/completions'
+
+    def test_analyzer_uses_provider_key_variable(self, monkeypatch):
+        monkeypatch.setenv('OPENAI_API_KEY', 'sk-test')
+        monkeypatch.delenv('ENMAAS_KEY', raising=False)
+        settings = {'provider': 'openai',
+                    'endpoint': 'https://api.openai.com/v1/chat/completions',
+                    'model': 'gpt-4o-mini',
+                    'api_key_env': 'OPENAI_API_KEY'}
+        monkeypatch.setattr(analyzer_module, '_load_ai_settings', lambda *a, **k: settings)
+        analyzer = HybridFailureAnalyzer()
+        assert analyzer.provider == 'openai'
+        assert analyzer.api_key == 'sk-test'
+        assert analyzer.model == 'gpt-4o-mini'

@@ -15,7 +15,8 @@ The system uses a **2-tier approach**:
    gateway (model `rits/deepseek-ai/DeepSeek-V4.1-Flash-1017`)
 
 **No API key required!** Pattern matching always works, even without
-`ENMAAS_KEY` set. Failures that are not pre-classified are flagged
+the API key variable named by `ai.api_key_env` (default `ENMAAS_KEY`)
+set. Failures that are not pre-classified are flagged
 `needs_human_review` in that case.
 
 ## Setup
@@ -51,7 +52,7 @@ oc apply -f openshift/poc/dashboard-deployment.yaml
 oc rollout restart deployment/winc-dashboard-poc
 ```
 
-**Verify:** check the logs for `GLM client initialized (model: rits/deepseek-ai/DeepSeek-V4.1-Flash-1017, endpoint: https://api.enmaas.devshift.net/v1/chat/completions)`.
+**Verify:** check the logs for `enMaas client initialized (model: rits/deepseek-ai/DeepSeek-V4.1-Flash-1017, endpoint: https://api.enmaas.devshift.net/v1/chat/completions, key from ENMAAS_KEY)`.
 
 ## Using the Feature
 

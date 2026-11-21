@@ -282,3 +282,59 @@ class TestJiraEnv:
         """Negative: the token must come from a secret, never inline."""
         manifest = yaml.safe_dump(deployment)
         assert "ATATT" not in manifest
+
+
+@pytest.fixture
+def poc_config():
+    """The config.yaml embedded in the POC ConfigMap."""
+    with open("openshift/poc/dashboard-configmap.yaml") as f:
+        configmap = yaml.safe_load(f)
+    return yaml.safe_load(configmap["data"]["config.yaml"])
+
+
+class TestAiConfigInConfigMap:
+    """The model and the API-key variable name belong in the ConfigMap,
+    not only in code defaults."""
+
+    def test_ai_section_present(self, poc_config):
+        assert "ai" in poc_config
+
+    def test_provider_is_enmaas(self, poc_config):
+        assert poc_config["ai"]["provider"] == "enmaas"
+
+    def test_model_matches_dashboard_config(self):
+        """The ConfigMap and the repo config.yaml must agree, or the
+        deployed dashboard analyses with a different model than tested."""
+        with open("config.yaml") as f:
+            shipped = yaml.safe_load(f)
+        with open("openshift/poc/dashboard-configmap.yaml") as f:
+            configmap = yaml.safe_load(f)
+        poc = yaml.safe_load(configmap["data"]["config.yaml"])
+        assert poc["ai"]["model"] == shipped["ai"]["model"]
+        assert poc["ai"]["api_key_env"] == shipped["ai"]["api_key_env"]
+
+    def test_no_secret_in_configmap(self, poc_config):
+        """Negative: no API key value may appear in the ConfigMap."""
+        dumped = yaml.safe_dump(poc_config)
+        for marker in ("sk-", "ATATT", "sha256~"):
+            assert marker not in dumped
+
+
+class TestAiProviderEnv:
+    """All three provider credentials are wired, so switching provider
+    only needs a ConfigMap edit."""
+
+    def test_enmaas_key_from_secret(self, dashboard_env):
+        ref = dashboard_env["ENMAAS_KEY"]["valueFrom"]["secretKeyRef"]
+        assert ref["name"] == "enmaas-api-key"
+        assert ref.get("optional") is True
+
+    def test_openai_key_from_secret(self, dashboard_env):
+        ref = dashboard_env["OPENAI_API_KEY"]["valueFrom"]["secretKeyRef"]
+        assert ref["name"] == "openai-api-key"
+        assert ref.get("optional") is True
+
+    def test_vertex_key_from_secret(self, dashboard_env):
+        ref = dashboard_env["VERTEX_API_KEY"]["valueFrom"]["secretKeyRef"]
+        assert ref["name"] == "vertex-api-key"
+        assert ref.get("optional") is True

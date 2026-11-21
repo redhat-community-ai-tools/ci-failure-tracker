@@ -23,24 +23,77 @@ logger = logging.getLogger(__name__)
 # Confidence threshold below which results are flagged for human review
 LOW_CONFIDENCE_THRESHOLD = 60
 
-# Built-in enMaas defaults, used when config.yaml has no 'ai' section
-# (then any path without that key runs unchanged; backwards-compatible)
+# Built-in defaults, used when config.yaml has no 'ai' section (then any
+# path without that key runs unchanged; backwards-compatible)
 AI_DEFAULT_ENDPOINT = 'https://api.enmaas.devshift.net/v1/chat/completions'
 AI_DEFAULT_MODEL = 'rits/deepseek-ai/DeepSeek-V4.1-Flash-1017'
+# Environment variable consulted for the API key. Overridable through
+# ai.api_key_env in config.yaml; the key value itself belongs in a Secret.
+AI_DEFAULT_API_KEY_ENV = 'ENMAAS_KEY'
+AI_DEFAULT_PROVIDER = 'enmaas'
 
-# Host of the trusted internal gateway; the API key is never sent
-# to any endpoint on a different host
+# Per-provider presets. 'ai.provider' in config.yaml selects one, and
+# ai.endpoint / ai.model / ai.api_key_env override individual fields.
+# A preset with no model requires ai.model to be set explicitly, because
+# guessing a model name for another provider would silently send the
+# wrong one.
+AI_PROVIDERS = {
+    'enmaas': {
+        'endpoint': AI_DEFAULT_ENDPOINT,
+        'model': AI_DEFAULT_MODEL,
+        'api_key_env': AI_DEFAULT_API_KEY_ENV,
+    },
+    'openai': {
+        'endpoint': 'https://api.openai.com/v1/chat/completions',
+        'model': None,
+        'api_key_env': 'OPENAI_API_KEY',
+    },
+    'vertex': {
+        # Vertex exposes an OpenAI-compatible endpoint per project and
+        # region, so the full URL has to be configured explicitly.
+        'endpoint': None,
+        'model': None,
+        'api_key_env': 'VERTEX_API_KEY',
+    },
+}
+
+# Hosts the API key may be sent to, per provider. The API key is never
+# sent to an endpoint outside its provider's hosts, so a modified
+# ConfigMap cannot capture the Authorization header. Vertex endpoints
+# live on regional hosts, hence the suffix match.
+AI_PROVIDER_HOSTS = {
+    'enmaas': ('api.enmaas.devshift.net',),
+    'openai': ('api.openai.com',),
+    'vertex': ('aiplatform.googleapis.com',),
+}
+
+# Kept for callers that still refer to the enMaas gateway host
 AI_GATEWAY_HOST = 'api.enmaas.devshift.net'
 
 
-def _validate_endpoint(endpoint: str) -> str:
+def _host_allowed(hostname: str, provider: str) -> bool:
+    """True when the API key may be sent to this host for the provider.
+
+    A bare domain also matches its regional forms, since Google serves
+    Vertex from ``<region>-aiplatform.googleapis.com``.
     """
-    Restrict the API-key-bearing endpoint to the internal enMaas gateway.
+    for allowed in AI_PROVIDER_HOSTS.get(provider, ()):
+        if hostname == allowed:
+            return True
+        if hostname.endswith('.' + allowed) or hostname.endswith('-' + allowed):
+            return True
+    return False
+
+
+def _validate_endpoint(endpoint: str, provider: str = AI_DEFAULT_PROVIDER) -> str:
+    """
+    Restrict the API-key-bearing endpoint to the provider's hosts.
 
     The endpoint is config-driven, so a modified ConfigMap could point
     it at an external server to capture the Authorization header.
-    Endpoints that are not https URLs on the gateway host are ignored
-    and the built-in default is used instead.
+    Endpoints that are not https URLs on an allowed host for the
+    selected provider are ignored and replaced by the provider default
+    (or left empty when the preset defines no endpoint).
     """
     parsed = None
     hostname = ''
@@ -49,25 +102,38 @@ def _validate_endpoint(endpoint: str) -> str:
         hostname = parsed.hostname or ''
     except ValueError:
         pass
-    if parsed and parsed.scheme == 'https' and hostname == AI_GATEWAY_HOST:
+    if parsed and parsed.scheme == 'https' and _host_allowed(hostname, provider):
         return endpoint
     logger.warning(
-        f"AI endpoint {endpoint!r} is not an https URL on "
-        f"{AI_GATEWAY_HOST}; using the built-in default endpoint instead."
+        f"AI endpoint {endpoint!r} is not an https URL on an allowed "
+        f"{provider} host; ignoring it."
     )
-    return AI_DEFAULT_ENDPOINT
+    fallback = AI_PROVIDERS.get(provider, {}).get('endpoint')
+    if fallback:
+        return fallback
+    logger.error(
+        f"Provider {provider!r} has no default endpoint; set ai.endpoint "
+        "in config.yaml to an https URL on its allowed host."
+    )
+    return ''
 
 
 def _load_ai_settings(config_path: str = 'config.yaml') -> Dict[str, str]:
     """
-    Load the enMaas endpoint and model from config.yaml ('ai' section).
+    Load the AI provider, endpoint, model, and API-key variable name
+    from config.yaml ('ai' section).
 
-    Falls back to the built-in defaults above when the file is
-    missing, unreadable, or not a mapping, when the section is absent
-    or not a mapping, or when the endpoint is outside the approved
-    gateway domain.
+    Falls back to the built-in defaults above when the file is missing,
+    unreadable, or not a mapping, when the section is absent or not a
+    mapping, when the provider is unknown, or when the endpoint is
+    outside the selected provider's allowed hosts.
     """
-    settings = {'endpoint': AI_DEFAULT_ENDPOINT, 'model': AI_DEFAULT_MODEL}
+    settings = {
+        'provider': AI_DEFAULT_PROVIDER,
+        'endpoint': AI_DEFAULT_ENDPOINT,
+        'model': AI_DEFAULT_MODEL,
+        'api_key_env': AI_DEFAULT_API_KEY_ENV,
+    }
     try:
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
@@ -76,12 +142,31 @@ def _load_ai_settings(config_path: str = 'config.yaml') -> Dict[str, str]:
         ai = config.get('ai')
         if not isinstance(ai, dict):
             return settings
+
+        provider = ai.get('provider')
+        if isinstance(provider, str) and provider.strip():
+            provider = provider.strip().lower()
+            if provider in AI_PROVIDERS:
+                preset = AI_PROVIDERS[provider]
+                settings['provider'] = provider
+                settings['endpoint'] = preset['endpoint'] or ''
+                settings['model'] = preset['model'] or ''
+                settings['api_key_env'] = preset['api_key_env']
+            else:
+                logger.warning(
+                    f"Unknown AI provider {provider!r}; using "
+                    f"{AI_DEFAULT_PROVIDER}."
+                )
+
         # Accept only non-empty strings so malformed YAML values
         # (numbers, booleans, empty keys) fall back to the defaults
-        if isinstance(ai.get('endpoint'), str) and ai['endpoint']:
-            settings['endpoint'] = _validate_endpoint(ai['endpoint'])
-        if isinstance(ai.get('model'), str) and ai['model']:
-            settings['model'] = ai['model']
+        if isinstance(ai.get('endpoint'), str) and ai['endpoint'].strip():
+            settings['endpoint'] = _validate_endpoint(
+                ai['endpoint'].strip(), settings['provider'])
+        if isinstance(ai.get('model'), str) and ai['model'].strip():
+            settings['model'] = ai['model'].strip()
+        if isinstance(ai.get('api_key_env'), str) and ai['api_key_env'].strip():
+            settings['api_key_env'] = ai['api_key_env'].strip()
     except OSError as e:
         logger.debug(f"Could not read AI config from {config_path}: {e}")
     except yaml.YAMLError as e:
@@ -767,20 +852,33 @@ class HybridFailureAnalyzer:
     """
 
     def __init__(self):
-        self.api_key = os.getenv('ENMAAS_KEY')
-
-        # enMaas endpoint/model from config.yaml ('ai' section, optional).
-        # Built-in defaults are used when the section is absent.
+        # Provider, model, and key-variable name come from the ConfigMap
+        # ('ai' section); the key value itself comes from a Secret.
         ai_settings = _load_ai_settings()
+        self.provider = ai_settings['provider']
+        self.api_key_env = ai_settings['api_key_env']
+        self.api_key = os.getenv(self.api_key_env)
+
+        # Built-in defaults are used when the section is absent.
         self.endpoint = ai_settings['endpoint']
         self.model = ai_settings['model']
 
-        if self.api_key:
+        if not self.model:
+            logger.error(
+                f"Provider {self.provider!r} needs an explicit model; "
+                "set ai.model in config.yaml. AI analysis is disabled."
+            )
+        elif self.api_key:
             logger.info(
-                f"GLM client initialized (model: {self.model}, endpoint: {self.endpoint})"
+                f"AI client initialized (provider: {self.provider}, "
+                f"model: {self.model}, endpoint: {self.endpoint}, "
+                f"key from {self.api_key_env})"
             )
         else:
-            logger.warning("enMaas API key not set. Set ENMAAS_KEY environment variable.")
+            logger.warning(
+                f"AI API key not set. Set {self.api_key_env} "
+                "environment variable (name configured by ai.api_key_env)."
+            )
 
     def analyze_failure(
         self,
@@ -911,7 +1009,8 @@ class HybridFailureAnalyzer:
         logger.error(f"GLM AI analysis failed for {test_name}")
         return {
             'error': 'GLM AI analysis failed',
-            'root_cause': 'GLM analysis failed - check ENMAAS_KEY and quota',
+            'root_cause': (f'AI analysis failed - check {self.api_key_env} '
+                           'and gateway quota'),
             'component': 'glm-ai',
             'confidence': 0,
             'analysis_mode': 'failed',
@@ -931,7 +1030,8 @@ class HybridFailureAnalyzer:
         test_repo_changes: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """
-        Analyze failure using GLM AI with structured prompt.
+        Analyze failure using the configured AI provider with a
+        structured prompt.
 
         Returns:
             Tuple of `(analysis, fallback_reason)`. `analysis` is the
@@ -940,8 +1040,15 @@ class HybridFailureAnalyzer:
             reasoning stream instead of final content, None otherwise.
         """
         try:
+            if not self.model or not self.endpoint:
+                logger.error(
+                    f"AI provider {self.provider!r} is not fully "
+                    "configured (ai.model / ai.endpoint)"
+                )
+                return None, None
+
             if not self.api_key:
-                logger.error("No enMaas API key available")
+                logger.error(f"No API key available in {self.api_key_env}")
                 return None, None
 
             # Fetch logs (truncated for cost optimization)

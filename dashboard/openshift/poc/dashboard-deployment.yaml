@@ -38,10 +38,26 @@ spec:
                 secretKeyRef:
                   name: prow-api-token
                   key: token
+            # AI provider credentials. Which variable is used comes from
+            # ai.api_key_env in the ConfigMap; all three are wired here so
+            # switching provider only needs a ConfigMap edit. Optional so
+            # the pod starts when a given secret is absent.
             - name: ENMAAS_KEY
               valueFrom:
                 secretKeyRef:
                   name: enmaas-api-key
+                  key: api-key
+                  optional: true
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openai-api-key
+                  key: api-key
+                  optional: true
+            - name: VERTEX_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vertex-api-key
                   key: api-key
                   optional: true
             # Jira integration. Without JIRA_API_TOKEN the dashboard
