@@ -83,8 +83,12 @@ oc rollout restart deployment/winc-dashboard-poc
 ### Pattern Matching Mode (FREE)
 - Runs first on every first-time analysis; bypassed when Re-analyze
   is used (see below)
-- Pre-classifiers catch SSH/DNS/quota/timeout flakes and
-  cross-platform correlations
+- Pre-classifiers catch SSH/DNS/quota/timeout flakes, cross-platform
+  correlations, and the two WMCO signatures that must not share a label:
+  `Unmatching golang version` is a **product bug** (the operator was
+  built with a different Go minor than the payload, which is exactly what
+  the test exists to catch), while `ContainerCreating` on the operator pod
+  is an **automation bug** (the test reads logs before the pod starts)
 - Results carry `analysis_mode: "pre-classifier"`
 - Perfect default for CI triage
 

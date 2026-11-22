@@ -145,10 +145,26 @@ class DashboardDatabase:
                 analysis_mode TEXT,
                 cost REAL,
                 error_message_hash TEXT,
+                needs_human_review INTEGER,
+                review_reason TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(test_name, version, analysis_date)
             )
         """)
+
+        # Databases created before these columns existed need them added:
+        # a cached analysis must carry the same review verdict as the
+        # fresh one, and SQLite has no "ADD COLUMN IF NOT EXISTS".
+        existing = {
+            row[1] for row in
+            cursor.execute("PRAGMA table_info(ai_analyses)").fetchall()
+        }
+        for column, ddl_type in (('needs_human_review', 'INTEGER'),
+                                 ('review_reason', 'TEXT')):
+            if column not in existing:
+                cursor.execute(
+                    f"ALTER TABLE ai_analyses ADD COLUMN {column} {ddl_type}"
+                )
 
         # Create indexes for faster queries
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_timestamp ON job_runs(timestamp)")
@@ -226,6 +242,8 @@ class DashboardDatabase:
                         analysis_mode TEXT,
                         cost REAL,
                         error_message_hash TEXT,
+                        needs_human_review INTEGER,
+                        review_reason TEXT,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(test_name, version, analysis_date)
                     )
@@ -607,8 +625,9 @@ class DashboardDatabase:
                     root_cause, component, confidence, failure_type,
                     platform_specific, affected_platforms, evidence,
                     suggested_action, issue_title, issue_description,
-                    analysis_mode, cost, error_message_hash
-                ) VALUES (?, ?, NULL, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    analysis_mode, cost, error_message_hash,
+                    needs_human_review, review_reason
+                ) VALUES (?, ?, NULL, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 test_name,
                 version,
@@ -625,6 +644,8 @@ class DashboardDatabase:
                 analysis.get('analysis_mode'),
                 analysis.get('cost', 0.0),
                 error_message_hash,
+                1 if analysis.get('needs_human_review') else 0,
+                analysis.get('review_reason'),
             ))
 
             self.conn.commit()
@@ -683,6 +704,12 @@ class DashboardDatabase:
                 analysis['affected_platforms'] = analysis['affected_platforms'].split(',')
             # Convert platform_specific back to boolean
             analysis['platform_specific'] = bool(analysis.get('platform_specific'))
+            # The review verdict must survive the cache round-trip: a
+            # cached analysis has to answer the same as a fresh one.
+            analysis['needs_human_review'] = bool(
+                analysis.get('needs_human_review'))
+            if not analysis.get('review_reason'):
+                analysis.pop('review_reason', None)
             return analysis
         return None
 
