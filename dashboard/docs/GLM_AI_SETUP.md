@@ -26,44 +26,32 @@ curl -Ss https://api.enmaas.devshift.net/v1/models \
 
 The model used by the dashboard is `rits/deepseek-ai/DeepSeek-V4.1-Flash-1017`.
 
-### Providers and keys
+### Provider and key
 
-The `ai` section of the ConfigMap selects the provider; the key value
-itself lives in a Secret.
+enMaas is the only supported AI API. The analyzer rejects any other
+`ai.provider` value and only ever sends its credential to
+`api.enmaas.devshift.net`; an endpoint that is not an https URL on that
+host is ignored.
 
 ```yaml
 ai:
-  provider: "enmaas"        # enmaas | openai | vertex
+  provider: "enmaas"
   endpoint: "https://api.enmaas.devshift.net/v1/chat/completions"
   model: "rits/deepseek-ai/DeepSeek-V4.1-Flash-1017"
   api_key_env: "ENMAAS_KEY" # name of the env var holding the key
+  timeout_seconds: 300
 ```
 
-| provider | default endpoint | key variable |
-|---|---|---|
-| `enmaas` | `https://api.enmaas.devshift.net/v1/chat/completions` | `ENMAAS_KEY` |
-| `openai` | `https://api.openai.com/v1/chat/completions` | `OPENAI_API_KEY` |
-| `vertex` | none - set `ai.endpoint` explicitly | `VERTEX_API_KEY` |
+`endpoint`, `model`, `api_key_env`, and `timeout_seconds` may be
+overridden individually; the key value itself lives in a Secret and
+never in the ConfigMap. `timeout_seconds` (default 300, allowed 10-1800)
+is the read timeout for one completion: thinking models can take minutes
+on a large failure log, and the server's gunicorn `--timeout` (600) and
+the Route timeout (1900s) must stay above it, otherwise the worker or the
+router cuts the request short.
 
-Each of `endpoint`, `model`, `api_key_env`, and `timeout_seconds`
-overrides the preset.
-
-`timeout_seconds` (default 300, allowed 10-1800) is the read timeout for
-one completion. Thinking models can take minutes on a large failure log,
-and the server's gunicorn `--timeout` (600 in the Dockerfile) must stay
-above it, otherwise the worker is killed mid-generation and the request
-fails with a 502 instead of returning the analysis. A timeout is reported
-as `AI analysis timed out after Ns` with a hint to raise the value, not as
-a credential problem.
-The endpoint must be an https URL on the selected provider's hosts
-(`api.enmaas.devshift.net`, `api.openai.com`, `*aiplatform.googleapis.com`);
-anything else is ignored so the key cannot be redirected to another
-server. `openai` and `vertex` presets define no model, so `ai.model`
-must be set with them rather than silently reusing the enMaas model.
-
-The deployment wires all three key variables from the
-`enmaas-api-key`, `openai-api-key`, and `vertex-api-key` Secrets
-(all optional), so switching provider needs only a ConfigMap edit.
+The deployment wires `ENMAAS_KEY` from the `enmaas-api-key` Secret
+(optional, so the pod starts without it).
 
 ### 2. Create OpenShift Secret
 

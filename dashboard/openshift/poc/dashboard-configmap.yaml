@@ -77,9 +77,8 @@ data:
     database:
       path: "/data/dashboard.db"
 
-    # AI analysis. The provider selects the endpoint and the name of the
-    # environment variable holding the key (enmaas, openai, or vertex).
-    # The key value comes from the deployment's Secret, never from here.
+    # AI analysis. enMaas is the only supported AI API; the key comes from
+    # the deployment's Secret, never from here.
     ai:
       provider: "enmaas"
       endpoint: "https://api.enmaas.devshift.net/v1/chat/completions"
