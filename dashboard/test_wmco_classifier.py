@@ -106,17 +106,37 @@ class TestGolangMismatchNotDetected:
 
 
 class TestWmcoNotReadyDetected:
-    """The readiness race stays an automation bug."""
+    """An unavailable operator pod is an environment issue, not a bug.
 
-    def test_real_failure_is_automation_bug(self):
+    Verified on build 2123845171408801792: a master-0 drain evicted the
+    pod at 19:39:10.932, the replacement pulled its image for 22s, and the
+    test's `oc logs` ran at 19:39:26.668 - eight seconds before the
+    container existed. The operator was healthy at 19:39:35.
+    """
+
+    def test_real_failure_is_infrastructure(self):
         result = detect_wmco_not_ready(WMCO_NOT_READY)
         assert result is not None
-        assert result['failure_type'] == 'automation_bug'
+        assert result['failure_type'] == 'system_issue'
         assert result['is_product_bug'] is False
 
-    def test_blames_the_missing_wait(self):
+    def test_not_classified_as_a_defect(self):
+        """Regression: it was automation_bug, which sent the failure to
+        the wrong owner for a legitimately unavailable environment."""
         result = detect_wmco_not_ready(WMCO_NOT_READY)
-        assert 'wait' in result['suggested_action'].lower()
+        assert result['failure_type'] not in ('product_bug', 'automation_bug')
+
+    def test_mentions_the_test_brittleness_as_secondary(self):
+        result = detect_wmco_not_ready(WMCO_NOT_READY)
+        action = result['suggested_action'].lower()
+        assert 'no product bug to file' in action
+        assert 'wait' in action
+        assert 'ote twin' in action
+
+    def test_drain_and_pull_signals_are_reported(self):
+        text = WMCO_NOT_READY + '\nDraining node to update config.'
+        result = detect_wmco_not_ready(text)
+        assert 'eviction/drain observed' in result['evidence']
 
     def test_pod_after_state_in_text(self):
         """Order of the two markers in the message must not matter."""
@@ -198,7 +218,7 @@ class TestPreClassifiersSkipTheAi:
                 'OCP-37362', WMCO_NOT_READY, log_url='',
                 platform='vsphere', version='4.22')
         post.assert_not_called()
-        assert result['failure_type'] == 'automation_bug'
+        assert result['failure_type'] == 'system_issue'
 
     def test_force_ai_still_bypasses(self, monkeypatch):
         """Re-analyze must still be able to ask the model."""

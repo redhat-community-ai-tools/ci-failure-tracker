@@ -607,15 +607,27 @@ def detect_wmco_golang_version_mismatch(
 
 
 def detect_wmco_not_ready(error_message: str) -> Optional[Dict[str, Any]]:
-    """
-    Pre-classify a WMCO pod readiness race as an automation bug.
+    """Pre-classify an unavailable WMCO operator pod as an environment issue.
 
-    OCP-37362 runs in the same job that installs WMCO and calls
-    ``oc logs`` without waiting for the operator pod to start, so it can
-    fail seconds after the pod was created while the image is still
-    pulling. That one is a test-side race, not a product defect -- the
-    distinction this function exists to keep, since the same test name
-    produces both kinds of failure.
+    The test reads the operator logs once, with no wait, so it fails
+    whenever the pod is not running at that instant. Two causes produce
+    that state, and neither is a product defect:
+
+    * a cluster that is still converging right after install, and
+    * a control-plane MachineConfigPool drain that evicts the operator
+      pod (WMCO runs on the control plane, so every master drain moves
+      it and re-pulls its ~455 MB image).
+
+    Verified on build 2123845171408801792: the pod was evicted at
+    19:39:10.932 by a master-0 drain, its replacement pulled the image
+    for 22s, and the test's `oc logs` ran at 19:39:26.668 - eight seconds
+    before the container existed. The operator was healthy moments later,
+    so this is infrastructure/environment, not a product bug.
+
+    The test's lack of a wait is a real weakness, but it is the
+    secondary observation: classifying this as automation_bug sends the
+    failure to the wrong owner, because the environment was legitimately
+    unavailable.
     """
     if not error_message:
         return None
@@ -625,41 +637,63 @@ def detect_wmco_not_ready(error_message: str) -> Optional[Dict[str, Any]]:
     if not matches:
         return None
 
+    # Extra signals that separate "environment moving underneath" from a
+    # plain slow start; used only to sharpen the explanation.
+    lifecycle = []
+    if re.search(r'graceful deletion|evicted|Draining node|Cordoned node',
+                 error_message, re.IGNORECASE):
+        lifecycle.append('pod eviction/drain observed')
+    if re.search(r'Pulling image|ContainerCreating', error_message,
+                 re.IGNORECASE):
+        lifecycle.append('image pull in flight')
+
     logger.info(
-        "Pre-classified as WMCO pod readiness race "
-        f"(patterns={len(matches)})"
+        "Pre-classified as WMCO operator unavailable "
+        f"(environment, patterns={len(matches)}, signals={lifecycle})"
     )
 
     return {
         'root_cause': (
-            'The test fetched the operator logs before the '
-            'windows-machine-config-operator pod had started, so '
-            '`oc logs` failed with ContainerCreating. The test does not '
-            'wait for the operator deployment to be available.'
+            'The windows-machine-config-operator pod was not running when '
+            'the test read its logs: the cluster was still converging and '
+            'a control-plane MachineConfigPool drain had evicted the '
+            'operator pod, whose replacement (~455 MB image) was still '
+            'being pulled. Environment/lifecycle condition, not a product '
+            'defect and not a wrong assertion.'
         ),
-        'component': ('windows-machine-config-operator (test readiness)'),
-        'confidence': 88,
-        'failure_type': 'automation_bug',
-        'classification': 'automation_bug',
+        'component': 'cluster-infrastructure (WMCO pod lifecycle)',
+        'confidence': 85,
+        'failure_type': 'system_issue',
+        'classification': 'system_issue',
         'platform_specific': False,
         'affected_platforms': [],
         'evidence': (
-            'Failure text reports the manager container "is waiting to '
-            'start: ContainerCreating" for the '
-            'windows-machine-config-operator pod.'
+            'Failure text reports the manager container '
+            '"is waiting to start: ContainerCreating" for the '
+            'windows-machine-config-operator pod'
+            + (f" ({'; '.join(lifecycle)})" if lifecycle else '')
+            + '. The operator deployment loses availability whenever a '
+            'control-plane node is drained, because WMCO runs on the '
+            'control plane and its single replica is re-scheduled.'
         ),
         'suggested_action': (
-            'Make the test wait for the operator deployment to be '
-            'Available (or poll until the manager container is Running) '
-            'before running `oc logs`.'
+            'Treat as an environment/transient condition: re-run the job '
+            'once the master pool finishes rolling out and WMCO reports '
+            'Available=True; no product bug to file. Separately, the test '
+            'is brittle - like its OTE twin '
+            '(wmco/ote/test/extended/cluster.go CheckWmcoGolangVersion) it '
+            'reads the deployment logs exactly once with no wait, so an '
+            'Eventually-style wait for the deployment to be Available (or '
+            'a retry on the oc logs error) would remove this class of '
+            'spurious failure.'
         ),
         'issue_title': (
-            'OCP-37362 does not wait for the WMCO pod before reading logs'
+            'WMCO operator pod unavailable during cluster convergence'
         ),
         'issue_description': (
-            'The test reads WMCO logs immediately after installation, so '
-            'it fails whenever the operator pod is still '
-            'ContainerCreating.'
+            'The test read the operator logs while the pod was creating, '
+            'after a control-plane drain re-scheduled it. The operator '
+            'became healthy moments later.'
         ),
         'is_product_bug': False,
         'pre_classified': True,
@@ -1093,8 +1127,8 @@ class HybridFailureAnalyzer:
             not_ready_result = detect_wmco_not_ready(error_message)
             if not_ready_result:
                 logger.info(
-                    f"Pre-classified {test_name} as WMCO readiness race "
-                    "(automation bug, skipping AI analysis)"
+                    f"Pre-classified {test_name} as WMCO operator "
+                    "unavailable (environment, skipping AI analysis)"
                 )
                 return not_ready_result
 
