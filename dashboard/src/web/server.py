@@ -43,6 +43,13 @@ _ERROR_TTL_SECONDS = int(os.environ.get('ERROR_TTL_SECONDS', '600'))  # 10 min
 # spoofed X-Forwarded-User header is rejected.
 TRUSTED_PROXY_ADDRS = {'127.0.0.1', '::1'}
 
+# Test-history window used for the AI prompt and the pre-classifiers. Wider
+# than the dashboard's default display range because weekly-running tests
+# would otherwise report a 0% pass rate from a 7-day window.
+HISTORY_WINDOW_DAYS = int(os.environ.get('AI_HISTORY_WINDOW_DAYS', '90'))
+# Below this many observations a pass rate is not a trend.
+HISTORY_MIN_SAMPLE = int(os.environ.get('AI_HISTORY_MIN_SAMPLE', '5'))
+
 # Global collection status
 collection_status = {
     'running': False,
@@ -1669,25 +1676,50 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
             existing_analysis['cached'] = True
             return jsonify(existing_analysis)
 
-        # Get pass rate for pre-classifier
+        # Test history for the pre-classifier and the AI prompt. The
+        # window is deliberately wider than the dashboard's display range:
+        # a 7-day window on a test that runs weekly yields "0% pass rate",
+        # which the model then reports as a systemic failure. The sample
+        # size, window and last observed pass/fail travel with the rate so
+        # the prompt cannot present a bare number as history.
         pass_rate = None
+        pass_rate_context = None
         try:
+            history_days = max(days, HISTORY_WINDOW_DAYS)
             end_date = datetime.now()
-            start_date = end_date - timedelta(days=days)
+            start_date = end_date - timedelta(days=history_days)
             cursor = db.conn.cursor()
             cursor.execute("""
-                SELECT CAST(SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) AS REAL)
-                       / NULLIF(SUM(CASE WHEN status IN ('passed', 'failed') THEN 1 ELSE 0 END), 0) * 100
+                SELECT
+                    SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END),
+                    MAX(CASE WHEN status = 'passed' THEN timestamp END),
+                    MAX(CASE WHEN status = 'failed' THEN timestamp END)
                 FROM test_results
                 WHERE test_name = ? AND version = ?
-                AND status != 'skipped'
+                AND status IN ('passed', 'failed')
                 AND timestamp >= ? AND timestamp <= ?
-            """, (test_name, version, start_date.isoformat(), end_date.isoformat()))
+            """, (test_name, version, start_date.isoformat(),
+                  end_date.isoformat()))
             row = cursor.fetchone()
-            if row and row[0] is not None:
-                pass_rate = row[0]
+            passed = int(row[0] or 0)
+            failed = int(row[1] or 0)
+            total = passed + failed
+            if total:
+                pass_rate = passed / total * 100
+            pass_rate_context = {
+                'window_days': history_days,
+                'start_date': start_date.date().isoformat(),
+                'end_date': end_date.date().isoformat(),
+                'passed': passed,
+                'failed': failed,
+                'total': total,
+                'last_pass': (row[2] or '')[:10] or None,
+                'last_failure': (row[3] or '')[:10] or None,
+                'min_sample': HISTORY_MIN_SAMPLE,
+            }
         except Exception:
-            pass
+            logger.debug("Could not compute test history", exc_info=True)
 
         # Get cross-platform failure data for correlation
         recent_failures = []
@@ -1710,6 +1742,7 @@ def create_app(db_path: str, config: dict = None, config_file: str = 'config.yam
                 pass_rate=pass_rate,
                 test_description=test_description,
                 recent_failures=recent_failures,
+                pass_rate_context=pass_rate_context,
                 # Intentional coupling: use_cached=False means
                 # "Re-analyze", which bypasses both the stored result
                 # *and* offline pre-classifiers so GLM can give a

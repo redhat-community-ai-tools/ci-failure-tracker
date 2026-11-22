@@ -275,6 +275,85 @@ def _fetch_logs(log_url: str) -> str:
     return ''
 
 
+def _build_history_context(pass_rate: Optional[float],
+                           context: Optional[Dict[str, Any]]) -> str:
+    """Describe the test's history without overstating it.
+
+    A bare percentage invites claims like "historical pass rate 0.0%,
+    therefore a persistent systemic issue", even when the number came from
+    a seven-day window that happened to contain three failures and no
+    runs of a passing build. The prompt therefore never receives a
+    percentage on its own: it gets the window, the sample size and the
+    last observed pass and failure.
+
+    Args:
+        pass_rate: pass rate in percent, or None when unknown.
+        context: window metadata from the caller, with any of
+            ``window_days``, ``start_date``, ``end_date``, ``passed``,
+            ``failed``, ``total``, ``last_pass``, ``last_failure``,
+            ``min_sample``.
+    """
+    context = context or {}
+    if pass_rate is None and not context:
+        return ""
+
+    parts = []
+    if pass_rate is not None and context.get('total') is not None:
+        parts.append(
+            f"{pass_rate:.1f}% over the last "
+            f"{context.get('window_days', '?')} days "
+            f"({context.get('passed', 0)} passed / "
+            f"{context.get('failed', 0)} failed)"
+        )
+    elif pass_rate is not None:
+        parts.append(f"{pass_rate:.1f}%")
+
+    if context.get('last_pass'):
+        parts.append(f"last pass {context['last_pass']}")
+    if context.get('last_failure'):
+        parts.append(f"last failure {context['last_failure']}")
+
+    if not parts:
+        return ""
+
+    text = (
+        "\n## Test History (only these values are known)"
+        "\nTest history for this version: " + ", ".join(parts) + "."
+    )
+
+    total = context.get('total')
+    min_sample = context.get('min_sample', 5)
+
+    if pass_rate == 0.0 and total:
+        if total >= min_sample:
+            text += (
+                f"\nThe test has not passed once in this window "
+                f"(0 of {total} runs). A clean sweep of failures is "
+                "evidence of a persistent product or test defect: do not "
+                "classify it as a transient flake merely because the "
+                "failure text mentions a timeout or a readiness condition."
+            )
+        else:
+            text += (
+                f"\nThe test has not passed in any of the {total} "
+                f"observed run(s) (0 of {total}). The sample is small, so "
+                "give the window "
+                "rather than calling it long-standing, but repeated "
+                "failures still argue against a one-off flake."
+            )
+    elif pass_rate is not None and pass_rate < 50.0 and total and total >= min_sample:
+        text += (
+            "\nThe test fails most of the time in this window: weigh a "
+            "persistent test or product defect over a one-off flake."
+        )
+    elif pass_rate is not None and pass_rate >= 90.0:
+        text += (
+            "\nThe test usually passes in this window: weigh a transient "
+            "or recent regression over a long-standing defect."
+        )
+    return text
+
+
 def detect_ssh_flake(error_message: str, pass_rate: Optional[float] = None, log_url: str = None, log_text: str = None) -> Optional[Dict[str, Any]]:
     """
     Pre-classify SSH infrastructure flakes.
@@ -1038,6 +1117,7 @@ class HybridFailureAnalyzer:
         platform: str,
         version: str,
         pass_rate: Optional[float] = None,
+        pass_rate_context: Optional[Dict[str, Any]] = None,
         test_description: str = '',
         recent_failures: Optional[List[Dict[str, str]]] = None,
         force_ai: bool = False,
@@ -1157,6 +1237,7 @@ class HybridFailureAnalyzer:
             test_name, error_message, log_url, platform, version,
             pass_rate=pass_rate,
             test_repo_changes=test_repo_changes,
+            pass_rate_context=pass_rate_context,
         )
 
         if api_result:
@@ -1216,6 +1297,7 @@ class HybridFailureAnalyzer:
         version: str,
         pass_rate: Optional[float] = None,
         test_repo_changes: Optional[Dict[str, Any]] = None,
+        pass_rate_context: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """
         Analyze failure using the configured AI provider with a
@@ -1247,21 +1329,8 @@ class HybridFailureAnalyzer:
             logs_excerpt = logs[-3000:] if len(logs) > 3000 else logs
 
             # Build historical context string
-            history_context = ""
-            if pass_rate is not None:
-                history_context = (
-                    f"\n**Historical pass rate:** {pass_rate:.1f}%"
-                )
-                if pass_rate >= 90.0:
-                    history_context += (
-                        " (usually passes — this failure is likely "
-                        "transient or a recent regression)"
-                    )
-                elif pass_rate < 50.0:
-                    history_context += (
-                        " (frequently failing — likely a persistent "
-                        "bug or systemic issue)"
-                    )
+            history_context = _build_history_context(
+                pass_rate, pass_rate_context)
 
             # Build test repo context string
             repo_context = ""
