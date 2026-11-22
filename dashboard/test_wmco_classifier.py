@@ -118,11 +118,11 @@ class TestWmcoNotReadyDetected:
         result = detect_wmco_not_ready(WMCO_NOT_READY)
         assert 'wait' in result['suggested_action'].lower()
 
-    def test_pod_after_operator_in_text(self):
+    def test_pod_after_state_in_text(self):
         """Order of the two markers in the message must not matter."""
         text = ('container "manager" is waiting to start: '
-                'ContainerCreating for deployment '
-                'windows-machine-config-operator')
+                'ContainerCreating for pod '
+                '"windows-machine-config-operator-86df5ddf57-hxgbj"')
         assert detect_wmco_not_ready(text) is not None
 
 
@@ -138,6 +138,22 @@ class TestWmcoNotReadyNotDetected:
         other = ('container "manager" in pod "prometheus-k8s-0" is '
                  'waiting to start: ContainerCreating')
         assert detect_wmco_not_ready(other) is None
+
+    def test_other_pod_in_the_wmco_namespace(self):
+        """Negative: the namespace name alone must not match. Every error
+        from that namespace carries `-n openshift-windows-machine-config-
+        operator`, so matching the namespace would label an unrelated
+        pod's startup problem as a WMCO test race."""
+        other = ('container "manager" in pod "diagnostic-helper" is waiting '
+                 'to start: ContainerCreating\n'
+                 'command: oc logs -n openshift-windows-machine-config-operator')
+        assert detect_wmco_not_ready(other) is None
+
+    def test_pod_name_needs_the_hash_suffix(self):
+        """The deployment name alone is not a pod reference."""
+        assert detect_wmco_not_ready(
+            'ContainerCreating for deployment/windows-machine-config-operator'
+        ) is None
 
     def test_golang_mismatch_is_not_a_readiness_race(self):
         assert detect_wmco_not_ready(GOLANG_MISMATCH) is None
@@ -196,3 +212,153 @@ class TestPreClassifiersSkipTheAi:
                 'OCP-37362', GOLANG_MISMATCH, log_url='', platform='aws',
                 version='4.22', force_ai=True)
         assert result.get('pre_classifier') != 'wmco_golang_mismatch_detector'
+
+
+class TestReviewFlagSurvivesTheCache:
+    """A cached analysis must answer the same as a fresh one: the review
+    verdict has to be persisted (CodeRabbit finding on #293)."""
+
+    @pytest.fixture
+    def db(self, tmp_path):
+        from storage.database import DashboardDatabase
+        return DashboardDatabase(str(tmp_path / "cache.db"))
+
+    def _analysis(self, **overrides):
+        base = {
+            'root_cause': 'operator built with a different Go minor',
+            'component': 'windows-machine-config-operator (build toolchain)',
+            'confidence': 90,
+            'failure_type': 'product_bug',
+            'analysis_mode': 'pre-classifier',
+            'cost': 0.0,
+            'needs_human_review': True,
+            'review_reason': 'confirm the operator-side Go version',
+        }
+        base.update(overrides)
+        return base
+
+    def test_needs_human_review_round_trips(self, db):
+        db.save_ai_analysis('OCP-37362', '4.22', None,
+                            analysis=self._analysis())
+        cached = db.get_ai_analysis('OCP-37362', '4.22')
+        assert cached is not None
+        assert cached['needs_human_review'] is True
+        assert cached['review_reason'] == 'confirm the operator-side Go version'
+
+    def test_absent_flag_stays_false(self, db):
+        """Negative: an analysis without the flag must not inherit True."""
+        db.save_ai_analysis('OCP-99999', '4.22', None,
+                            analysis=self._analysis(needs_human_review=False,
+                                                    review_reason=None))
+        cached = db.get_ai_analysis('OCP-99999', '4.22')
+        assert cached['needs_human_review'] is False
+        assert 'review_reason' not in cached
+
+    def test_low_confidence_result_keeps_its_review_flag(self, db):
+        """The finding is not WMCO-specific: every analysis that sets the
+        flag must round-trip."""
+        db.save_ai_analysis('OCP-11111', '4.21', None,
+                            analysis=self._analysis(
+                                failure_type='unknown', confidence=30,
+                                analysis_mode='glm-ai'))
+        cached = db.get_ai_analysis('OCP-11111', '4.21')
+        assert cached['needs_human_review'] is True
+
+    def test_old_database_gets_the_columns(self, tmp_path):
+        """A pre-existing database must be migrated, not crashed on."""
+        import sqlite3
+        path = str(tmp_path / "old.db")
+        conn = sqlite3.connect(path)
+        conn.execute("""CREATE TABLE ai_analyses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            test_name TEXT NOT NULL, version TEXT NOT NULL, platform TEXT,
+            analysis_date DATETIME NOT NULL, root_cause TEXT, component TEXT,
+            confidence INTEGER, failure_type TEXT, platform_specific INTEGER,
+            affected_platforms TEXT, evidence TEXT, suggested_action TEXT,
+            issue_title TEXT, issue_description TEXT, analysis_mode TEXT,
+            cost REAL, error_message_hash TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(test_name, version, analysis_date))""")
+        conn.commit()
+        conn.close()
+
+        from storage.database import DashboardDatabase
+        db = DashboardDatabase(path)          # runs the migration
+        db.save_ai_analysis('OCP-22222', '4.22', None,
+                            analysis=self._analysis())
+        cached = db.get_ai_analysis('OCP-22222', '4.22')
+        assert cached['needs_human_review'] is True
+
+
+class TestPrecedenceOverSshClassifier:
+    """The product signal must outrank the log-based SSH classifier."""
+
+    def test_mismatch_wins_over_an_ssh_line_in_the_logs(self, monkeypatch):
+        """CodeRabbit finding: with pass_rate None and 'SSH attempt 1
+        failed' in the logs, detect_ssh_flake returned transient before
+        the mismatch check ran."""
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+        monkeypatch.setattr(analyzer_module, '_fetch_logs',
+                            lambda url: 'SSH attempt 1 failed: connection refused')
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            'OCP-37362', GOLANG_MISMATCH, log_url='https://example.com/log',
+            platform='aws', version='4.22')
+        assert result['failure_type'] == 'product_bug'
+        assert result['pre_classifier'] == 'wmco_golang_mismatch_detector'
+
+    def test_mismatch_does_not_fetch_logs(self, monkeypatch):
+        """It only needs the error message, so it must not pay for a fetch."""
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+        calls = []
+        monkeypatch.setattr(analyzer_module, '_fetch_logs',
+                            lambda url: calls.append(url) or '')
+        analyzer = HybridFailureAnalyzer()
+        analyzer.analyze_failure('OCP-37362', GOLANG_MISMATCH,
+                                 log_url='https://example.com/log',
+                                 platform='aws', version='4.22')
+        assert calls == []
+
+    def test_ssh_classification_still_wins_when_no_mismatch(self, monkeypatch):
+        """Negative: the reorder must not disable the SSH pre-classifier."""
+        monkeypatch.setenv('ENMAAS_KEY', 'test-key')
+        monkeypatch.setattr(analyzer_module, '_fetch_logs',
+                            lambda url: 'SSH attempt 1 failed')
+        analyzer = HybridFailureAnalyzer()
+        result = analyzer.analyze_failure(
+            'OCP-55555', 'provisioning failed: SSH attempt 1 failed',
+            log_url='https://example.com/log', platform='aws', version='4.22')
+        assert result['failure_type'] == 'transient'
+        assert result['pre_classifier'] == 'ssh_flake_detector'
+
+
+class TestLegacySchemaRecreatePath:
+    """The platform-NOT-NULL migration recreates ai_analyses; the review
+    columns must be part of the new table, not only added by ALTER."""
+
+    def test_recreate_path_keeps_review_columns(self, tmp_path):
+        import sqlite3
+        path = str(tmp_path / "legacy.db")
+        conn = sqlite3.connect(path)
+        conn.execute("""CREATE TABLE ai_analyses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            test_name TEXT NOT NULL, version TEXT NOT NULL,
+            platform TEXT NOT NULL, analysis_date DATETIME NOT NULL,
+            root_cause TEXT, component TEXT, confidence INTEGER,
+            failure_type TEXT, platform_specific INTEGER,
+            affected_platforms TEXT, evidence TEXT, suggested_action TEXT,
+            issue_title TEXT, issue_description TEXT, analysis_mode TEXT,
+            cost REAL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(test_name, version, analysis_date))""")
+        conn.commit()
+        conn.close()
+
+        from storage.database import DashboardDatabase
+        db = DashboardDatabase(path)
+        db.save_ai_analysis('OCP-33333', '4.22', None, analysis={
+            'root_cause': 'toolchain mismatch', 'confidence': 90,
+            'failure_type': 'product_bug', 'analysis_mode': 'pre-classifier',
+            'needs_human_review': True, 'review_reason': 'verify operator Go'})
+        cached = db.get_ai_analysis('OCP-33333', '4.22')
+        assert cached['needs_human_review'] is True
+        assert cached['review_reason'] == 'verify operator Go'

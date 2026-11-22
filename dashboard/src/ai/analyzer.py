@@ -506,15 +506,22 @@ WMCO_GOLANG_MISMATCH_PATTERNS = [
 # The test reads the operator's logs, so a pod that has not started yet is
 # a test-side readiness race; only WMCO pods count, because the same
 # message for another component may be a real cluster problem.
+# The startup state must belong to the WMCO *pod*, not to anything else
+# in the namespace: `-n openshift-windows-machine-config-operator` appears
+# in every error from that namespace, including unrelated pods, so the
+# pod reference itself has to be matched.
+WMCO_POD_NAME = r'windows-machine-config-operator-[a-z0-9]+(?:-[a-z0-9]+)*'
 WMCO_NOT_READY_PATTERNS = [
     re.compile(
-        r'windows-machine-config-operator[\s\S]{0,400}?'
+        r'pod\s*[\\"]\s*' + WMCO_POD_NAME + r'\s*[\\"]'
+        r'[\s\S]{0,300}?'
         r'(?:ContainerCreating|is waiting to start|pod is pending)',
         re.IGNORECASE,
     ),
     re.compile(
-        r'(?:ContainerCreating|is waiting to start)[\s\S]{0,400}?'
-        r'windows-machine-config-operator',
+        r'(?:ContainerCreating|is waiting to start|pod is pending)'
+        r'[\s\S]{0,300}?'
+        r'pod\s*[\\"]\s*' + WMCO_POD_NAME + r'\s*[\\"]',
         re.IGNORECASE,
     ),
 ]
@@ -1069,21 +1076,12 @@ class HybridFailureAnalyzer:
         if force_ai:
             logger.info(f"Bypassing pre-classifiers for {test_name} (force_ai), sending directly to GLM")
         else:
-            # Step 1: Pre-classify known infrastructure patterns
-            # Fetch logs once for all pre-classifiers to avoid duplicate requests
-            logs = _fetch_logs(log_url) if log_url else ''
-
-            pre_result = detect_ssh_flake(error_message, pass_rate, log_text=logs)
-            if pre_result:
-                logger.info(f"Pre-classified {test_name} as SSH flake (skipping AI analysis)")
-                return pre_result
-
-            # Step 1a-ii: WMCO toolchain and readiness signatures.
-            # Both run before the generic classifiers: a Go version
-            # mismatch is a product defect that must not be labelled a
-            # test problem, and the readiness race must not be labelled
-            # a product defect. Ordered so the product signal wins if a
-            # message somehow carries both.
+            # Step 1a: WMCO signatures first. Both depend only on the
+            # error message and must outrank the log-based classifiers:
+            # a Go toolchain mismatch is a product defect, and an SSH
+            # line elsewhere in the logs would otherwise classify it as
+            # a transient flake. Product signal wins over the readiness
+            # race when a message carries both.
             golang_result = detect_wmco_golang_version_mismatch(error_message)
             if golang_result:
                 logger.info(
@@ -1099,6 +1097,15 @@ class HybridFailureAnalyzer:
                     "(automation bug, skipping AI analysis)"
                 )
                 return not_ready_result
+
+            # Step 1: Pre-classify known infrastructure patterns
+            # Fetch logs once for all pre-classifiers to avoid duplicate requests
+            logs = _fetch_logs(log_url) if log_url else ''
+
+            pre_result = detect_ssh_flake(error_message, pass_rate, log_text=logs)
+            if pre_result:
+                logger.info(f"Pre-classified {test_name} as SSH flake (skipping AI analysis)")
+                return pre_result
 
             # Step 1b: Check DNS and quota infrastructure patterns
             infra_result = detect_infra_flake(error_message, log_text=logs)
