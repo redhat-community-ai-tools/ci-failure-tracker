@@ -343,8 +343,11 @@ def _build_history_context(pass_rate: Optional[float],
             )
     elif pass_rate is not None and pass_rate < 50.0 and total and total >= min_sample:
         text += (
-            "\nThe test fails most of the time in this window: weigh a "
-            "persistent test or product defect over a one-off flake."
+            f"\nThe test fails most of the time in this window "
+            f"({context.get('failed', 0)} of {total} runs). That is a "
+            "persistent test or product defect: classify it as "
+            "automation_bug or product_bug, do not call it transient, "
+            "and do not suggest a retry."
         )
     elif pass_rate is not None and pass_rate >= 90.0:
         text += (
@@ -1514,11 +1517,13 @@ Use this domain context to distinguish preconditions from product assertions:
   indicate a systemic test or product issue, not a platform-specific
   bug. Classify as **automation_bug** if the test setup/install logic
   is flawed, or **product_bug** if the CSI driver itself fails.
-- **When pass rate is low (<50%), the failure is persistent, not
-  transient.** Do NOT suggest "retry" or "monitor." Instead identify
-  the specific component bug and recommend filing or updating a Jira
-  issue for the responsible team (WMCO team for Windows CSI driver
-  issues, storage team for CSI driver itself).
+- **When the supplied Test History shows a low pass rate over a
+  sample that is large enough to be a trend, treat the failure as
+  persistent, not transient.** The threshold and the sample size are
+  given in that block; when it says the sample is small, do not infer a
+  persistent defect from the rate. For a persistent failure, do NOT
+  suggest "retry" or "monitor": identify the component and recommend
+  filing or updating a Jira issue for the responsible team.
 - **Suggested actions must be specific and actionable.** Never suggest
   generic phrases like "investigate the logs", "investigate why X
   happens", "check pod logs and node conditions", or just "retry."
@@ -1568,8 +1573,6 @@ Do NOT classify as product_bug solely because:
 - CSI driver daemonset not ready on Windows nodes across multiple
   platforms with low pass rate → **automation_bug** or **product_bug**,
   persistent systemic issue needing a Jira ticket
-- Any failure with pass rate <50%: this is persistent, NOT transient.
-  Classify as automation_bug or product_bug, never transient.
 
 ## Required Output
 

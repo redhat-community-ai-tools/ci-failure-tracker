@@ -65,6 +65,18 @@ class TestHistoryContext:
             'window_days': 30, 'passed': 4, 'failed': 16, 'total': 20,
             'min_sample': 5})
         assert 'fails most of the time' in text
+        # the "never transient" instruction stays, once the sample is real
+        assert 'do not call it transient' in text
+        assert 'do not suggest a retry' in text
+
+    def test_low_rate_with_small_sample_does_not_forbid_transient(self):
+        """Negative (CodeRabbit finding on #294): a 1 pass / 3 fail sample
+        must not be told to classify as persistent and never transient."""
+        text = _build_history_context(25.0, {
+            'window_days': 30, 'passed': 1, 'failed': 3, 'total': 4,
+            'min_sample': 5})
+        assert 'do not call it transient' not in text
+        assert 'do not suggest a retry' not in text
 
     def test_rate_without_counts_still_reports_the_rate(self):
         text = _build_history_context(50.0, {})
@@ -140,3 +152,36 @@ class TestServerComputesTheWindow:
         self._insert(db, days_ago=6, status='skipped')
         ctx = self._history(app_and_db, monkeypatch, days=7)
         assert ctx['total'] == 1
+
+
+class TestPromptHasNoUnconditionalRateRules:
+    """The rendered prompt must not carry a sample-blind "<50% is
+    persistent" rule (CodeRabbit finding on #294)."""
+
+    @staticmethod
+    def _prompt(pass_rate, context):
+        import ai.analyzer as analyzer_module
+        analyzer = analyzer_module.HybridFailureAnalyzer.__new__(
+            analyzer_module.HybridFailureAnalyzer)
+        analyzer.timeout_seconds = 300
+        history = analyzer_module._build_history_context(pass_rate, context)
+        return analyzer._build_analysis_prompt(
+            'OCP-37362', 'err', 'logs', 'aws', '4.22',
+            history_context=history)
+
+    def test_static_never_transient_rule_is_gone(self):
+        prompt = self._prompt(None, None)
+        assert 'Any failure with pass rate <50%' not in prompt
+        assert 'When pass rate is low (<50%)' not in prompt
+
+    def test_small_sample_does_not_get_persistent_instruction(self):
+        prompt = self._prompt(25.0, {
+            'window_days': 30, 'passed': 1, 'failed': 3, 'total': 4,
+            'min_sample': 5})
+        assert 'do not call it transient' not in prompt
+
+    def test_large_low_rate_sample_does(self):
+        prompt = self._prompt(20.0, {
+            'window_days': 30, 'passed': 4, 'failed': 16, 'total': 20,
+            'min_sample': 5})
+        assert 'do not call it transient' in prompt
