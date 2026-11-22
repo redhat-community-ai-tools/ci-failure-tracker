@@ -498,6 +498,170 @@ def detect_timeout_flake(
     }
 
 
+WMCO_GOLANG_MISMATCH_PATTERNS = [
+    re.compile(r'Unmatching golang version', re.IGNORECASE),
+    re.compile(r'winc\.go:10(?:53|73)', re.IGNORECASE),
+]
+
+# The test reads the operator's logs, so a pod that has not started yet is
+# a test-side readiness race; only WMCO pods count, because the same
+# message for another component may be a real cluster problem.
+WMCO_NOT_READY_PATTERNS = [
+    re.compile(
+        r'windows-machine-config-operator[\s\S]{0,400}?'
+        r'(?:ContainerCreating|is waiting to start|pod is pending)',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'(?:ContainerCreating|is waiting to start)[\s\S]{0,400}?'
+        r'windows-machine-config-operator',
+        re.IGNORECASE,
+    ),
+]
+
+
+def detect_wmco_golang_version_mismatch(
+    error_message: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Pre-classify a WMCO Go toolchain mismatch as a product bug.
+
+    OCP-37362 compares the Go version the payload ships with the Go
+    version the operator was built with. When ``release-4.22`` is built
+    from an older golang-builder than the payload (1.25 vs 1.26), the
+    operator is genuinely inconsistent with the rest of the payload and
+    the test fails on ``Unmatching golang version``.
+
+    This is a product defect, not a test defect: the failure is the
+    signal the test exists to raise. Classifying it as automation_bug is
+    a false negative, so it is pre-classified here without an AI call.
+    """
+    if not error_message:
+        return None
+
+    matches = [p.pattern for p in WMCO_GOLANG_MISMATCH_PATTERNS
+               if p.search(error_message)]
+    if not matches:
+        return None
+
+    logger.info(
+        "Pre-classified as WMCO Go toolchain mismatch "
+        f"(patterns={len(matches)})"
+    )
+
+    return {
+        'root_cause': (
+            'The Windows Machine Config Operator was built with a '
+            'different Go minor version than the OCP payload it runs on, '
+            'so OCP-37362 fails comparing them. This is a product/build '
+            'inconsistency in the WMCO release branch (its '
+            'golang-builder image lags the payload toolchain), not a '
+            'defect in the test.'
+        ),
+        'component': ('windows-machine-config-operator (build toolchain)'),
+        'confidence': 90,
+        'failure_type': 'product_bug',
+        'classification': 'product_bug',
+        'platform_specific': False,
+        'affected_platforms': [],
+        'evidence': (
+            'Failure text: "Unmatching golang version". The test prints '
+            'the payload Go version and compares it with the version '
+            'reported by the operator; a mismatch means the operator was '
+            'built with a different Go minor than the payload.'
+        ),
+        'suggested_action': (
+            'Bump the golang-builder tag in the WMCO release branch to '
+            'match the payload (for 4.22: rhel_9_1.26) and rebuild the '
+            'operator and bundle images. Also ask the test owner to print '
+            'the operator-side Go version in the failure message, since '
+            'the current message omits it.'
+        ),
+        'issue_title': (
+            'WMCO built with a different Go version than the OCP payload'
+        ),
+        'issue_description': (
+            'The operator image is built from an older golang-builder '
+            'than the payload ships, so OCP-37362 fails with '
+            '"Unmatching golang version" on every platform. The operator '
+            'must be rebuilt with the payload toolchain.'
+        ),
+        'is_product_bug': True,
+        'needs_human_review': True,
+        'review_reason': (
+            'Product/build inconsistency detected from the failure text; '
+            'confirm the operator-side Go version before filing.'
+        ),
+        'pre_classified': True,
+        'pre_classifier': 'wmco_golang_mismatch_detector',
+        'cost': 0.0,
+        'analysis_mode': 'pre-classifier',
+    }
+
+
+def detect_wmco_not_ready(error_message: str) -> Optional[Dict[str, Any]]:
+    """
+    Pre-classify a WMCO pod readiness race as an automation bug.
+
+    OCP-37362 runs in the same job that installs WMCO and calls
+    ``oc logs`` without waiting for the operator pod to start, so it can
+    fail seconds after the pod was created while the image is still
+    pulling. That one is a test-side race, not a product defect -- the
+    distinction this function exists to keep, since the same test name
+    produces both kinds of failure.
+    """
+    if not error_message:
+        return None
+
+    matches = [p.pattern for p in WMCO_NOT_READY_PATTERNS
+               if p.search(error_message)]
+    if not matches:
+        return None
+
+    logger.info(
+        "Pre-classified as WMCO pod readiness race "
+        f"(patterns={len(matches)})"
+    )
+
+    return {
+        'root_cause': (
+            'The test fetched the operator logs before the '
+            'windows-machine-config-operator pod had started, so '
+            '`oc logs` failed with ContainerCreating. The test does not '
+            'wait for the operator deployment to be available.'
+        ),
+        'component': ('windows-machine-config-operator (test readiness)'),
+        'confidence': 88,
+        'failure_type': 'automation_bug',
+        'classification': 'automation_bug',
+        'platform_specific': False,
+        'affected_platforms': [],
+        'evidence': (
+            'Failure text reports the manager container "is waiting to '
+            'start: ContainerCreating" for the '
+            'windows-machine-config-operator pod.'
+        ),
+        'suggested_action': (
+            'Make the test wait for the operator deployment to be '
+            'Available (or poll until the manager container is Running) '
+            'before running `oc logs`.'
+        ),
+        'issue_title': (
+            'OCP-37362 does not wait for the WMCO pod before reading logs'
+        ),
+        'issue_description': (
+            'The test reads WMCO logs immediately after installation, so '
+            'it fails whenever the operator pod is still '
+            'ContainerCreating.'
+        ),
+        'is_product_bug': False,
+        'pre_classified': True,
+        'pre_classifier': 'wmco_not_ready_detector',
+        'cost': 0.0,
+        'analysis_mode': 'pre-classifier',
+    }
+
+
 def detect_known_flaky_test(
     test_name: str,
     test_description: str,
@@ -913,6 +1077,28 @@ class HybridFailureAnalyzer:
             if pre_result:
                 logger.info(f"Pre-classified {test_name} as SSH flake (skipping AI analysis)")
                 return pre_result
+
+            # Step 1a-ii: WMCO toolchain and readiness signatures.
+            # Both run before the generic classifiers: a Go version
+            # mismatch is a product defect that must not be labelled a
+            # test problem, and the readiness race must not be labelled
+            # a product defect. Ordered so the product signal wins if a
+            # message somehow carries both.
+            golang_result = detect_wmco_golang_version_mismatch(error_message)
+            if golang_result:
+                logger.info(
+                    f"Pre-classified {test_name} as WMCO Go toolchain "
+                    "mismatch (product bug, skipping AI analysis)"
+                )
+                return golang_result
+
+            not_ready_result = detect_wmco_not_ready(error_message)
+            if not_ready_result:
+                logger.info(
+                    f"Pre-classified {test_name} as WMCO readiness race "
+                    "(automation bug, skipping AI analysis)"
+                )
+                return not_ready_result
 
             # Step 1b: Check DNS and quota infrastructure patterns
             infra_result = detect_infra_flake(error_message, log_text=logs)
