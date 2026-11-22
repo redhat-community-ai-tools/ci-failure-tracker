@@ -88,7 +88,11 @@ oc rollout restart deployment/winc-dashboard-poc
   `Unmatching golang version` is a **product bug** (the operator was
   built with a different Go minor than the payload, which is exactly what
   the test exists to catch), while `ContainerCreating` on the operator pod
-  is an **automation bug** (the test reads logs before the pod starts)
+  is a **system issue**: the cluster is still converging, or a control-plane
+  MachineConfigPool drain has evicted the operator pod and its image is
+  being re-pulled. The test's single un-waited `oc logs` call is the
+  brittleness behind it, but the environment was genuinely unavailable, so
+  it is not filed as a test defect
 - Results carry `analysis_mode: "pre-classifier"`
 - Perfect default for CI triage
 
