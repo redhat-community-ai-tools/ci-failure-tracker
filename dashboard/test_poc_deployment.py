@@ -320,25 +320,29 @@ class TestAiConfigInConfigMap:
             assert marker not in dumped
 
 
-class TestAiProviderEnv:
-    """All three provider credentials are wired, so switching provider
-    only needs a ConfigMap edit."""
+class TestAiCredentialEnv:
+    """enMaas is the only supported AI API, so it is the only AI
+    credential the deployment may wire."""
 
     def test_enmaas_key_from_secret(self, dashboard_env):
         ref = dashboard_env["ENMAAS_KEY"]["valueFrom"]["secretKeyRef"]
         assert ref["name"] == "enmaas-api-key"
+        assert ref["key"] == "api-key"
         assert ref.get("optional") is True
 
-    def test_openai_key_from_secret(self, dashboard_env):
-        ref = dashboard_env["OPENAI_API_KEY"]["valueFrom"]["secretKeyRef"]
-        assert ref["name"] == "openai-api-key"
-        assert ref.get("optional") is True
+    def test_no_other_provider_credentials_are_wired(self, dashboard_env):
+        """Negative: OpenAI and Vertex must not be configured."""
+        for name in ("OPENAI_API_KEY", "VERTEX_API_KEY",
+                     "GOOGLE_APPLICATION_CREDENTIALS"):
+            assert name not in dashboard_env
 
-    def test_vertex_key_from_secret(self, dashboard_env):
-        ref = dashboard_env["VERTEX_API_KEY"]["valueFrom"]["secretKeyRef"]
-        assert ref["name"] == "vertex-api-key"
-        assert ref.get("optional") is True
-
+    def test_manifest_has_no_vertex_references(self):
+        """Negative: no Vertex leftovers in the deployment or ConfigMap."""
+        for path in ("openshift/poc/dashboard-deployment.yaml",
+                     "openshift/poc/dashboard-configmap.yaml"):
+            with open(path) as handle:
+                raw = handle.read().lower()
+            assert "vertex" not in raw, path
 
 class TestOauthProxyAuthorization:
     """--openshift-sar is deliberately absent: the proxy performs the

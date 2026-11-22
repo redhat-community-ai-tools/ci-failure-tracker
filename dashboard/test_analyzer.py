@@ -1661,8 +1661,9 @@ class TestModelConfiguration:
         assert settings['endpoint'] == analyzer_module.AI_DEFAULT_ENDPOINT
 
 
-class TestProviderSelection:
-    """ENMAAS, OPENAI, and VERTEX are all selectable from config.yaml."""
+class TestEnmaasOnlyProvider:
+    """enMaas is the only supported AI API; every other provider id is
+    rejected rather than attempted."""
 
     @staticmethod
     def _settings(tmp_path, ai):
@@ -1676,55 +1677,42 @@ class TestProviderSelection:
         assert ai['provider'] == 'enmaas'
         assert ai['api_key_env'] == 'ENMAAS_KEY'
 
-    def test_enmaas_preset(self, tmp_path):
+    def test_only_enmaas_is_supported(self):
+        assert analyzer_module.AI_SUPPORTED_PROVIDERS == ('enmaas',)
+
+    def test_defaults_match_the_enmaas_gateway(self, tmp_path):
         settings = self._settings(tmp_path, {'provider': 'enmaas'})
-        assert settings['endpoint'] == 'https://api.enmaas.devshift.net/v1/chat/completions'
-        assert settings['api_key_env'] == 'ENMAAS_KEY'
+        assert settings['provider'] == 'enmaas'
+        assert settings['endpoint'] == analyzer_module.AI_DEFAULT_ENDPOINT
         assert settings['model'] == analyzer_module.AI_DEFAULT_MODEL
+        assert settings['api_key_env'] == 'ENMAAS_KEY'
 
-    def test_openai_preset(self, tmp_path):
+    def test_vertex_is_rejected(self, tmp_path):
+        """Negative: Vertex AI is no longer supported."""
+        settings = self._settings(tmp_path, {'provider': 'vertex'})
+        assert settings['provider'] == 'enmaas'
+        assert settings['endpoint'] == analyzer_module.AI_DEFAULT_ENDPOINT
+        assert settings['api_key_env'] == 'ENMAAS_KEY'
+
+    def test_openai_is_rejected(self, tmp_path):
+        """Negative: only the enMaas gateway may receive the key."""
         settings = self._settings(tmp_path, {'provider': 'openai',
-                                             'model': 'gpt-4o-mini'})
-        assert settings['provider'] == 'openai'
-        assert settings['endpoint'] == 'https://api.openai.com/v1/chat/completions'
-        assert settings['api_key_env'] == 'OPENAI_API_KEY'
-        assert settings['model'] == 'gpt-4o-mini'
+                                            'model': 'gpt-4o-mini'})
+        assert settings['provider'] == 'enmaas'
+        assert settings['endpoint'] == analyzer_module.AI_DEFAULT_ENDPOINT
+        # the enMaas key variable is kept, not OPENAI_API_KEY
+        assert settings['api_key_env'] == 'ENMAAS_KEY'
 
-    def test_openai_without_model_has_no_model(self, tmp_path):
-        """The preset must not guess a model for another provider."""
-        settings = self._settings(tmp_path, {'provider': 'openai'})
-        assert settings['model'] == ''
-
-    def test_vertex_requires_explicit_endpoint(self, tmp_path):
-        settings = self._settings(tmp_path, {'provider': 'vertex',
-                                             'model': 'google/gemini-2.0-flash-001'})
-        assert settings['provider'] == 'vertex'
-        assert settings['endpoint'] == ''
-        assert settings['api_key_env'] == 'VERTEX_API_KEY'
-
-    def test_vertex_accepts_regional_endpoint(self, tmp_path):
+    def test_vertex_endpoint_is_ignored(self, tmp_path):
+        """Negative (key leakage): a Vertex endpoint must never be used,
+        even if the ConfigMap points at one."""
         url = ('https://us-central1-aiplatform.googleapis.com/v1beta1/projects/p'
                '/locations/us-central1/endpoints/openapi/chat/completions')
         settings = self._settings(tmp_path, {'provider': 'vertex', 'endpoint': url})
-        assert settings['endpoint'] == url
-
-    def test_unknown_provider_falls_back(self, tmp_path):
-        """Negative: an unrecognised provider uses the default."""
-        settings = self._settings(tmp_path, {'provider': 'gemini-direct'})
-        assert settings['provider'] == analyzer_module.AI_DEFAULT_PROVIDER
         assert settings['endpoint'] == analyzer_module.AI_DEFAULT_ENDPOINT
 
-    def test_openai_key_is_not_sent_to_another_host(self, tmp_path):
-        """Negative (key leakage): an openai provider pointed at another
-        host must fall back to the openai endpoint, not honour it."""
-        settings = self._settings(tmp_path, {
-            'provider': 'openai',
-            'endpoint': 'https://attacker.example.com/v1/chat/completions',
-        })
-        assert settings['endpoint'] == 'https://api.openai.com/v1/chat/completions'
-
-    def test_enmaas_key_is_not_sent_to_openai_host(self, tmp_path):
-        """Negative: the enMaas key may not be redirected to api.openai.com."""
+    def test_openai_endpoint_is_ignored(self, tmp_path):
+        """Negative: the enMaas key is not sent to api.openai.com."""
         settings = self._settings(tmp_path, {
             'provider': 'enmaas',
             'endpoint': 'https://api.openai.com/v1/chat/completions',
@@ -1734,25 +1722,21 @@ class TestProviderSelection:
     def test_http_scheme_rejected(self, tmp_path):
         """Negative: plain http is never used for the key-bearing call."""
         settings = self._settings(tmp_path, {
-            'provider': 'openai',
-            'endpoint': 'http://api.openai.com/v1/chat/completions',
+            'endpoint': 'http://api.enmaas.devshift.net/v1/chat/completions',
         })
-        assert settings['endpoint'] == 'https://api.openai.com/v1/chat/completions'
+        assert settings['endpoint'] == analyzer_module.AI_DEFAULT_ENDPOINT
 
-    def test_analyzer_uses_provider_key_variable(self, monkeypatch):
-        monkeypatch.setenv('OPENAI_API_KEY', 'sk-test')
-        monkeypatch.delenv('ENMAAS_KEY', raising=False)
-        settings = {'provider': 'openai',
-                    'endpoint': 'https://api.openai.com/v1/chat/completions',
-                    'model': 'gpt-4o-mini',
-                    'api_key_env': 'OPENAI_API_KEY',
-                    'timeout_seconds': analyzer_module.AI_DEFAULT_TIMEOUT_SECONDS}
-        monkeypatch.setattr(analyzer_module, '_load_ai_settings', lambda *a, **k: settings)
+    def test_gateway_endpoint_is_accepted(self, tmp_path):
+        url = 'https://api.enmaas.devshift.net/v1/chat/completions'
+        settings = self._settings(tmp_path, {'endpoint': url})
+        assert settings['endpoint'] == url
+
+    def test_analyzer_uses_the_enmaas_key(self, monkeypatch):
+        monkeypatch.setenv('ENMAAS_KEY', 'sk-test')
         analyzer = HybridFailureAnalyzer()
-        assert analyzer.provider == 'openai'
+        assert analyzer.provider == 'enmaas'
         assert analyzer.api_key == 'sk-test'
-        assert analyzer.model == 'gpt-4o-mini'
-
+        assert analyzer.model == analyzer_module.AI_DEFAULT_MODEL
 
 class TestAiTimeout:
     """Thinking models need more than the old fixed 120s, and a timeout

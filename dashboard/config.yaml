@@ -315,12 +315,12 @@ schedule:
   # Cron expression (e.g., "0 9 * * *" for daily at 9 AM)
   cron: "0 9 * * *"
 
-# AI analyzer settings. 'provider' selects a preset for the endpoint,
-# default model, and API-key variable: enmaas, openai, or vertex. Each
-# of endpoint/model/api_key_env may be overridden individually; the key
-# value itself must stay in a Kubernetes Secret and never in this file.
-# The endpoint must be an https URL on the provider's allowed host,
-# otherwise it is ignored so the API key cannot be redirected.
+# AI analyzer settings. enMaas is the only supported AI API: the
+# analyzer rejects any other provider and only sends its credential to
+# api.enmaas.devshift.net. endpoint/model/api_key_env may be overridden
+# individually; the key value itself must stay in a Kubernetes Secret and
+# never in this file. An endpoint that is not an https URL on the gateway
+# host is ignored, so the key cannot be redirected elsewhere.
 ai:
   provider: "enmaas"
   endpoint: "https://api.enmaas.devshift.net/v1/chat/completions"
