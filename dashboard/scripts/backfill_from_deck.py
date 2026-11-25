@@ -287,6 +287,7 @@ def runs_from_prowjobs(deck, token, start, end, pattern):
         runs.append({
             'job_name': name,
             'build_id': str(status.get('build_id')),
+            'deck': deck,
             'url': status.get('url', ''),
             'started': started_dt,
             'state': status.get('state', ''),
@@ -324,6 +325,7 @@ def runs_from_urls(deck, token, run_urls):
         runs.append({
             'job_name': job_name,
             'build_id': build_id,
+            'deck': run_deck,
             'url': url,
             'started': started,
             'state': state,
@@ -360,7 +362,10 @@ def collect(deck, token, days, pattern, suite_filter, dry_run, db_path,
             print(f"  SKIP {name}/{build_id}: no spyglass data")
             continue
         src, lens_artifacts = fetched
-        tests = fetch_junit_tests(deck, token, src, lens_artifacts)
+        # An explicit run URL may point at a different deck than the
+        # configured one; lens requests must go to the deck that served
+        # the run, or the bucket is not reachable.
+        tests = fetch_junit_tests(run['deck'], token, src, lens_artifacts)
         if suite_filter:
             tests = [t for t in tests if suite_filter in t['name']]
         if not tests:

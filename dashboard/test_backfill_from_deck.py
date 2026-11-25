@@ -9,7 +9,9 @@ Covers the two properties that matter before writing rows:
 """
 
 import importlib.util
+import json
 import os
+from datetime import datetime, timezone
 from unittest import mock
 
 SCRIPT_PATH = os.path.join(os.path.dirname(__file__), 'scripts',
@@ -183,3 +185,48 @@ class TestFetchRunMetadata:
 
         assert state == 'failure'
         assert duration == 12 * 60
+
+
+class TestRunRecordDeck:
+    """Each run record keeps the deck that served it.
+
+    An explicit run URL can point at a different deck than the configured
+    one. Lens requests must follow that deck, otherwise the bucket is not
+    reachable and the import silently yields nothing.
+    """
+
+    def test_prowjob_runs_use_configured_deck(self):
+        script = _load_script()
+        payload = json.dumps({'items': [{
+            'spec': {'job': 'periodic-ci-x-winc-f7'},
+            'status': {
+                'build_id': '1', 'state': 'success',
+                'startTime': '2026-11-25T00:00:00Z',
+                'completionTime': '2026-11-25T01:00:00Z',
+                'url': 'https://configured.example/view/gs/b/p',
+            },
+        }]}).encode()
+
+        with mock.patch.object(script, 'http_get', return_value=payload):
+            runs = script.runs_from_prowjobs(
+                'https://configured.example', 'token',
+                datetime(2026, 11, 24, tzinfo=timezone.utc),
+                datetime(2026, 11, 26, tzinfo=timezone.utc),
+                '*winc*')
+
+        assert runs[0]['deck'] == 'https://configured.example'
+
+    def test_explicit_url_keeps_its_own_deck(self):
+        script = _load_script()
+        url = ('https://other-deck.example/view/gs/bucket/pr-logs/pull/o_r/1/'
+               'rehearse-1-periodic-ci-x-winc-f7/123')
+
+        with mock.patch.object(script, 'fetch_run',
+                               return_value=('gs/bucket/path', {})), \
+             mock.patch.object(script, 'fetch_run_metadata',
+                               return_value=(datetime(2026, 11, 24, tzinfo=timezone.utc),
+                                             'success', 60.0)):
+            runs = script.runs_from_urls('https://configured.example',
+                                         'token', [url])
+
+        assert runs[0]['deck'] == 'https://other-deck.example'
