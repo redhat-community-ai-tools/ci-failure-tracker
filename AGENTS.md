@@ -204,3 +204,14 @@ Most agent work targets the dashboard.
     inline `# noqa` or CodeQL suppression comment
     (`# lgtm[py/incomplete-url-substring-sanitization]`) explaining
     the assertion is documentation coverage, not URL sanitization.
+
+26. **Database schema consistency.** When adding, removing, or modifying
+    columns in `database.py`, verify that ALL code paths defining the
+    affected table's schema are updated consistently. The
+    `_create_tables()` method contains multiple schema definition points
+    for the same table: the initial `CREATE TABLE IF NOT EXISTS`, migration
+    `CREATE TABLE` blocks that recreate tables when old schemas are
+    detected, and `ALTER TABLE` migrations. All must agree on the column
+    set. After making schema changes, search `_create_tables()` for every
+    occurrence of the table name and confirm each `CREATE TABLE` statement
+    includes the new column.
