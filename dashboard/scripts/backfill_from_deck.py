@@ -23,6 +23,9 @@ Usage (inside the dashboard pod):
     python3 /tmp/backfill_from_deck.py --dry-run --days 3
     python3 /tmp/backfill_from_deck.py --days 3 --pattern '*winc*'
 
+    # Builds whose ProwJob has been garbage-collected: supply the run URL
+    python3 /tmp/backfill_from_deck.py --dry-run --run-url '<deck run URL>'
+
 Set ``API_KEY`` (deck bearer token) and optionally ``DECK_URL``.
 """
 
@@ -201,16 +204,70 @@ def fetch_junit_tests(deck, token, src, lens_artifacts):
     return parse_junit_lens(page)
 
 
-def collect(deck, token, days, pattern, suite_filter, dry_run, db_path):
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(days=days)
+def parse_run_url(url):
+    """Split a deck run URL into (deck_base, src, job_name, build_id)."""
+    m = re.match(r'^(https?://[^/]+)/view/gs/([^/]+)/(.+?)/?$', url)
+    if not m:
+        return None
+    base, bucket, path = m.groups()
+    path = path.rstrip('/')
+    parts = path.split('/')
+    if len(parts) < 2:
+        return None
+    return base, f"gs/{bucket}/{path}", parts[-2], parts[-1]
 
+
+def fetch_run_metadata(deck, token, src, lens_artifacts):
+    """Read start time, result and duration from the rendered metadata lens.
+
+    Needed for run URLs whose ProwJob is gone: there is no startTime or
+    completionTime to read from the API.
+    """
+    index = None
+    for i, artifacts in lens_artifacts.items():
+        if any(a.endswith('finished.json') or a == 'finished.json'
+               for a in artifacts):
+            index = i
+            break
+    if index is None and '0' in lens_artifacts:
+        index = '0'
+    if index is None:
+        return None
+
+    req = json.dumps({'artifacts': lens_artifacts[index],
+                      'index': int(index), 'src': src})
+    url = f"{deck}/spyglass/lens/metadata/iframe?req=" + urllib.parse.quote(req)
+    page = http_get(url, token).decode('utf-8', 'replace')
+    text = html.unescape(re.sub(r'<[^>]+>', ' ', page))
+    text = re.sub(r'\s+', ' ', text)
+
+    started = None
+    m = re.search(r'Test started (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', text)
+    if m:
+        started = datetime.strptime(m.group(1), '%Y-%m-%d %H:%M:%S').replace(
+            tzinfo=timezone.utc)
+
+    state = 'failure'
+    m = re.search(r'\b(passed|failed|error|aborted)\b after', text)
+    if m:
+        state = 'success' if m.group(1) == 'passed' else 'failure'
+
+    duration = 0.0
+    m = re.search(r'after ((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)', text)
+    if m:
+        duration = parse_duration(m.group(1))
+
+    return started, state, duration
+
+
+def runs_from_prowjobs(deck, token, start, end, pattern):
+    """Select ProwJobs from prowjobs.js within the date range."""
     raw = http_get(f"{deck}/prowjobs.js?var=allBuilds", token, timeout=300)
     payload = json.loads(raw[raw.index(b'{'):].rstrip(b'; \n\r\t'))
     jobs = payload.get('items', [])
     print(f"prowjobs: {len(jobs)} total")
 
-    selected = []
+    runs = []
     for job in jobs:
         name = job.get('spec', {}).get('job', '')
         status = job.get('status', {})
@@ -222,35 +279,97 @@ def collect(deck, token, days, pattern, suite_filter, dry_run, db_path):
         started_dt = datetime.fromisoformat(started.replace('Z', '+00:00'))
         if not (start <= started_dt <= end):
             continue
-        selected.append(job)
+        finished = status.get('completionTime')
+        duration = 0.0
+        if finished:
+            duration = (datetime.fromisoformat(
+                finished.replace('Z', '+00:00')) - started_dt).total_seconds()
+        runs.append({
+            'job_name': name,
+            'build_id': str(status.get('build_id')),
+            'deck': deck,
+            'url': status.get('url', ''),
+            'started': started_dt,
+            'state': status.get('state', ''),
+            'duration': duration,
+        })
 
-    print(f"selected {len(selected)} job(s) matching {pattern!r} in last {days}d")
+    print(f"selected {len(runs)} job(s) matching {pattern!r} in range")
+    return runs
+
+
+def runs_from_urls(deck, token, run_urls):
+    """Describe explicitly supplied deck run URLs.
+
+    This is the recovery path for builds whose ProwJob has already been
+    garbage-collected: the build id cannot be discovered, but it can be
+    supplied directly.
+    """
+    runs = []
+    for url in run_urls:
+        parsed = parse_run_url(url)
+        if not parsed:
+            print(f"  SKIP {url}: not a deck run URL")
+            continue
+        run_deck, src, job_name, build_id = parsed
+        fetched = fetch_run(url, token)
+        if not fetched:
+            print(f"  SKIP {job_name}/{build_id}: no spyglass data")
+            continue
+        fetched_src, lens_artifacts = fetched
+        meta = fetch_run_metadata(run_deck, token, fetched_src, lens_artifacts)
+        if not meta or not meta[0]:
+            print(f"  SKIP {job_name}/{build_id}: no metadata lens")
+            continue
+        started, state, duration = meta
+        runs.append({
+            'job_name': job_name,
+            'build_id': build_id,
+            'deck': run_deck,
+            'url': url,
+            'started': started,
+            'state': state,
+            'duration': duration,
+        })
+    print(f"selected {len(runs)} run URL(s)")
+    return runs
+
+
+def collect(deck, token, days, pattern, suite_filter, dry_run, db_path,
+            run_urls=None):
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=days)
+
+    if run_urls:
+        runs = runs_from_urls(deck, token, run_urls)
+    else:
+        runs = runs_from_prowjobs(deck, token, start, end, pattern)
 
     sys.path.insert(0, '/app/src')
     from collectors.base import JobRun, TestResult, TestStatus
     from storage.database import DashboardDatabase
 
     job_runs, test_results = [], []
-    for job in selected:
-        name = job['spec']['job']
-        status = job.get('status', {})
-        url = status.get('url', '')
-        started = datetime.fromisoformat(status['startTime'].replace('Z', '+00:00'))
-        finished = status.get('completionTime')
-        duration = 0.0
-        if finished:
-            duration = (datetime.fromisoformat(finished.replace('Z', '+00:00')) - started).total_seconds()
+    for run in runs:
+        name = run['job_name']
+        build_id = run['build_id']
+        url = run['url']
+        started = run['started']
+        duration = run['duration']
 
         fetched = fetch_run(url, token)
         if not fetched:
-            print(f"  SKIP {name}/{status.get('build_id')}: no spyglass data")
+            print(f"  SKIP {name}/{build_id}: no spyglass data")
             continue
         src, lens_artifacts = fetched
-        tests = fetch_junit_tests(deck, token, src, lens_artifacts)
+        # An explicit run URL may point at a different deck than the
+        # configured one; lens requests must go to the deck that served
+        # the run, or the bucket is not reachable.
+        tests = fetch_junit_tests(run['deck'], token, src, lens_artifacts)
         if suite_filter:
             tests = [t for t in tests if suite_filter in t['name']]
         if not tests:
-            print(f"  SKIP {name}/{status.get('build_id')}: no matching tests")
+            print(f"  SKIP {name}/{build_id}: no matching tests")
             continue
 
         tests = aggregate_by_test_id(tests)
@@ -260,10 +379,11 @@ def collect(deck, token, days, pattern, suite_filter, dry_run, db_path):
         for t in tests:
             counts[t['status']] += 1
 
-        result_status = TestStatus.PASSED if status.get('state') == 'success' else TestStatus.FAILED
+        result_status = (TestStatus.PASSED if run['state'] == 'success'
+                         else TestStatus.FAILED)
         job_runs.append(JobRun(
             job_name=name,
-            build_id=str(status.get('build_id')),
+            build_id=build_id,
             status=result_status,
             timestamp=started,
             duration_seconds=duration,
@@ -281,19 +401,20 @@ def collect(deck, token, days, pattern, suite_filter, dry_run, db_path):
             test_id, description = describe_test(t['name'])
             test_results.append(TestResult(
                 test_name=test_id,
-                status=TestStatus(t['status']) if t['status'] in ('passed', 'failed', 'skipped') else TestStatus.UNKNOWN,
+                status=TestStatus(t['status']) if t['status'] in (
+                    'passed', 'failed', 'skipped') else TestStatus.UNKNOWN,
                 timestamp=started,
                 duration_seconds=t['duration_seconds'] or None,
                 error_message=t['message'],
                 job_name=name,
-                build_id=str(status.get('build_id')),
+                build_id=build_id,
                 version=version,
                 platform=platform,
                 test_description=description,
                 job_url=url,
                 job_type=job_type,
             ))
-        print(f"  {name}/{status.get('build_id')}: {counts['passed']} passed, "
+        print(f"  {name}/{build_id}: {counts['passed']} passed, "
               f"{counts['failed']} failed, {counts['skipped']} skipped")
 
     print(f"collected {len(job_runs)} job run(s), {len(test_results)} test result(s)")
@@ -317,6 +438,11 @@ def main():
     parser.add_argument('--suite-filter', default='Windows_Containers')
     parser.add_argument('--db', default='/data/dashboard.db')
     parser.add_argument('--deck', default=os.environ.get('DECK_URL', DEFAULT_DECK))
+    parser.add_argument('--run-url', action='append', default=None,
+                        metavar='URL',
+                        help='deck run URL to import (repeatable). Use this '
+                             'when the ProwJob is gone and prowjobs.js can no '
+                             'longer discover the build')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
 
@@ -325,7 +451,8 @@ def main():
         print('API_KEY is required', file=sys.stderr)
         return 2
     return collect(args.deck, token, args.days, args.pattern,
-                   args.suite_filter, args.dry_run, args.db)
+                   args.suite_filter, args.dry_run, args.db,
+                   run_urls=args.run_url)
 
 
 if __name__ == '__main__':
