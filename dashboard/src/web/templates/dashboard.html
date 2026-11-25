@@ -504,6 +504,21 @@
             box-shadow: 0 4px 6px rgba(220, 38, 38, 0.1);
         }
 
+        .degraded-banner {
+            background: #fef3c7;
+            border: 2px solid #d97706;
+            color: #92400e;
+            padding: 20px 25px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(217, 119, 6, 0.1);
+        }
+
+        .degraded-banner a {
+            color: #92400e;
+            text-decoration: underline;
+        }
+
         .refresh-button {
             background: white;
             color: #3b82f6;
@@ -654,6 +669,22 @@
                     <div id="authErrorMessage" style="font-size: 14px;"></div>
                 </div>
                 <button onclick="document.getElementById('authErrorBanner').style.display='none'" style="background: transparent; border: none; color: #dc2626; cursor: pointer; font-size: 24px; padding: 0 10px;">&times;</button>
+            </div>
+        </div>
+
+        <!-- Degraded collection banner: a source failed but collection continued -->
+        <div id="degradedBanner" class="degraded-banner" style="display:none;">
+            <div style="display: flex; align-items: flex-start; gap: 15px;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink: 0;">
+                    <path d="M12 9V13" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M12 17H12.01" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M10.29 3.86L1.82 18C1.64 18.31 1.55 18.66 1.55 19C1.55 19.35 1.64 19.69 1.82 20C2 20.31 2.26 20.57 2.57 20.75C2.88 20.93 3.23 21.02 3.58 21.01H20.42C20.77 21.02 21.12 20.93 21.43 20.75C21.74 20.57 22 20.31 22.18 20C22.36 19.69 22.45 19.35 22.45 19C22.45 18.66 22.36 18.31 22.18 18L13.71 3.86C13.53 3.55 13.27 3.3 12.96 3.12C12.65 2.94 12.3 2.85 11.95 2.85C11.6 2.85 11.25 2.94 10.94 3.12C10.63 3.3 10.37 3.55 10.29 3.86Z" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <div style="flex: 1;">
+                    <div style="font-weight: 600; font-size: 16px; margin-bottom: 5px;">Partial Data Collection</div>
+                    <div id="degradedMessage" style="font-size: 14px;"></div>
+                </div>
+                <button onclick="document.getElementById('degradedBanner').style.display='none'" style="background: transparent; border: none; color: #92400e; cursor: pointer; font-size: 24px; padding: 0 10px;">&times;</button>
             </div>
         </div>
 
@@ -2567,6 +2598,33 @@
         let collectionPolling = null;
         let wasRunning = false;
 
+        // Show or hide the degraded-collection banner. A warning means at
+        // least one data source failed while the others kept collecting, so
+        // this page holds partial data. Without the banner the run reports
+        // success with zero rows and the outage stays invisible.
+        function renderDegradedWarning(warning) {
+            const degradedBanner = document.getElementById('degradedBanner');
+            const degradedMessage = document.getElementById('degradedMessage');
+            if (!degradedBanner || !degradedMessage) return;
+
+            if (!warning) {
+                degradedBanner.style.display = 'none';
+                return;
+            }
+
+            const isAuthWarning = /403|401|unauthori[sz]ed|forbidden|token|expired|invalid|authentication/i.test(warning);
+            let html = escapeHtml(warning);
+            html += '<br><br>Some CI jobs are not being collected, so this page is showing partial data.';
+            if (isAuthWarning) {
+                html += '<br><br><strong>If this is a token problem:</strong> open the ' +
+                    '<a href="https://oauth-openshift.apps.ci.l2s4.p1.openshiftapps.com/oauth/token/request" target="_blank" rel="noopener">Token Request Page</a>, ' +
+                    'copy the token, update the <code>prow-api-token</code> secret, and restart the deployment. ' +
+                    'See <strong>Docs &rarr; Token Renewal</strong> for the full procedure.';
+            }
+            degradedMessage.innerHTML = html;
+            degradedBanner.style.display = 'block';
+        }
+
         async function checkCollectionStatus() {
             try {
                 const response = await fetch('/api/collection-status');
@@ -2657,6 +2715,16 @@
                         clearInterval(collectionPolling);
                         collectionPolling = null;
                     }
+                }
+
+                // The degraded banner persists while idle so a partial
+                // collection cannot be mistaken for a healthy one. While a
+                // run is in progress, or after a hard failure, it is hidden
+                // in favour of the collection/error banners above.
+                if (status.running || status.error) {
+                    renderDegradedWarning(null);
+                } else {
+                    renderDegradedWarning(status.warning);
                 }
             } catch (error) {
                 console.error('Failed to check collection status:', error);
