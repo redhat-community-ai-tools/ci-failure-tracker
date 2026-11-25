@@ -14,6 +14,11 @@ This script uses the deck instead:
 3. fetch the rendered JUnit lens for that run and parse the per-test rows;
 4. insert ``JobRun`` and ``TestResult`` rows into the dashboard database.
 
+Where the run's step logs print it, the WMCO operator version is taken from
+the ClusterServiceVersion name (``windows-machine-config-operator.v10.22.2``)
+so build-health rows are not left without an operator version. Some runs do
+not print it in any lens-reachable log; those rows stay ``NULL``.
+
 It only sees jobs that are still present in ``prowjobs.js``; it is a
 backfill/rescue path, not a replacement for a working gcsweb (historical
 builds are not enumerable without directory listings).
@@ -187,6 +192,75 @@ def fetch_run(run_url, token):
     return src_m.group(1), json.loads(lens_m.group(1))
 
 
+CSV_NAME_RE = re.compile(
+    r'windows-machine-config-operator(?:\.v)?(\d+\.\d+\.\d+)', re.I)
+E2E_STEPS = ('openshift-extended-test', 'openshift-e2e-test')
+
+
+def parse_operator_version(log_text):
+    """Extract the WMCO operator version from an e2e build log.
+
+    The ClusterServiceVersion object name carries the released version,
+    for example ``clusterserviceversion/windows-machine-config-operator
+    .v10.22.2``. That is the same value the gcsweb collector reads from
+    clusterserviceversions.json, but reachable while gcsweb is down.
+    """
+    m = CSV_NAME_RE.search(log_text)
+    return m.group(1) if m else None
+
+
+def step_dirs(lens_artifacts):
+    """Collect (chain, step) pairs from the run's artifact paths.
+
+    Every step records finished.json (or its artifacts) under
+    artifacts/<chain>/<step>/, so the step names can be recovered without
+    a directory listing. Test steps are tried first because that is where
+    the operator version is printed.
+    """
+    steps = set()
+    for artifacts in lens_artifacts.values():
+        for artifact in artifacts:
+            parts = artifact.split('/')
+            if (len(parts) > 3 and parts[0] == 'artifacts'
+                    and parts[1] not in ('release', 'build-resources')):
+                steps.add((parts[1], parts[2]))
+
+    def priority(pair):
+        step = pair[1].lower()
+        if 'e2e' in step or 'extended' in step:
+            return 0
+        if 'gather' in step or 'install' in step:
+            return 2
+        return 1
+
+    return sorted(steps, key=lambda pair: (priority(pair), pair))
+
+
+def fetch_operator_version(deck, token, src, lens_artifacts, max_steps=25):
+    """Search the run's step logs for the WMCO operator version.
+
+    Only rendered lenses are reachable through the deck, so each step's
+    build-log.txt is requested by constructing its artifact path. The
+    ClusterServiceVersion name carries the released version, for example
+    clusterserviceversion/windows-machine-config-operator.v10.22.2.
+    Returns None when no step log carries it.
+    """
+    for chain, step in step_dirs(lens_artifacts)[:max_steps]:
+        artifact = f'artifacts/{chain}/{step}/build-log.txt'
+        req = json.dumps({'artifacts': [artifact], 'index': 1, 'src': src})
+        url = (f"{deck}/spyglass/lens/buildlog/iframe?req="
+               + urllib.parse.quote(req))
+        try:
+            page = http_get(url, token).decode('utf-8', 'replace')
+        except Exception:
+            continue
+        text = html.unescape(re.sub(r'<[^>]+>', ' ', page))
+        version = parse_operator_version(text)
+        if version:
+            return version
+    return None
+
+
 def fetch_junit_tests(deck, token, src, lens_artifacts):
     junit_index = None
     for index, artifacts in lens_artifacts.items():
@@ -336,7 +410,7 @@ def runs_from_urls(deck, token, run_urls):
 
 
 def collect(deck, token, days, pattern, suite_filter, dry_run, db_path,
-            run_urls=None):
+            run_urls=None, skip_operator_version=False):
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=days)
 
@@ -374,6 +448,11 @@ def collect(deck, token, days, pattern, suite_filter, dry_run, db_path,
 
         tests = aggregate_by_test_id(tests)
 
+        operator_version = None
+        if not skip_operator_version:
+            operator_version = fetch_operator_version(
+                run['deck'], token, src, lens_artifacts)
+
         version, platform, job_type = job_metadata(name)
         counts = {'passed': 0, 'failed': 0, 'skipped': 0}
         for t in tests:
@@ -395,6 +474,7 @@ def collect(deck, token, days, pattern, suite_filter, dry_run, db_path,
             skipped_tests=counts['skipped'],
             job_url=url,
             job_type=job_type,
+            operator_version=operator_version,
         ))
 
         for t in tests:
@@ -415,7 +495,8 @@ def collect(deck, token, days, pattern, suite_filter, dry_run, db_path,
                 job_type=job_type,
             ))
         print(f"  {name}/{build_id}: {counts['passed']} passed, "
-              f"{counts['failed']} failed, {counts['skipped']} skipped")
+              f"{counts['failed']} failed, {counts['skipped']} skipped, "
+              f"operator={operator_version or 'unknown'}")
 
     print(f"collected {len(job_runs)} job run(s), {len(test_results)} test result(s)")
     if dry_run:
@@ -443,6 +524,9 @@ def main():
                         help='deck run URL to import (repeatable). Use this '
                              'when the ProwJob is gone and prowjobs.js can no '
                              'longer discover the build')
+    parser.add_argument('--skip-operator-version', action='store_true',
+                        help='do not read the WMCO operator version from '
+                             'the e2e build log')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
 
@@ -452,7 +536,8 @@ def main():
         return 2
     return collect(args.deck, token, args.days, args.pattern,
                    args.suite_filter, args.dry_run, args.db,
-                   run_urls=args.run_url)
+                   run_urls=args.run_url,
+                   skip_operator_version=args.skip_operator_version)
 
 
 if __name__ == '__main__':
