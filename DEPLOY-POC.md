@@ -43,10 +43,15 @@ Consequences:
   ConfigMap is updated and the pod restarts.
 - The image tag `:latest` does not move by itself when a build completes.
   The build digest has to be tagged explicitly.
-- `scripts/deploy-poc.sh` publishes the **working-tree**
-  `dashboard/config.yaml`. Local, uncommitted config edits are deployed
-  too. Use `SKIP_CONFIG=1` to deploy code only, and check
-  `git status dashboard/config.yaml` before running.
+- `scripts/deploy-poc.sh` builds the **local HEAD commit** and publishes
+  the **working-tree** `dashboard/config.yaml`. To keep the two from
+  silently diverging the script:
+  - refuses to run when `HEAD` is not on the source branch
+    (`SOURCE_REMOTE`, default `upstream`; `SOURCE_BRANCH`, default
+    `master`), so the image always comes from a pushed commit;
+  - refuses to publish a config file that differs from `HEAD`, unless
+    `ALLOW_DIRTY_CONFIG=1` is set, and prints a warning when it does;
+  - use `SKIP_CONFIG=1` to deploy code only.
 
 ## Before you deploy
 
@@ -63,7 +68,11 @@ Consequences:
    git log --oneline -3
    ```
 
-3. Confirm the Prow token in the `prow-api-token` secret has not expired.
+3. Confirm the commit is pushed to the source branch; the script builds
+   `HEAD` explicitly and refuses if that commit is not on
+   `upstream/master`.
+
+4. Confirm the Prow token in the `prow-api-token` secret has not expired.
    User tokens last 24 hours; see
    [`dashboard/docs/token-renewal.md`](dashboard/docs/token-renewal.md).
    An expired token does not fail the deployment, it silently degrades
@@ -79,11 +88,15 @@ Consequences:
 3. Reads the build's image digest and tags it as `<stream>:latest`.
 4. Restarts the deployment and waits for the rollout to finish.
 5. Confirms the running pod's image matches the build digest, and prints
-   the route when `ROUTE_NAME` is set.
+   the route when `ROUTE_NAME` is set. The pod is taken from the current
+   ReplicaSet (no `deletionTimestamp`, `Ready=True`), so a terminating pod
+   from the previous ReplicaSet cannot cause a false failure.
 
 Override targets through environment variables rather than editing the
 script: `NAMESPACE`, `BUILD_CONFIG`, `IMAGE_STREAM`, `CONFIGMAP`,
-`DEPLOYMENT`, `CONFIG_FILE`, `BUILD_TIMEOUT`, `ROLLOUT_TIMEOUT`.
+`DEPLOYMENT`, `CONFIG_FILE`, `BUILD_TIMEOUT`, `ROLLOUT_TIMEOUT`,
+`SOURCE_REMOTE`, `SOURCE_BRANCH`, `EXPECTED_SERVER`, `ROUTE_NAME`,
+`SKIP_CONFIG`, `ALLOW_DIRTY_CONFIG`.
 
 ## Deploying by hand
 

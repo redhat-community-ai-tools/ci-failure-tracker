@@ -65,6 +65,19 @@ class TestScriptShape:
     def test_has_cluster_guard(self, script_source):
         assert 'EXPECTED_SERVER' in script_source
 
+    def test_builds_the_local_commit(self, script_source):
+        assert 'git rev-parse HEAD' in script_source
+        assert 'merge-base --is-ancestor' in script_source
+        assert '--commit="$HEAD_COMMIT"' in script_source
+
+    def test_refuses_dirty_config(self, script_source):
+        assert 'ALLOW_DIRTY_CONFIG' in script_source
+        assert 'git diff --quiet' in script_source
+
+    def test_selects_pod_from_current_replica_set(self, script_source):
+        assert 'deletionTimestamp' in script_source
+        assert '.items[0].metadata.name' not in script_source
+
     def test_skips_config_on_request(self, script_source):
         assert 'SKIP_CONFIG' in script_source
 
@@ -84,6 +97,11 @@ class TestGuide:
 
     def test_documents_browser_cache(self, guide_source):
         assert 'Cmd+Shift+R' in guide_source
+
+    def test_documents_commit_binding(self, guide_source):
+        assert 'local HEAD commit' in guide_source
+        assert 'ALLOW_DIRTY_CONFIG' in guide_source
+        assert 'SOURCE_REMOTE' in guide_source
 
     def test_documents_token_expiry(self, guide_source):
         assert 'token-renewal.md' in guide_source

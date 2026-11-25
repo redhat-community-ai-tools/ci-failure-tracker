@@ -20,6 +20,9 @@
 #   ROLLOUT_TIMEOUT  rollout status timeout      (default 180s)
 #   EXPECTED_SERVER  substring of the expected API server, as a guard
 #   ROUTE_NAME       Route to print on success   (default empty)
+#   SOURCE_REMOTE    remote holding the commit   (default upstream)
+#   SOURCE_BRANCH    branch that must contain it (default master)
+#   ALLOW_DIRTY_CONFIG=1  allow deploying a config that differs from HEAD
 #   SKIP_CONFIG=1    deploy code only, leave the ConfigMap untouched
 #
 # Usage: scripts/deploy-poc.sh
@@ -36,6 +39,9 @@ BUILD_TIMEOUT="${BUILD_TIMEOUT:-600}"
 ROLLOUT_TIMEOUT="${ROLLOUT_TIMEOUT:-180s}"
 EXPECTED_SERVER="${EXPECTED_SERVER:-}"
 ROUTE_NAME="${ROUTE_NAME:-}"
+SOURCE_REMOTE="${SOURCE_REMOTE:-upstream}"
+SOURCE_BRANCH="${SOURCE_BRANCH:-master}"
+ALLOW_DIRTY_CONFIG="${ALLOW_DIRTY_CONFIG:-0}"
 SKIP_CONFIG="${SKIP_CONFIG:-0}"
 
 die() {
@@ -51,6 +57,24 @@ cd "$REPO_ROOT"
 
 [[ -f "$CONFIG_FILE" ]] || die "config file not found: $CONFIG_FILE"
 
+HEAD_COMMIT="$(git rev-parse HEAD)"
+
+# The BuildConfig builds a pushed commit, while the ConfigMap comes from
+# the working tree. Refuse to mix the two silently.
+git fetch --quiet "$SOURCE_REMOTE" "$SOURCE_BRANCH" \
+    || die "could not fetch $SOURCE_REMOTE/$SOURCE_BRANCH"
+git merge-base --is-ancestor "$HEAD_COMMIT" FETCH_HEAD \
+    || die "HEAD $HEAD_COMMIT is not on $SOURCE_REMOTE/$SOURCE_BRANCH; push it before deploying"
+
+if [[ "$SKIP_CONFIG" != "1" ]] && ! git diff --quiet -- "$CONFIG_FILE"; then
+    if [[ "$ALLOW_DIRTY_CONFIG" != "1" ]]; then
+        die "$CONFIG_FILE has uncommitted changes; the image is built from $HEAD_COMMIT.
+     Commit them, deploy code only with SKIP_CONFIG=1, or set ALLOW_DIRTY_CONFIG=1
+     to publish the working-tree config anyway."
+    fi
+    echo "warning: publishing uncommitted changes from $CONFIG_FILE"
+fi
+
 SERVER="$(oc whoami --show-server 2>/dev/null)" \
     || die "not logged in to a cluster (run oc login first)"
 USER_NAME="$(oc whoami 2>/dev/null || echo unknown)"
@@ -61,6 +85,7 @@ echo "  user:      $USER_NAME"
 echo "  namespace: $NAMESPACE"
 echo "  config:    $CONFIG_FILE (working tree)"
 echo "  build:     $BUILD_CONFIG"
+echo "  commit:    $HEAD_COMMIT"
 echo
 
 if [[ -n "$EXPECTED_SERVER" && "$SERVER" != *"$EXPECTED_SERVER"* ]]; then
@@ -77,7 +102,8 @@ else
 fi
 
 echo "Step 2/5: start build $BUILD_CONFIG"
-BUILD="$(oc -n "$NAMESPACE" start-build "$BUILD_CONFIG" -o name)"
+BUILD="$(oc -n "$NAMESPACE" start-build "$BUILD_CONFIG" \
+    --commit="$HEAD_COMMIT" -o name)"
 echo "  started $BUILD"
 
 echo "Step 3/5: wait for build (timeout ${BUILD_TIMEOUT}s)"
@@ -113,8 +139,14 @@ echo "Step 5/5: roll out deployment/$DEPLOYMENT"
 oc -n "$NAMESPACE" rollout restart "deployment/$DEPLOYMENT"
 oc -n "$NAMESPACE" rollout status "deployment/$DEPLOYMENT" --timeout="$ROLLOUT_TIMEOUT"
 
-POD="$(oc -n "$NAMESPACE" get pods -l "app=$DEPLOYMENT" \
-    -o jsonpath='{.items[0].metadata.name}')"
+# Pick a ready pod from the current ReplicaSet: a terminating pod from the
+# previous one can still be listed first and would fail the digest check.
+POD_ROWS="$(oc -n "$NAMESPACE" get pods -l "app=$DEPLOYMENT" \
+    -o jsonpath='{range .items[*]}{.metadata.creationTimestamp}|{.metadata.name}|{.metadata.deletionTimestamp}|{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}')"
+POD="$(printf '%s\n' "$POD_ROWS" \
+    | awk -F'|' '$3=="" && $4=="True" {print $1" "$2}' \
+    | sort | tail -1 | cut -d' ' -f2)"
+[[ -n "$POD" ]] || die "no ready pod without a deletion timestamp for app=$DEPLOYMENT"
 POD_IMAGE="$(oc -n "$NAMESPACE" get pod "$POD" \
     -o jsonpath='{.status.containerStatuses[?(@.name=="dashboard")].imageID}')"
 
