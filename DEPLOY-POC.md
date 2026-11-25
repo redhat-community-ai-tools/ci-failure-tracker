@@ -175,6 +175,11 @@ Limits worth knowing:
   until gcsweb recovers.
 - It keeps tests matching `--suite-filter` (`Windows_Containers` by
   default) and collapses duplicate OCP IDs with failure precedence.
+- It reads the WMCO operator version from the run's step logs when the
+  ClusterServiceVersion name is printed there, so Build Health rows keep
+  their operator version during a gcsweb outage. Runs that never print it
+  in a reachable log keep a NULL version; disable the lookup with
+  `--skip-operator-version`.
 - It uses the pod's `API_KEY`, so the token still has to be valid.
 
 ## Troubleshooting

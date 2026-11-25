@@ -230,3 +230,101 @@ class TestRunRecordDeck:
                                          'token', [url])
 
         assert runs[0]['deck'] == 'https://other-deck.example'
+
+
+class TestOperatorVersion:
+    """The WMCO version comes from the ClusterServiceVersion name."""
+
+    LOG = ('... clusterserviceversion/windows-machine-config-operator.v10.22.2 '
+           '...')
+
+    def test_parses_released_version(self):
+        script = _load_script()
+        assert script.parse_operator_version(self.LOG) == '10.22.2'
+
+    def test_parses_without_v_prefix(self):
+        script = _load_script()
+        assert script.parse_operator_version(
+            'csv windows-machine-config-operator10.22.2') == '10.22.2'
+
+    def test_negative_unrelated_log(self):
+        script = _load_script()
+        assert script.parse_operator_version('nothing to see here') is None
+
+    def test_negative_other_operator(self):
+        script = _load_script()
+        assert script.parse_operator_version(
+            'clusterserviceversion/other-operator.v1.2.3') is None
+
+
+class TestStepDirs:
+    """Step names are recovered from artifact paths, tests first."""
+
+    LENS = {
+        '0': [
+            'artifacts/chain-a/openshift-extended-test/finished.json',
+            'artifacts/chain-a/gather-extra/finished.json',
+            'artifacts/chain-a/ipi-install/finished.json',
+            'artifacts/release/finished.json',
+            'artifacts/build-resources/finished.json',
+        ],
+        '2': ['artifacts/chain-a/openshift-extended-test/artifacts/junit/x.xml'],
+    }
+
+    def test_extracts_chain_step_pairs(self):
+        script = _load_script()
+        pairs = script.step_dirs(self.LENS)
+
+        assert ('chain-a', 'openshift-extended-test') in pairs
+        assert ('chain-a', 'ipi-install') in pairs
+
+    def test_excludes_release_and_build_resources(self):
+        script = _load_script()
+        chains = {chain for chain, _ in script.step_dirs(self.LENS)}
+
+        assert 'release' not in chains
+        assert 'build-resources' not in chains
+
+    def test_test_steps_come_first(self):
+        script = _load_script()
+        pairs = script.step_dirs(self.LENS)
+
+        assert pairs[0][1] == 'openshift-extended-test'
+
+
+class TestFetchOperatorVersion:
+    """The search walks step logs until a version is found."""
+
+    def test_returns_version_from_step_log(self):
+        script = _load_script()
+        page = ('<pre>clusterserviceversion/'
+                'windows-machine-config-operator.v10.22.2</pre>').encode()
+
+        with mock.patch.object(script, 'http_get', return_value=page):
+            version = script.fetch_operator_version(
+                'https://deck', 'token', 'gs/b/p',
+                {'0': ['artifacts/c/openshift-extended-test/finished.json']})
+
+        assert version == '10.22.2'
+
+    def test_returns_none_when_no_step_log_has_it(self):
+        script = _load_script()
+        page = b'<pre>no version here</pre>'
+
+        with mock.patch.object(script, 'http_get', return_value=page):
+            version = script.fetch_operator_version(
+                'https://deck', 'token', 'gs/b/p',
+                {'0': ['artifacts/c/openshift-extended-test/finished.json']})
+
+        assert version is None
+
+    def test_survives_missing_step_logs(self):
+        script = _load_script()
+
+        with mock.patch.object(script, 'http_get',
+                               side_effect=Exception('404')):
+            version = script.fetch_operator_version(
+                'https://deck', 'token', 'gs/b/p',
+                {'0': ['artifacts/c/openshift-e2e-test/finished.json']})
+
+        assert version is None
