@@ -79,7 +79,7 @@ existing development workflow.
 - `.fullsend/config.yaml` -- per-repo config enabling triage, coder, review, fix, retro
 
 **Agent harnesses (Python-adapted, replacing Go defaults):**
-- `.fullsend/customized/harness/code.yaml` -- pylsp plugin, Python env, pytest verification
+- `.fullsend/customized/harness/code.yaml` -- pylsp plugin, Python env, pytest and ruff verification
 - `.fullsend/customized/harness/triage.yaml` -- dashboard-context and config-validation skills
 - `.fullsend/customized/harness/review.yaml` -- Python/Flask review criteria
 - `.fullsend/customized/harness/fix.yaml` -- Python env, dashboard-context skill

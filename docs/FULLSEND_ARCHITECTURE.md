@@ -184,7 +184,8 @@ and `config-validation` skills.
 | 3. Plan fix      |
 | 4. Implement     |
 | 5. Run pytest    |
-| 6. Commit        |
+| 6. Run ruff      |
+| 7. Commit        |
 +------------------+
        |
        v
@@ -192,7 +193,7 @@ post-script pushes branch, creates PR
 ```
 
 **Python-specific:** Uses `pylsp` for language intelligence, `python-agent.env`
-for virtualenv setup, runs `pytest` for verification.
+for virtualenv setup, runs `pytest` and `ruff check --select F` for verification.
 
 ### 3. Review Agent
 
@@ -231,7 +232,8 @@ Review requests changes
 | 2. Verify concern|
 | 3. Implement fix |
 | 4. Run pytest    |
-| 5. Commit        |
+| 5. Run ruff      |
+| 6. Commit        |
 +------------------+
        |
        v

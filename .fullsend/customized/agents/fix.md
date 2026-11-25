@@ -33,7 +33,7 @@ tests, or fixing documentation.
 1. Read the review body from `/sandbox/workspace/review-body.txt`
 2. For each finding, verify the reviewer's concern is valid
 3. Implement the fix following existing project conventions
-4. Install deps and run tests: `cd dashboard && pip install -r requirements.txt && python -m pytest -v`
+4. Install deps and run tests: `cd dashboard && pip install -r requirements.txt && python -m pytest -v`, then run `ruff check --select F` on modified Python files
 5. Commit the fix with a conventional commit message
 
 ## Output
