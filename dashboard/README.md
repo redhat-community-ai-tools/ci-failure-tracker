@@ -130,6 +130,10 @@ Visit http://localhost:8080 and click "Refresh Data" to collect test results.
 
 See [openshift/README.md](openshift/README.md) for full deployment guide.
 
+For deploying merged changes to the POC environment (ConfigMap refresh,
+build, image tag, rollout, and the collection rescue path), see
+[DEPLOY-POC.md](../DEPLOY-POC.md).
+
 **Quick deploy:**
 ```bash
 # 1. Login to OpenShift
