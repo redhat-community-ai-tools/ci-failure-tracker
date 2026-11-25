@@ -35,7 +35,6 @@ import re
 import sys
 import urllib.parse
 import urllib.request
-import ssl
 from datetime import datetime, timedelta, timezone
 
 DEFAULT_DECK = "https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com"
@@ -47,10 +46,10 @@ def http_get(url, token, timeout=120):
         'Authorization': f'Bearer {token}',
         'User-Agent': 'ci-dashboard-deck-backfill/1.0',
     })
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+    # TLS verification stays enabled: these requests carry the bearer token,
+    # so an impostor Deck must never be trusted. The deck serves a publicly
+    # trusted chain, so the default context is sufficient.
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read()
 
 
@@ -157,6 +156,25 @@ def parse_junit_lens(page):
     return tests
 
 
+def aggregate_by_test_id(tests):
+    """Collapse duplicate OCP IDs, keeping the worst status.
+
+    Several JUnit files can report the same test ID (for example a passed
+    install check and a failed retry). Storage identifies a result by
+    (test_name, job_name, build_id), so inserting both would let the later
+    passed row replace the failed one. Keep one row per test ID with
+    failure taking precedence over passed, and passed over skipped.
+    """
+    severity = {'skipped': 1, 'passed': 2, 'failed': 3}
+    kept = {}
+    for test in tests:
+        test_id, _ = describe_test(test['name'])
+        current = kept.get(test_id)
+        if current is None or severity[test['status']] > severity[current['status']]:
+            kept[test_id] = test
+    return list(kept.values())
+
+
 def fetch_run(run_url, token):
     page = http_get(run_url, token).decode('utf-8', 'replace')
     src_m = re.search(r'var src = "([^"]+)"', page)
@@ -234,6 +252,8 @@ def collect(deck, token, days, pattern, suite_filter, dry_run, db_path):
         if not tests:
             print(f"  SKIP {name}/{status.get('build_id')}: no matching tests")
             continue
+
+        tests = aggregate_by_test_id(tests)
 
         version, platform, job_type = job_metadata(name)
         counts = {'passed': 0, 'failed': 0, 'skipped': 0}
