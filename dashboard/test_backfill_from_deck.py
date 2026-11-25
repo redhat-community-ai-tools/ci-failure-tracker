@@ -10,6 +10,7 @@ Covers the two properties that matter before writing rows:
 
 import importlib.util
 import os
+from unittest import mock
 
 SCRIPT_PATH = os.path.join(os.path.dirname(__file__), 'scripts',
                            'backfill_from_deck.py')
@@ -125,3 +126,60 @@ class TestTlsVerification:
             source = f.read()
         assert 'CERT_NONE' not in source
         assert 'check_hostname=False' not in source
+
+
+class TestParseRunUrl:
+    """Explicit run URLs are the recovery path for aged-out ProwJobs."""
+
+    URL = ('https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com'
+           '/view/gs/qe-private-deck/pr-logs/pull/openshift_release/89342/'
+           'rehearse-89342-periodic-ci-openshift-openshift-tests-private-'
+           'release-4.22-amd64-nightly-azure-ipi-ovn-winc-zstream-f7/'
+           '2125203789886525440')
+
+    def test_splits_base_src_job_and_build(self):
+        script = _load_script()
+        base, src, job, build = script.parse_run_url(self.URL)
+
+        assert base == 'https://qe-private-deck-ci.apps.ci.l2s4.p1.openshiftapps.com'
+        assert src.startswith('gs/qe-private-deck/pr-logs/pull/')
+        assert job.endswith('-azure-ipi-ovn-winc-zstream-f7')
+        assert build == '2125203789886525440'
+
+    def test_negative_non_deck_url(self):
+        script = _load_script()
+        assert script.parse_run_url('https://example.com/job/1') is None
+
+
+class TestFetchRunMetadata:
+    """Start time and result come from the rendered metadata lens."""
+
+    PAGE = ('<div>Spyglass Lens: Metadata Test started 2026-11-24 12:24:11 '
+            '&#43;0000 UTC passed after 3h2m21s.</div>')
+
+    def test_reads_started_state_and_duration(self):
+        script = _load_script()
+        lens = {'0': ['artifacts/x/finished.json']}
+
+        with mock.patch.object(script, 'http_get',
+                               return_value=self.PAGE.encode()):
+            started, state, duration = script.fetch_run_metadata(
+                'https://deck', 'token', 'gs/bucket/path', lens)
+
+        assert started.isoformat() == '2026-11-24T12:24:11+00:00'
+        assert state == 'success'
+        assert duration == 3 * 3600 + 2 * 60 + 21
+
+    def test_failed_run(self):
+        script = _load_script()
+        lens = {'0': ['artifacts/x/finished.json']}
+        page = ('Test started 2026-11-24 12:24:11 +0000 UTC '
+                'failed after 12m0s.')
+
+        with mock.patch.object(script, 'http_get',
+                               return_value=page.encode()):
+            _, state, duration = script.fetch_run_metadata(
+                'https://deck', 'token', 'gs/bucket/path', lens)
+
+        assert state == 'failure'
+        assert duration == 12 * 60
