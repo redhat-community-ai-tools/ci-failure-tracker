@@ -234,3 +234,13 @@ Most agent work targets the dashboard.
     suppression applies only while the POC is in an exploratory phase
     and should be re-evaluated or removed before any POC component is
     promoted to production use.
+
+
+28. **No wildcards in gcsweb job names.** The `collector.gcsweb.job_names`
+    list in `config.yaml` must contain exact Prow job names only — no
+    glob wildcards (`*`, `?`). Wildcard resolution requires listing
+    `/gcs/<bucket>/logs/` which returns 502 on the private bucket,
+    blocking all collection (see issue #277). Exact names pass through
+    `_resolve_patterns()` without any HTTP request. When adding new
+    jobs, append the exact Prow job name. The `TestNoWildcardsInGcswebJobNames`
+    test enforces this constraint.

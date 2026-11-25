@@ -14,7 +14,7 @@ You need the **exact job names** from Prow. Try these methods:
 2. Search for "winc" or "windows"
 3. Look for periodic jobs like:
    - `periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-aws-winc-e2e`
-   - `periodic-ci-openshift-windows-machine-config-operator-release-4.22-*`
+   - `periodic-ci-openshift-windows-machine-config-operator-release-4.22-aws-e2e`
 
 ### Method C: Ask your team
 Message Ronnie or the WINC QE team for the complete list of periodic job names.
@@ -47,9 +47,9 @@ collector:
       - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-azure-winc-e2e"
       - "periodic-ci-openshift-openshift-tests-private-release-4.22-amd64-nutanix-winc-e2e"
 
-      # WMCO jobs (if applicable)
-      - "periodic-ci-openshift-windows-machine-config-operator-release-4.21-*"
-      - "periodic-ci-openshift-windows-machine-config-operator-release-4.22-*"
+      # WMCO jobs (if applicable) — use exact names, not wildcards
+      - "periodic-ci-openshift-windows-machine-config-operator-release-4.21-aws-e2e"
+      - "periodic-ci-openshift-windows-machine-config-operator-release-4.22-aws-e2e"
 
     max_builds_per_job: 50
     max_workers: 5
