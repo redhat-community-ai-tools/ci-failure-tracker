@@ -164,6 +164,16 @@ def parse_junit_lens(page):
     return tests
 
 
+def keep_empty_run(is_explicit_run_url, allow_empty):
+    """Whether a run without test results should still be recorded.
+
+    Only explicit run URLs may be recorded empty, and only when the caller
+    asked for it: a bulk scan must not fill the database with zero-test
+    rows.
+    """
+    return bool(is_explicit_run_url and allow_empty)
+
+
 def aggregate_by_test_id(tests):
     """Collapse duplicate OCP IDs, keeping the worst status.
 
@@ -410,7 +420,7 @@ def runs_from_urls(deck, token, run_urls):
 
 
 def collect(deck, token, days, pattern, suite_filter, dry_run, db_path,
-            run_urls=None, skip_operator_version=False):
+            run_urls=None, skip_operator_version=False, allow_empty=False):
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=days)
 
@@ -443,8 +453,14 @@ def collect(deck, token, days, pattern, suite_filter, dry_run, db_path,
         if suite_filter:
             tests = [t for t in tests if suite_filter in t['name']]
         if not tests:
-            print(f"  SKIP {name}/{build_id}: no matching tests")
-            continue
+            # A run that failed before any test executed (for example an
+            # install failure) has nothing to import. Recording it as an
+            # empty run is only allowed for explicitly supplied URLs, so a
+            # bulk scan cannot fill the database with zero-test rows.
+            if not keep_empty_run(run_urls, allow_empty):
+                print(f"  SKIP {name}/{build_id}: no matching tests")
+                continue
+            print(f"  {name}/{build_id}: no tests, recording the run itself")
 
         tests = aggregate_by_test_id(tests)
 
@@ -524,6 +540,10 @@ def main():
                         help='deck run URL to import (repeatable). Use this '
                              'when the ProwJob is gone and prowjobs.js can no '
                              'longer discover the build')
+    parser.add_argument('--allow-empty', action='store_true',
+                        help='record an explicit --run-url even when it has '
+                             'no matching test results (for example a run '
+                             'that failed during install)')
     parser.add_argument('--skip-operator-version', action='store_true',
                         help='do not read the WMCO operator version from '
                              'the e2e build log')
@@ -537,7 +557,8 @@ def main():
     return collect(args.deck, token, args.days, args.pattern,
                    args.suite_filter, args.dry_run, args.db,
                    run_urls=args.run_url,
-                   skip_operator_version=args.skip_operator_version)
+                   skip_operator_version=args.skip_operator_version,
+                   allow_empty=args.allow_empty)
 
 
 if __name__ == '__main__':

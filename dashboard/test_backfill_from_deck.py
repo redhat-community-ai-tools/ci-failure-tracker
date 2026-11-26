@@ -328,3 +328,19 @@ class TestFetchOperatorVersion:
                 {'0': ['artifacts/c/openshift-e2e-test/finished.json']})
 
         assert version is None
+
+
+class TestKeepEmptyRun:
+    """Only explicit URLs may be recorded with zero tests."""
+
+    def test_explicit_url_with_allow_empty_is_kept(self):
+        script = _load_script()
+        assert script.keep_empty_run(['https://deck/run/1'], True) is True
+
+    def test_bulk_scan_never_keeps_empty_runs(self):
+        script = _load_script()
+        assert script.keep_empty_run(None, True) is False
+
+    def test_explicit_url_without_flag_is_skipped(self):
+        script = _load_script()
+        assert script.keep_empty_run(['https://deck/run/1'], False) is False
